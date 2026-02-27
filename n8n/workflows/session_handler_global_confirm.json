@@ -1,0 +1,630 @@
+{
+  "name": "Session Handler Global Confirm",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst action = String(input.action || '').trim(); // GLOBAL_CONFIRM | GLOBAL_REJECT\nif (!zalo_user_id || !action) throw new Error('zalo_user_id and action are required');\nif (!['GLOBAL_CONFIRM','GLOBAL_REJECT'].includes(action)) throw new Error('action must be GLOBAL_CONFIRM or GLOBAL_REJECT');\nreturn [{ json: { zalo_user_id, action } }];"
+      },
+      "id": "2",
+      "name": "Validate Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM user_sessions\nWHERE zalo_user_id='{{$json.zalo_user_id}}'\n  AND session_state='waiting_for_global_confirm'\n  AND expires_at > NOW()\nORDER BY updated_at DESC\nLIMIT 1;"
+      },
+      "id": "3",
+      "name": "Load waiting_for_global_confirm Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        730,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $json;\nif (!s || !s.context_data) throw new Error('No active waiting_for_global_confirm session');\nconst ctx = typeof s.context_data === 'string' ? JSON.parse(s.context_data) : s.context_data;\nreturn [{ json: { session_id: s.id, zalo_user_id: s.zalo_user_id, action: $('Validate Action').item.json.action, context: ctx, pending_invoice: s.pending_invoice } }];"
+      },
+      "id": "4",
+      "name": "Extract Session Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-confirm",
+              "leftValue": "={{$json.action}}",
+              "rightValue": "GLOBAL_CONFIRM",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "5",
+      "name": "Is CONFIRM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM kiotviet_product_cache\nWHERE barcode = {{$json.context.global_match.barcode ? \"'\" + String($json.context.global_match.barcode).replace(/'/g, \"''\") + \"'\" : \"'__NONE__'\"}}\nLIMIT 1;"
+      },
+      "id": "6",
+      "name": "Find Existing Product by Barcode",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1460,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-existing",
+              "leftValue": "={{$json.kiotviet_product_id}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Existing Product?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1690,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{$env.KIOTVIET_CLIENT_ID}}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{$env.KIOTVIET_CLIENT_SECRET}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scopes",
+              "value": "PublicApi.Access"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "Get KiotViet Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://public.kiotviet.vn/api/products",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "Retailer",
+              "value": "={{$env.KIOTVIET_RETAILER}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { code: 'SP_AUTO_' + Date.now(), name: $('Extract Session Context').item.json.context.global_match.standard_name, categoryId: Number($env.KIOTVIET_DEFAULT_CATEGORY_ID || 0), barCode: $('Extract Session Context').item.json.context.global_match.barcode, basePrice: 0, cost: Number($('Extract Session Context').item.json.context.pending_item.unit_price || 0), allowsSale: true, unit: $('Extract Session Context').item.json.context.global_match.pos_unit || 'Cái', description: 'Auto-created via KiotViet-Taphoa Bot', inventories: [{ branchId: Number($env.KIOTVIET_BRANCH_ID || 1), onHand: 0 }] } }}"
+      },
+      "id": "9",
+      "name": "Create Product in KiotViet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2150,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Extract Session Context').item.json.context;\nconst fromCache = $input.item.json;\nlet productId = fromCache.kiotviet_product_id || fromCache.id || fromCache.data?.id || null;\nlet productCode = fromCache.product_code || fromCache.code || fromCache.data?.code || null;\nlet productName = fromCache.product_name || fromCache.name || fromCache.data?.name || ctx.global_match.standard_name;\n\nif (!productId) {\n  const created = $('Create Product in KiotViet').item?.json || {};\n  productId = created.id || created.data?.id;\n  productCode = created.code || created.data?.code || productCode;\n  productName = created.name || created.data?.name || productName;\n}\n\nif (!productId) throw new Error('Cannot resolve product id after GLOBAL_CONFIRM');\n\nreturn [{ json: {\n  ...$('Extract Session Context').item.json,\n  resolved_product: { productId, productCode, productName }\n}}];"
+      },
+      "id": "10",
+      "name": "Resolve Product For Mapping",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2390,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mapping_dictionary (\n  supplier_code,\n  supplier_item_code,\n  supplier_item_name,\n  kiotviet_product_id,\n  kiotviet_product_code,\n  kiotviet_product_name,\n  barcode,\n  supplier_unit,\n  pos_unit,\n  conversion_rate,\n  source,\n  is_active,\n  updated_at\n) VALUES (\n  '{{$json.context.pending_item.supplier_code || $json.context.supplier_code || 'UNKNOWN_SUPPLIER'}}',\n  '{{$json.context.pending_item.supplier_item_code}}',\n  '{{$json.context.pending_item.item_name}}',\n  {{$json.resolved_product.productId}},\n  '{{$json.resolved_product.productCode || ''}}',\n  '{{$json.resolved_product.productName || ''}}',\n  '{{$json.context.global_match.barcode || ''}}',\n  '{{$json.context.global_match.supplier_unit || ''}}',\n  '{{$json.context.global_match.pos_unit || ''}}',\n  {{Number($json.context.global_match.default_conversion_rate || 1)}},\n  'global_fmcg',\n  TRUE,\n  NOW()\n)\nON CONFLICT (supplier_code, supplier_item_code)\nDO UPDATE SET\n  kiotviet_product_id = EXCLUDED.kiotviet_product_id,\n  kiotviet_product_code = EXCLUDED.kiotviet_product_code,\n  kiotviet_product_name = EXCLUDED.kiotviet_product_name,\n  barcode = EXCLUDED.barcode,\n  supplier_unit = EXCLUDED.supplier_unit,\n  pos_unit = EXCLUDED.pos_unit,\n  conversion_rate = EXCLUDED.conversion_rate,\n  source = 'global_fmcg',\n  is_active = TRUE,\n  updated_at = NOW();"
+      },
+      "id": "11",
+      "name": "Upsert mapping_dictionary global_fmcg",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2640,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $json.context;\nconst item = base.pending_item;\nconst rateRaw = Number(base.global_match.default_conversion_rate || 1);\nconst rate = (!Number.isFinite(rateRaw) || rateRaw <= 0) ? 1 : rateRaw;\nconst converted = {\n  ...item,\n  kiotviet_product_id: $json.resolved_product.productId,\n  kiotviet_product_code: $json.resolved_product.productCode,\n  kiotviet_product_name: $json.resolved_product.productName,\n  conversion_rate: rate,\n  converted_qty: Number(item.quantity || 0) * rate,\n  converted_unit_price: item.is_promotion ? 0 : Number(item.unit_price || 0) / rate\n};\nconst mapped_so_far = Array.isArray(base.mapped_so_far) ? base.mapped_so_far : [];\nmapped_so_far.push(converted);\nreturn [{ json: { ...$json, mapped_so_far, remaining_items: base.remaining_items || [], pending_invoice: $json.pending_invoice } }];"
+      },
+      "id": "12",
+      "name": "Append Confirmed Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-remaining",
+              "leftValue": "={{$json.remaining_items.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "13",
+      "name": "More Pending Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3110,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mapping_fallback_3tier",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zalo_user_id": "={{$json.zalo_user_id}}",
+            "zalo_msg_id": "={{$json.context.zalo_msg_id}}",
+            "ParsedInvoice": "={{$json.pending_invoice}}",
+            "mapped_so_far": "={{$json.mapped_so_far}}",
+            "unmapped_items": "={{$json.remaining_items}}"
+          }
+        }
+      },
+      "id": "14",
+      "name": "Loop Back to 3-Tier Fallback",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        3340,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "invoice_tier1_map_and_build_po",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "parsed_invoice": "={{$json.pending_invoice}}",
+            "zalo_user_id": "={{$json.zalo_user_id}}",
+            "zalo_msg_id": "={{$json.context.zalo_msg_id}}",
+            "mapped_so_far": "={{$json.mapped_so_far}}",
+            "unmapped_items": "=[]"
+          }
+        }
+      },
+      "id": "15",
+      "name": "Proceed to PO Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        3340,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions SET session_state='idle', context_data='{}'::jsonb, expires_at=NULL, updated_at=NOW() WHERE id={{$json.session_id}};"
+      },
+      "id": "16",
+      "name": "Set Session Idle",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3570,
+        280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions\nSET session_state='waiting_for_barcode',\n    context_data=jsonb_set(context_data, '{pending_item}', context_data->'pending_item', true),\n    expires_at=NOW() + INTERVAL '30 minutes',\n    updated_at=NOW()\nWHERE id={{$('Extract Session Context').item.json.session_id}};"
+      },
+      "id": "17",
+      "name": "Reject -> waiting_for_barcode",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1460,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: 'Đã ghi nhận ❌ Không phải. Sếp gửi barcode (8-13 số) cho sản phẩm này nhé.' } } }}"
+      },
+      "id": "18",
+      "name": "Prompt Barcode After Reject",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1690,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'waiting_for_barcode', session_state: 'waiting_for_barcode' } }];"
+      },
+      "id": "19",
+      "name": "Return Reject Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Action": {
+      "main": [
+        [
+          {
+            "node": "Load waiting_for_global_confirm Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load waiting_for_global_confirm Session": {
+      "main": [
+        [
+          {
+            "node": "Extract Session Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Session Context": {
+      "main": [
+        [
+          {
+            "node": "Is CONFIRM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is CONFIRM?": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Product by Barcode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject -> waiting_for_barcode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Product by Barcode": {
+      "main": [
+        [
+          {
+            "node": "Existing Product?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing Product?": {
+      "main": [
+        [
+          {
+            "node": "Resolve Product For Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get KiotViet Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get KiotViet Token": {
+      "main": [
+        [
+          {
+            "node": "Create Product in KiotViet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Product in KiotViet": {
+      "main": [
+        [
+          {
+            "node": "Resolve Product For Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Product For Mapping": {
+      "main": [
+        [
+          {
+            "node": "Upsert mapping_dictionary global_fmcg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert mapping_dictionary global_fmcg": {
+      "main": [
+        [
+          {
+            "node": "Append Confirmed Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Confirmed Item": {
+      "main": [
+        [
+          {
+            "node": "More Pending Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Pending Items?": {
+      "main": [
+        [
+          {
+            "node": "Loop Back to 3-Tier Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Proceed to PO Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Proceed to PO Workflow": {
+      "main": [
+        [
+          {
+            "node": "Set Session Idle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject -> waiting_for_barcode": {
+      "main": [
+        [
+          {
+            "node": "Prompt Barcode After Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt Barcode After Reject": {
+      "main": [
+        [
+          {
+            "node": "Return Reject Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

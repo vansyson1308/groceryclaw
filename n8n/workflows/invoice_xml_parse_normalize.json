@@ -1,0 +1,284 @@
+{
+  "name": "Invoice XML Parse + Normalize",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shared validate_input pattern (type=url)\nconst input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nconst file_url = String(input.file_url || '').trim();\nconst supplier_guess = input.supplier_guess ? String(input.supplier_guess).trim() : null;\n\nif (!zalo_user_id) throw new Error('zalo_user_id is required');\nif (!zalo_msg_id) throw new Error('zalo_msg_id is required');\nif (!file_url) throw new Error('file_url is required');\n\nlet parsed;\ntry { parsed = new URL(file_url); } catch { throw new Error('file_url must be a valid URL'); }\nif (parsed.protocol !== 'https:') throw new Error('file_url must use https');\nconst allowHosts = String($env.ALLOWED_FILE_URL_HOSTS || '').split(',').map(s => s.trim()).filter(Boolean);\nif (allowHosts.length && !allowHosts.includes(parsed.hostname)) {\n  throw new Error('file_url host is not allowlisted');\n}\n\nreturn [{ json: { zalo_user_id, zalo_msg_id, file_url: parsed.toString(), supplier_guess } }];"
+      },
+      "id": "2",
+      "name": "Validate Inputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::INT AS duplicate_count\nFROM invoice_log\nWHERE zalo_user_id = '{{$(\"Validate Inputs\").item.json.zalo_user_id}}'\n  AND zalo_msg_id = '{{$(\"Validate Inputs\").item.json.zalo_msg_id}}'\n  AND status <> 'failed';"
+      },
+      "id": "3",
+      "name": "Dedup Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-duplicate",
+              "leftValue": "={{$json.duplicate_count}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "4",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Validate Inputs').item.json;\nreturn [{ json: {\n  duplicate: true,\n  signal: 'duplicate',\n  zalo_user_id: input.zalo_user_id,\n  zalo_msg_id: input.zalo_msg_id,\n  message: 'Duplicate invoice message detected. Skipped.'\n}}];"
+      },
+      "id": "5",
+      "name": "Return Duplicate Signal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$('Validate Inputs').item.json.file_url}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "string"
+            }
+          }
+        }
+      },
+      "id": "6",
+      "name": "Download XML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xmlToJson",
+        "sourceData": "json",
+        "jsonPropertyName": "data",
+        "options": {
+          "explicitArray": false,
+          "trim": true,
+          "normalize": true
+        }
+      },
+      "id": "7",
+      "name": "Parse XML",
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Validate Inputs').item.json;\nconst root = $json.Invoice || $json.invoice || $json;\n\nconst supplierCode = root?.Supplier?.Code || root?.SupplierCode || root?.supplier_code || ctx.supplier_guess || 'UNKNOWN_SUPPLIER';\nconst supplierName = root?.Supplier?.Name || root?.SupplierName || supplierCode;\nconst invoiceNumber = root?.InvoiceNumber || root?.invoice_number || null;\nconst invoiceDate = root?.InvoiceDate || root?.invoice_date || new Date().toISOString().slice(0, 10);\n\nconst rawItems = root?.Items?.Item || root?.items?.item || root?.items || [];\nconst itemArray = Array.isArray(rawItems) ? rawItems : (rawItems ? [rawItems] : []);\n\nconst normalizeBool = (v) => String(v).toLowerCase() === 'true' || String(v) === '1';\nconst n = (v, fallback = 0) => {\n  const x = Number(v);\n  return Number.isFinite(x) ? x : fallback;\n};\n\nconst items = itemArray.map((it, idx) => {\n  const quantity = n(it.Quantity ?? it.quantity, 0);\n  const unitPrice = n(it.UnitPrice ?? it.unit_price, 0);\n  const totalAmount = n(it.TotalAmount ?? it.total_amount, quantity * unitPrice);\n\n  return {\n    line_number: n(it.LineNumber ?? it.line_number, idx + 1),\n    supplier_item_code: String(it.SupplierItemCode ?? it.supplier_item_code ?? it.ItemCode ?? `item_${idx + 1}`),\n    item_name: String(it.ItemName ?? it.item_name ?? 'Unknown Item'),\n    quantity,\n    unit: String(it.Unit ?? it.unit ?? ''),\n    unit_price: unitPrice,\n    total_amount: totalAmount,\n    is_promotion: normalizeBool(it.IsPromotion ?? it.is_promotion ?? false),\n    barcode: it.Barcode ?? it.barcode ?? null,\n    confidence_score: 100\n  };\n});\n\nconst totalBill = items.reduce((sum, it) => sum + Number(it.total_amount || 0), 0);\nconst parsedInvoice = {\n  supplier_name: supplierName,\n  supplier_code: supplierCode,\n  invoice_number: invoiceNumber,\n  invoice_date: invoiceDate,\n  items,\n  total_bill_amount: totalBill,\n  raw_source: 'xml',\n  llm_overall_confidence: 100\n};\n\nconst elapsed = Math.max(0, Date.now() - Number(ctx.started_at || Date.now()));\nreturn [{ json: {\n  ...ctx,\n  duplicate: false,\n  parsed_invoice: parsedInvoice,\n  parsed_data_sql: JSON.stringify(parsedInvoice).replace(/'/g, \"''\"),\n  supplier_code_sql: String(parsedInvoice.supplier_code || '').replace(/'/g, \"''\"),\n  source_url_sql: String(ctx.file_url || '').replace(/'/g, \"''\"),\n  processing_time_ms: elapsed\n}}];"
+      },
+      "id": "8",
+      "name": "Normalize ParsedInvoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (\n  zalo_user_id,\n  zalo_msg_id,\n  supplier_code,\n  source_type,\n  source_url,\n  parsed_data,\n  status,\n  llm_confidence,\n  processing_time_ms,\n  created_at\n) VALUES (\n  '{{$json.zalo_user_id}}',\n  '{{$json.zalo_msg_id}}',\n  '{{$json.supplier_code_sql}}',\n  'xml',\n  '{{$json.source_url_sql}}',\n  '{{$json.parsed_data_sql}}'::jsonb,\n  'processing',\n  100.00,\n  {{$json.processing_time_ms}},\n  NOW()\n)\nON CONFLICT (zalo_user_id, zalo_msg_id) WHERE zalo_msg_id IS NOT NULL\nDO NOTHING;"
+      },
+      "id": "9",
+      "name": "Insert invoice_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1800,
+        360
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  duplicate: false,\n  signal: 'processed',\n  zalo_user_id: $json.zalo_user_id,\n  zalo_msg_id: $json.zalo_msg_id,\n  parsed_invoice: $json.parsed_invoice\n}}];"
+      },
+      "id": "10",
+      "name": "Return Parsed Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Inputs": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Return Duplicate Signal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download XML": {
+      "main": [
+        [
+          {
+            "node": "Parse XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse XML": {
+      "main": [
+        [
+          {
+            "node": "Normalize ParsedInvoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize ParsedInvoice": {
+      "main": [
+        [
+          {
+            "node": "Insert invoice_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert invoice_log": {
+      "main": [
+        [
+          {
+            "node": "Return Parsed Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

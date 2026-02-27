@@ -1,0 +1,168 @@
+{
+  "name": "Data Retention Cleanup",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                "sunday"
+              ],
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Weekly Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoiceDays = Number($env.INVOICE_PARSED_DATA_RETENTION_DAYS || 180);\nconst opsEventDays = Number($env.OPS_EVENTS_RETENTION_DAYS || 90);\nconst minInvoiceDays = 30;\nconst minOpsDays = 30;\nif (!Number.isFinite(invoiceDays) || invoiceDays < minInvoiceDays) throw new Error(`INVOICE_PARSED_DATA_RETENTION_DAYS must be >= ${minInvoiceDays}`);\nif (!Number.isFinite(opsEventDays) || opsEventDays < minOpsDays) throw new Error(`OPS_EVENTS_RETENTION_DAYS must be >= ${minOpsDays}`);\nreturn [{ json: { invoiceDays, opsEventDays } }];"
+      },
+      "id": "2",
+      "name": "Load Retention Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE invoice_log\nSET parsed_data = jsonb_build_object('retention_redacted', true, 'redacted_at', NOW(), 'status', status),\n    source_url = CASE WHEN source_url IS NOT NULL THEN '[redacted_by_retention]' ELSE NULL END\nWHERE created_at < NOW() - ('{{$json.invoiceDays}} days')::interval\n  AND status IN ('completed','failed','needs_review','needs_mapping','rejected')\n  AND (parsed_data IS NOT NULL AND parsed_data <> '{}'::jsonb)\nRETURNING id;"
+      },
+      "id": "3",
+      "name": "Redact old invoice parsed_data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 220],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM ops_events\nWHERE ts < NOW() - ('{{$json.opsEventDays}} days')::interval\nRETURNING id;"
+      },
+      "id": "4",
+      "name": "Delete old ops_events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 360],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoiceRedacted = $items('Redact old invoice parsed_data').length;\nconst opsDeleted = $items('Delete old ops_events').length;\nconst cfg = $('Load Retention Config').item.json;\nreturn [{ json: { invoice_redacted: invoiceRedacted, ops_events_deleted: opsDeleted, invoice_retention_days: cfg.invoiceDays, ops_retention_days: cfg.opsEventDays } }];"
+      },
+      "id": "5",
+      "name": "Build Cleanup Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ops_events (ts, level, workflow, event_type, message, context) VALUES (NOW(), 'info', 'data_retention_cleanup', 'retention_run', 'Retention cleanup completed', jsonb_build_object('invoice_redacted', {{$json.invoice_redacted}}, 'ops_events_deleted', {{$json.ops_events_deleted}}, 'invoice_retention_days', {{$json.invoice_retention_days}}, 'ops_retention_days', {{$json.ops_retention_days}}));"
+      },
+      "id": "6",
+      "name": "Log Retention Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1240, 280],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Retention Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Retention Config": {
+      "main": [
+        [
+          {
+            "node": "Redact old invoice parsed_data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Delete old ops_events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redact old invoice parsed_data": {
+      "main": [
+        [
+          {
+            "node": "Build Cleanup Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete old ops_events": {
+      "main": [
+        [
+          {
+            "node": "Build Cleanup Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cleanup Summary": {
+      "main": [
+        [
+          {
+            "node": "Log Retention Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}
