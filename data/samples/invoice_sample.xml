@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+  <Supplier>
+    <Code>TIEP_DUNG</Code>
+    <Name>Công ty Tiếp Dũng</Name>
+  </Supplier>
+  <InvoiceNumber>INV-2026-0001</InvoiceNumber>
+  <InvoiceDate>2026-02-27</InvoiceDate>
+  <Items>
+    <Item>
+      <LineNumber>1</LineNumber>
+      <SupplierItemCode>BBC330</SupplierItemCode>
+      <ItemName>Bia Budweiser Chai 330ml</ItemName>
+      <Quantity>2</Quantity>
+      <Unit>thùng</Unit>
+      <UnitPrice>240000</UnitPrice>
+      <TotalAmount>480000</TotalAmount>
+      <IsPromotion>false</IsPromotion>
+      <Barcode>893123456789</Barcode>
+    </Item>
+    <Item>
+      <LineNumber>2</LineNumber>
+      <SupplierItemCode>COCA330</SupplierItemCode>
+      <ItemName>Coca-Cola Lon 330ml</ItemName>
+      <Quantity>1</Quantity>
+      <Unit>thùng</Unit>
+      <UnitPrice>210000</UnitPrice>
+      <TotalAmount>210000</TotalAmount>
+      <IsPromotion>false</IsPromotion>
+      <Barcode>8935049500308</Barcode>
+    </Item>
+  </Items>
+</Invoice>

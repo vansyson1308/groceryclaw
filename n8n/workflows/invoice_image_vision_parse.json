@@ -1,0 +1,392 @@
+{
+  "name": "Invoice Image Vision Parse",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shared validate_input pattern (type=url)\nconst input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nconst image_url = String(input.image_url || '').trim();\nconst supplier_hint = input.supplier_hint ? String(input.supplier_hint).trim() : null;\nif (!zalo_user_id) throw new Error('zalo_user_id is required');\nif (!zalo_msg_id) throw new Error('zalo_msg_id is required');\nif (!image_url) throw new Error('image_url is required');\n\nlet u;\ntry { u = new URL(image_url); } catch { throw new Error('image_url must be a valid URL'); }\nif (u.protocol !== 'https:') throw new Error('image_url must use https');\nconst allowHosts = String($env.ALLOWED_FILE_URL_HOSTS || '').split(',').map(s => s.trim()).filter(Boolean);\nif (allowHosts.length && !allowHosts.includes(u.hostname)) {\n  throw new Error('image_url host is not allowlisted');\n}\n\nreturn [{ json: { zalo_user_id, zalo_msg_id, image_url: u.toString(), supplier_hint } }];"
+      },
+      "id": "2",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "HEAD",
+        "url": "={{$json.image_url}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "3",
+      "name": "Head Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const h=$json.headers||{}; const size=Number(h['content-length']||h['Content-Length']||0); const mime=String(h['content-type']||h['Content-Type']||'').split(';')[0].trim().toLowerCase(); const ok=['image/jpeg','image/jpg','image/png','image/webp']; if(!ok.includes(mime)) return [{json:{valid:false,reason:'unsupported_mime',mime,size}}]; if(Number.isFinite(size)&&size>10*1024*1024) return [{json:{valid:false,reason:'image_too_large',mime,size}}]; return [{json:{valid:true,mime,size}}];"
+      },
+      "id": "4",
+      "name": "Preflight Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "preflight-ok",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "5",
+      "name": "Preflight OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1140,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $env.OPENAI_VISION_MODEL || 'gpt-4o-mini', temperature: 0.1, messages: [ { role: 'system', content: [ { type: 'text', text: 'You are a strict invoice extraction engine. Return ONLY valid JSON. No markdown. No prose. JSON schema: { supplier?: string, invoice_date?: string, items:[{ raw_name:string, quantity:number, unit:string, unit_price:number, total:number, barcode?:string|null, is_promotion?:boolean, confidence:number }], overall_confidence:number }. Rules: confidence 0-100. quantity/unit_price/total numeric. overall_confidence 0-100.' } ] }, { role: 'user', content: [ { type: 'text', text: `supplier_hint=${$('Validate Input').item.json.supplier_hint || ''}; extract invoice lines now.` }, { type: 'image_url', image_url: { url: $('Validate Input').item.json.image_url } } ] } ] } }}"
+      },
+      "id": "6",
+      "name": "Call Vision API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw=$json?.choices?.[0]?.message?.content||''; let parsed; try{parsed=JSON.parse(raw);}catch(e){return [{json:{valid:false,reason:'invalid_json_from_llm',raw_output:raw}}];} if(!Array.isArray(parsed.items)) return [{json:{valid:false,reason:'missing_items_array',raw_output:raw}}]; const n=(v,d=0)=>{const x=Number(v); return Number.isFinite(x)?x:d;}; const b=(v)=>v===true||String(v).toLowerCase()==='true'||String(v)==='1'; const items=parsed.items.map((it,idx)=>({ line_number:idx+1, supplier_item_code:String(it.raw_name||`item_${idx+1}`).slice(0,200), item_name:String(it.raw_name||'Unknown Item').slice(0,500), quantity:n(it.quantity,0), unit:String(it.unit||''), unit_price:n(it.unit_price,0), total_amount:n(it.total,n(it.quantity,0)*n(it.unit_price,0)), is_promotion:b(it.is_promotion||false), barcode:it.barcode?String(it.barcode):null, confidence_score:Math.max(0,Math.min(100,n(it.confidence,0))) })); const overall=Math.max(0,Math.min(100,n(parsed.overall_confidence,0))); const ctx=$('Validate Input').item.json; const parsed_invoice={ supplier_name:String(parsed.supplier||ctx.supplier_hint||'UNKNOWN_SUPPLIER'), supplier_code:String(parsed.supplier||ctx.supplier_hint||'UNKNOWN_SUPPLIER'), invoice_number:null, invoice_date:parsed.invoice_date||new Date().toISOString().slice(0,10), items, total_bill_amount:items.reduce((s,i)=>s+Number(i.total_amount||0),0), raw_source:'image', llm_overall_confidence:overall }; return [{json:{valid:true,parsed_invoice,overall_confidence:overall}}];"
+      },
+      "id": "7",
+      "name": "Validate + Normalize Vision JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-json",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "8",
+      "name": "Vision JSON Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1800,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx=$('Validate Input').item.json; const overall=Number($json.overall_confidence||0); const elapsed=Math.max(0,Date.now()-Number(ctx.started_at||Date.now())); let status='processing'; let decision='proceed'; if(overall<60){status='failed';decision='resend_image';} else if(overall<85){status='needs_review';decision='draft_required';} return [{json:{...ctx,...$json,status_to_save:status,decision,processing_time_ms:elapsed,parsed_data_sql:JSON.stringify($json.parsed_invoice).replace(/'/g, \"''\")}}];"
+      },
+      "id": "9",
+      "name": "Apply Threshold Policy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id,zalo_msg_id,supplier_code,source_type,source_url,parsed_data,status,llm_confidence,processing_time_ms,created_at) VALUES ('{{$json.zalo_user_id}}','{{$json.zalo_msg_id}}','{{$json.parsed_invoice.supplier_code.replace(/'/g, \"''\")}}','image','{{$json.image_url.replace(/'/g, \"''\")}}','{{$json.parsed_data_sql}}'::jsonb,'{{$json.status_to_save}}',{{$json.overall_confidence}},{{$json.processing_time_ms}},NOW()) ON CONFLICT (zalo_user_id, zalo_msg_id) WHERE zalo_msg_id IS NOT NULL DO UPDATE SET source_type='image',source_url=EXCLUDED.source_url,parsed_data=EXCLUDED.parsed_data,status=EXCLUDED.status,llm_confidence=EXCLUDED.llm_confidence,processing_time_ms=EXCLUDED.processing_time_ms;"
+      },
+      "id": "10",
+      "name": "Upsert invoice_log image",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2240,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{status:$json.status_to_save,decision:$json.decision,overall_confidence:$json.overall_confidence,parsed_invoice:$json.parsed_invoice}}];"
+      },
+      "id": "11",
+      "name": "Return ParsedInvoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id,zalo_msg_id,supplier_code,source_type,source_url,parsed_data,status,error_details,llm_confidence,processing_time_ms,created_at) VALUES ('{{$(\"Validate Input\").item.json.zalo_user_id}}','{{$(\"Validate Input\").item.json.zalo_msg_id}}','UNKNOWN_SUPPLIER','image','{{$(\"Validate Input\").item.json.image_url.replace(/'/g, \"''\")}}',jsonb_build_object('error','vision_parse_failed'),'failed','{{$json.reason || \"invalid_input_or_llm_json\"}}',0,0,NOW()) ON CONFLICT (zalo_user_id,zalo_msg_id) WHERE zalo_msg_id IS NOT NULL DO UPDATE SET status='failed',error_details=EXCLUDED.error_details,source_url=EXCLUDED.source_url;"
+      },
+      "id": "12",
+      "name": "Log Failed Parse",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2020,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{status:'failed',decision:'resend_image',message:'Ảnh chưa rõ hoặc không đúng định dạng. Sếp gửi lại ảnh rõ hơn giúp em nhé.'}}];"
+      },
+      "id": "13",
+      "name": "Return Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Head Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Head Image": {
+      "main": [
+        [
+          {
+            "node": "Preflight Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight Check": {
+      "main": [
+        [
+          {
+            "node": "Preflight OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight OK?": {
+      "main": [
+        [
+          {
+            "node": "Call Vision API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Failed Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Vision API": {
+      "main": [
+        [
+          {
+            "node": "Validate + Normalize Vision JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Normalize Vision JSON": {
+      "main": [
+        [
+          {
+            "node": "Vision JSON Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vision JSON Valid?": {
+      "main": [
+        [
+          {
+            "node": "Apply Threshold Policy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Failed Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Threshold Policy": {
+      "main": [
+        [
+          {
+            "node": "Upsert invoice_log image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert invoice_log image": {
+      "main": [
+        [
+          {
+            "node": "Return ParsedInvoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Failed Parse": {
+      "main": [
+        [
+          {
+            "node": "Return Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

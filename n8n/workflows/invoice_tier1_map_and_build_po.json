@@ -1,0 +1,361 @@
+{
+  "name": "Invoice Tier1 Map + Build PO",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst parsedInvoice = input.parsed_invoice || input.parsedInvoice;\nif (!parsedInvoice || !Array.isArray(parsedInvoice.items)) throw new Error('parsed_invoice.items is required');\n\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nif (!zalo_user_id || !zalo_msg_id) throw new Error('zalo_user_id and zalo_msg_id are required');\n\nconst supplierCode = String(parsedInvoice.supplier_code || input.supplier_code || 'UNKNOWN_SUPPLIER');\nconst quote = (v) => \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n\nconst barcodeValues = [...new Set(parsedInvoice.items.map(i => i.barcode).filter(Boolean).map(String))];\nconst itemCodes = [...new Set(parsedInvoice.items.map(i => i.supplier_item_code).filter(Boolean).map(String))];\n\nlet whereParts = [];\nif (barcodeValues.length) whereParts.push(`barcode IN (${barcodeValues.map(quote).join(',')})`);\nif (itemCodes.length) whereParts.push(`(supplier_code = ${quote(supplierCode)} AND supplier_item_code IN (${itemCodes.map(quote).join(',')}))`);\nif (!whereParts.length) whereParts.push('1=0');\n\nconst lookupQuery = `SELECT id, supplier_code, supplier_item_code, barcode, supplier_unit, pos_unit, conversion_rate, kiotviet_product_id, kiotviet_product_code, kiotviet_product_name FROM mapping_dictionary WHERE is_active = TRUE AND (${whereParts.join(' OR ')})`;\n\nreturn [{ json: { ...input, parsed_invoice: parsedInvoice, zalo_user_id, zalo_msg_id, supplier_code: supplierCode, lookup_query: lookupQuery, started_at: Date.now() } }];"
+      },
+      "id": "2",
+      "name": "Validate + Build Lookup Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.lookup_query}}"
+      },
+      "id": "3",
+      "name": "Fetch Tier1 Mappings",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Validate + Build Lookup Query').item.json;\nconst mappings = $input.all().map(i => i.json);\nconst parsedInvoice = ctx.parsed_invoice;\n\nconst byBarcode = new Map();\nconst bySupplierCode = new Map();\nfor (const m of mappings) {\n  if (m.barcode) byBarcode.set(String(m.barcode), m);\n  const key = `${m.supplier_code || ''}::${m.supplier_item_code || ''}`;\n  bySupplierCode.set(key, m);\n}\n\nconst warnings = [];\nconst mapped_items = [];\nconst unmapped_items = [];\n\nfor (const item of parsedInvoice.items) {\n  let mapping = null;\n  if (item.barcode && byBarcode.has(String(item.barcode))) {\n    mapping = byBarcode.get(String(item.barcode));\n  } else {\n    const key = `${ctx.supplier_code}::${item.supplier_item_code || ''}`;\n    mapping = bySupplierCode.get(key) || null;\n  }\n\n  if (!mapping) {\n    unmapped_items.push(item);\n    continue;\n  }\n\n  let rate = Number(mapping.conversion_rate || 1);\n  if (!Number.isFinite(rate) || rate <= 0) {\n    warnings.push(`Invalid conversion_rate for ${item.supplier_item_code}; fallback to 1`);\n    rate = 1;\n  }\n\n  const quantity = Number(item.quantity || 0);\n  const unitPrice = Number(item.unit_price || 0);\n  const converted_qty = quantity * rate;\n  const converted_unit_price = item.is_promotion ? 0 : unitPrice / rate;\n\n  mapped_items.push({\n    ...item,\n    mapping_id: mapping.id,\n    kiotviet_product_id: mapping.kiotviet_product_id,\n    kiotviet_product_code: mapping.kiotviet_product_code,\n    kiotviet_product_name: mapping.kiotviet_product_name,\n    supplier_unit: mapping.supplier_unit,\n    pos_unit: mapping.pos_unit,\n    conversion_rate: rate,\n    converted_qty,\n    converted_unit_price,\n    total_before: quantity * unitPrice,\n    total_after: converted_qty * converted_unit_price\n  });\n}\n\nreturn [{ json: { ...ctx, mapped_items, unmapped_items, warnings } }];"
+      },
+      "id": "4",
+      "name": "Apply Tier1 Mapping + Conversion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-unmapped",
+              "leftValue": "={{$json.unmapped_items.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "5",
+      "name": "Has Unmapped?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  status: 'needs_mapping',\n  zalo_user_id: $json.zalo_user_id,\n  zalo_msg_id: $json.zalo_msg_id,\n  unmapped_items: $json.unmapped_items,\n  mapped_so_far: $json.mapped_items,\n  warnings: $json.warnings\n}}];"
+      },
+      "id": "6",
+      "name": "Return needs_mapping",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst details = ctx.mapped_items.map((m) => ({\n  productId: m.kiotviet_product_id,\n  productCode: m.kiotviet_product_code,\n  quantity: m.converted_qty,\n  price: m.is_promotion ? 0 : m.converted_unit_price,\n  discount: 0,\n  description: m.is_promotion ? 'KM - Hàng tặng (Promo)' : ''\n}));\n\nconst totalPayment = details.reduce((sum, d) => sum + (Number(d.quantity) * Number(d.price)), 0);\nconst invoiceRef = ctx.parsed_invoice.invoice_number || ctx.zalo_msg_id;\nconst poPayload = {\n  branchId: Number($env.KIOTVIET_BRANCH_ID || 1),\n  supplierId: Number($env.KIOTVIET_SUPPLIER_ID || 0),\n  supplierCode: String($env.KIOTVIET_SUPPLIER_CODE || `NCC_${ctx.supplier_code}`),\n  purchaseOrderDetails: details,\n  status: 2,\n  statusValue: 'Hoàn thành',\n  totalPayment,\n  description: `Auto-import via KiotViet-Taphoa Bot | Bill: ${invoiceRef} | Source: XML`,\n  payments: [{ Method: 'Cash', Amount: totalPayment, AccountId: null }]\n};\n\nreturn [{ json: { ...ctx, po_payload: poPayload } }];"
+      },
+      "id": "7",
+      "name": "Build PO Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{$env.KIOTVIET_CLIENT_ID}}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{$env.KIOTVIET_CLIENT_SECRET}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scopes",
+              "value": "PublicApi.Access"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "Get KiotViet Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://public.kiotviet.vn/api/purchaseorders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "Retailer",
+              "value": "={{$env.KIOTVIET_RETAILER}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$('Build PO Payload').item.json.po_payload}}"
+      },
+      "id": "9",
+      "name": "Create PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const poResp = $json || {};\nconst ctx = $('Build PO Payload').item.json;\nconst poId = poResp.id || poResp.data?.id || null;\nconst poCode = poResp.code || poResp.data?.code || null;\nconst processing_time_ms = Math.max(0, Date.now() - Number(ctx.started_at || Date.now()));\nreturn [{ json: { ...ctx, kiotviet_po_id: poId, kiotviet_po_code: poCode, processing_time_ms } }];"
+      },
+      "id": "10",
+      "name": "Prepare Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE invoice_log\nSET status = 'completed',\n    kiotviet_po_id = {{$json.kiotviet_po_id || 'NULL'}},\n    kiotviet_po_code = {{$json.kiotviet_po_code ? \"'\" + String($json.kiotviet_po_code).replace(/'/g, \"''\") + \"'\" : 'NULL'}},\n    processing_time_ms = {{$json.processing_time_ms}}\nWHERE zalo_user_id = '{{$json.zalo_user_id}}'\n  AND zalo_msg_id = '{{$json.zalo_msg_id}}';"
+      },
+      "id": "11",
+      "name": "Update invoice_log completed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2480,
+        380
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  status: 'completed',\n  zalo_user_id: $json.zalo_user_id,\n  zalo_msg_id: $json.zalo_msg_id,\n  kiotviet_po_id: $json.kiotviet_po_id,\n  kiotviet_po_code: $json.kiotviet_po_code,\n  mapped_items: $json.mapped_items,\n  warnings: $json.warnings\n}}];"
+      },
+      "id": "12",
+      "name": "Return completed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate + Build Lookup Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Build Lookup Query": {
+      "main": [
+        [
+          {
+            "node": "Fetch Tier1 Mappings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Tier1 Mappings": {
+      "main": [
+        [
+          {
+            "node": "Apply Tier1 Mapping + Conversion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Tier1 Mapping + Conversion": {
+      "main": [
+        [
+          {
+            "node": "Has Unmapped?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Unmapped?": {
+      "main": [
+        [
+          {
+            "node": "Return needs_mapping",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build PO Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build PO Payload": {
+      "main": [
+        [
+          {
+            "node": "Get KiotViet Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get KiotViet Token": {
+      "main": [
+        [
+          {
+            "node": "Create PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create PO": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update": {
+      "main": [
+        [
+          {
+            "node": "Update invoice_log completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update invoice_log completed": {
+      "main": [
+        [
+          {
+            "node": "Return completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}
