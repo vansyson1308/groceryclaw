@@ -1,0 +1,419 @@
+{
+  "name": "Mapping Fallback 3-Tier",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nconst parsedInvoice = input.parsed_invoice || input.ParsedInvoice || null;\nconst mapped_so_far = Array.isArray(input.mapped_so_far) ? input.mapped_so_far : [];\nconst unmapped_items = Array.isArray(input.unmapped_items)\n  ? input.unmapped_items\n  : (parsedInvoice && Array.isArray(parsedInvoice.items) ? parsedInvoice.items : []);\n\nif (!zalo_user_id || !zalo_msg_id) throw new Error('zalo_user_id and zalo_msg_id are required');\nif (!unmapped_items.length) {\n  return [{ json: { status: 'all_mapped', mapped_so_far, parsed_invoice: parsedInvoice } }];\n}\n\nconst [pending_item, ...remaining_items] = unmapped_items;\nconst supplier_code = String(parsedInvoice?.supplier_code || input.supplier_code || 'UNKNOWN_SUPPLIER');\n\nreturn [{ json: {\n  zalo_user_id,\n  zalo_msg_id,\n  supplier_code,\n  parsed_invoice: parsedInvoice,\n  mapped_so_far,\n  pending_item,\n  remaining_items,\n  started_at: Date.now()\n}}];"
+      },
+      "id": "2",
+      "name": "Validate + Pick Pending Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT barcode, standard_name, brand, category, supplier_unit, pos_unit, default_conversion_rate\nFROM global_fmcg_master\nWHERE barcode = {{$json.pending_item.barcode ? \"'\" + String($json.pending_item.barcode).replace(/'/g, \"''\") + \"'\" : \"'__NO_BARCODE__'\"}}\nLIMIT 1;"
+      },
+      "id": "3",
+      "name": "Tier2 Exact Barcode Match",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT barcode, standard_name, brand, category, supplier_unit, pos_unit, default_conversion_rate,\n       ts_rank(to_tsvector('simple', standard_name), plainto_tsquery('simple', {{$json.pending_item.item_name ? \"'\" + String($json.pending_item.item_name).replace(/'/g, \"''\") + \"'\" : \"''\"}})) AS rank\nFROM global_fmcg_master\nWHERE to_tsvector('simple', standard_name) @@ plainto_tsquery('simple', {{$json.pending_item.item_name ? \"'\" + String($json.pending_item.item_name).replace(/'/g, \"''\") + \"'\" : \"''\"}})\nORDER BY rank DESC\nLIMIT 1;"
+      },
+      "id": "4",
+      "name": "Tier2 Fuzzy Name Match",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        760,
+        380
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine"
+      },
+      "id": "5",
+      "name": "Merge Tier2 Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Validate + Pick Pending Item').item.json;\nconst exactRows = $('Tier2 Exact Barcode Match').all().map(i => i.json);\nconst fuzzyRows = $('Tier2 Fuzzy Name Match').all().map(i => i.json);\nconst global_match = exactRows[0] || fuzzyRows[0] || null;\n\nreturn [{ json: { ...ctx, global_match, tier2_found: !!global_match } }];"
+      },
+      "id": "6",
+      "name": "Select Tier2 Match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "tier2-found",
+              "leftValue": "={{$json.tier2_found}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Tier2 Match Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1410,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_sessions (zalo_user_id, session_state, context_data, pending_invoice, expires_at, updated_at)\nVALUES (\n  '{{$json.zalo_user_id}}',\n  'waiting_for_global_confirm',\n  jsonb_build_object(\n    'pending_item', {{$json.pending_item ? JSON.stringify($json.pending_item).replace(/'/g, \"''\") : '{}'}}::jsonb,\n    'global_match', {{$json.global_match ? JSON.stringify($json.global_match).replace(/'/g, \"''\") : '{}'}}::jsonb,\n    'remaining_items', {{$json.remaining_items ? JSON.stringify($json.remaining_items).replace(/'/g, \"''\") : '[]'}}::jsonb,\n    'mapped_so_far', {{$json.mapped_so_far ? JSON.stringify($json.mapped_so_far).replace(/'/g, \"''\") : '[]'}}::jsonb,\n    'zalo_msg_id', '{{$json.zalo_msg_id}}',\n    'supplier_code', '{{$json.supplier_code}}'\n  ),\n  {{$json.parsed_invoice ? JSON.stringify($json.parsed_invoice).replace(/'/g, \"''\") : 'null'}}::jsonb,\n  NOW() + INTERVAL '30 minutes',\n  NOW()\n)\nON CONFLICT (zalo_user_id)\nDO UPDATE SET\n  session_state = EXCLUDED.session_state,\n  context_data = EXCLUDED.context_data,\n  pending_invoice = EXCLUDED.pending_invoice,\n  expires_at = EXCLUDED.expires_at,\n  updated_at = NOW();"
+      },
+      "id": "8",
+      "name": "Save waiting_for_global_confirm Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1660,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gm = $json.global_match;\nconst msg = {\n  recipient: { user_id: $json.zalo_user_id },\n  message: {\n    text: `📋 Bill ghi: \"${$json.pending_item.item_name}\"\n\n🤖 Em gợi ý: ${gm.standard_name} (${gm.supplier_unit || '?'} -> ${gm.pos_unit || '?'}, rate=${gm.default_conversion_rate || 1})\n\nXác nhận giúp em nhé:`\n  },\n  buttons: [\n    { title: '✅ Đúng rồi', payload: `GLOBAL_CONFIRM|${$json.zalo_user_id}` },\n    { title: '❌ Không phải', payload: `GLOBAL_REJECT|${$json.zalo_user_id}` }\n  ]\n};\nreturn [{ json: { ...$json, zalo_reply: msg } }];"
+      },
+      "id": "9",
+      "name": "Build Global Confirm Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.zalo_reply}}"
+      },
+      "id": "10",
+      "name": "Send Global Confirm Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_sessions (zalo_user_id, session_state, context_data, pending_invoice, expires_at, updated_at)\nVALUES (\n  '{{$json.zalo_user_id}}',\n  'waiting_for_barcode',\n  jsonb_build_object(\n    'pending_item', {{$json.pending_item ? JSON.stringify($json.pending_item).replace(/'/g, \"''\") : '{}'}}::jsonb,\n    'remaining_items', {{$json.remaining_items ? JSON.stringify($json.remaining_items).replace(/'/g, \"''\") : '[]'}}::jsonb,\n    'mapped_so_far', {{$json.mapped_so_far ? JSON.stringify($json.mapped_so_far).replace(/'/g, \"''\") : '[]'}}::jsonb,\n    'zalo_msg_id', '{{$json.zalo_msg_id}}',\n    'supplier_code', '{{$json.supplier_code}}'\n  ),\n  {{$json.parsed_invoice ? JSON.stringify($json.parsed_invoice).replace(/'/g, \"''\") : 'null'}}::jsonb,\n  NOW() + INTERVAL '30 minutes',\n  NOW()\n)\nON CONFLICT (zalo_user_id)\nDO UPDATE SET\n  session_state = EXCLUDED.session_state,\n  context_data = EXCLUDED.context_data,\n  pending_invoice = EXCLUDED.pending_invoice,\n  expires_at = EXCLUDED.expires_at,\n  updated_at = NOW();"
+      },
+      "id": "11",
+      "name": "Save waiting_for_barcode Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1660,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: `⚠️ Chưa tìm thấy sản phẩm phù hợp cho: ${$json.pending_item.item_name}\nSếp gửi mã barcode (8-13 số) giúp em nhé.` } } }}"
+      },
+      "id": "12",
+      "name": "Ask Barcode (Tier3)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'waiting_for_global_confirm', session_state: 'waiting_for_global_confirm', pending_item: $json.pending_item, global_match: $json.global_match } }];"
+      },
+      "id": "13",
+      "name": "Return Tier2 Waiting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'waiting_for_barcode', session_state: 'waiting_for_barcode', pending_item: $json.pending_item } }];"
+      },
+      "id": "14",
+      "name": "Return Tier3 Waiting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate + Pick Pending Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Pick Pending Item": {
+      "main": [
+        [
+          {
+            "node": "Tier2 Exact Barcode Match",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tier2 Fuzzy Name Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tier2 Exact Barcode Match": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier2 Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tier2 Fuzzy Name Match": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier2 Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Tier2 Results": {
+      "main": [
+        [
+          {
+            "node": "Select Tier2 Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Tier2 Match": {
+      "main": [
+        [
+          {
+            "node": "Tier2 Match Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tier2 Match Found?": {
+      "main": [
+        [
+          {
+            "node": "Save waiting_for_global_confirm Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save waiting_for_barcode Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save waiting_for_global_confirm Session": {
+      "main": [
+        [
+          {
+            "node": "Build Global Confirm Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Global Confirm Message": {
+      "main": [
+        [
+          {
+            "node": "Send Global Confirm Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Global Confirm Prompt": {
+      "main": [
+        [
+          {
+            "node": "Return Tier2 Waiting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save waiting_for_barcode Session": {
+      "main": [
+        [
+          {
+            "node": "Ask Barcode (Tier3)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Barcode (Tier3)": {
+      "main": [
+        [
+          {
+            "node": "Return Tier3 Waiting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

@@ -1,0 +1,33 @@
+{
+  "name": "Validate Input Shared",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = $json || {};\nconst type = String(i.type || '').toLowerCase();\nconst value = i.value;\nconst out = { type, valid: false, sanitized: null, reason: null };\n\nif (type === 'barcode') {\n  const barcode = String(value || '').trim();\n  out.sanitized = barcode;\n  out.valid = /^\\d{8,13}$/.test(barcode);\n  out.reason = out.valid ? null : 'barcode_must_be_8_to_13_digits';\n}\nelse if (type === 'price') {\n  const min = Number(i.min ?? 1);\n  const max = Number(i.max ?? 1000000000);\n  const normalized = Number(String(value || '').replace(',', '.').trim());\n  out.sanitized = normalized;\n  out.valid = Number.isFinite(normalized) && normalized >= min && normalized <= max;\n  out.reason = out.valid ? null : `price_out_of_bounds_${min}_${max}`;\n}\nelse if (type === 'url') {\n  const raw = String(value || '').trim();\n  try {\n    const u = new URL(raw);\n    const allowHosts = String(i.allow_hosts || '').split(',').map(s => s.trim()).filter(Boolean);\n    const httpsOnly = i.https_only !== false;\n    const hostAllowed = allowHosts.length === 0 || allowHosts.includes(u.hostname);\n    out.sanitized = u.toString();\n    out.valid = (!httpsOnly || u.protocol === 'https:') && hostAllowed;\n    out.reason = out.valid ? null : (u.protocol !== 'https:' ? 'url_must_be_https' : 'url_host_not_allowlisted');\n  } catch {\n    out.reason = 'invalid_url';\n  }\n}\nelse {\n  out.reason = 'unsupported_type';\n}\n\nreturn [{ json: out }];"
+      },
+      "id": "2",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 280]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1",
+  "meta": { "templateCredsSetupCompleted": false },
+  "pinData": {}
+}
