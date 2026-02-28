@@ -14,7 +14,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Shared validate_input pattern (type=url)\nconst input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nconst file_url = String(input.file_url || '').trim();\nconst supplier_guess = input.supplier_guess ? String(input.supplier_guess).trim() : null;\n\nif (!zalo_user_id) throw new Error('zalo_user_id is required');\nif (!zalo_msg_id) throw new Error('zalo_msg_id is required');\nif (!file_url) throw new Error('file_url is required');\n\nlet parsed;\ntry { parsed = new URL(file_url); } catch { throw new Error('file_url must be a valid URL'); }\nif (parsed.protocol !== 'https:') throw new Error('file_url must use https');\nconst allowHosts = String($env.ALLOWED_FILE_URL_HOSTS || '').split(',').map(s => s.trim()).filter(Boolean);\nif (allowHosts.length && !allowHosts.includes(parsed.hostname)) {\n  throw new Error('file_url host is not allowlisted');\n}\n\nreturn [{ json: { zalo_user_id, zalo_msg_id, file_url: parsed.toString(), supplier_guess } }];"
+        "jsCode": "const input = $json || {};\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nconst zalo_msg_id = String(input.zalo_msg_id || '').trim();\nconst file_url = String(input.file_url || '').trim();\nconst xml_text = typeof input.xml_text === 'string' ? input.xml_text : '';\nconst supplier_guess = input.supplier_guess ? String(input.supplier_guess).trim() : null;\nconst channel = String(input.channel || 'zalo');\nconst source_type = String(input.source_type || 'xml');\nconst source_url = String(input.source_url || file_url || 'inline://xml_text');\n\nif (!zalo_user_id) throw new Error('zalo_user_id is required');\nif (!zalo_msg_id) throw new Error('zalo_msg_id is required');\nif (!file_url && !xml_text) throw new Error('file_url or xml_text is required');\n\nif (file_url) {\n  let parsed;\n  try { parsed = new URL(file_url); } catch { throw new Error('file_url must be a valid URL'); }\n  if (parsed.protocol !== 'https:') throw new Error('file_url must use https');\n  const allowHosts = String($env.ALLOWED_FILE_URL_HOSTS || '').split(',').map(s => s.trim()).filter(Boolean);\n  if (allowHosts.length && !allowHosts.includes(parsed.hostname)) {\n    throw new Error('file_url host is not allowlisted');\n  }\n}\n\nreturn [{ json: { zalo_user_id, zalo_msg_id, file_url, xml_text, supplier_guess, channel, source_type, source_url } }];"
       },
       "id": "2",
       "name": "Validate Inputs",
@@ -144,7 +144,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO invoice_log (\n  zalo_user_id,\n  zalo_msg_id,\n  supplier_code,\n  source_type,\n  source_url,\n  parsed_data,\n  status,\n  llm_confidence,\n  processing_time_ms,\n  created_at\n) VALUES (\n  '{{$json.zalo_user_id}}',\n  '{{$json.zalo_msg_id}}',\n  '{{$json.supplier_code_sql}}',\n  'xml',\n  '{{$json.source_url_sql}}',\n  '{{$json.parsed_data_sql}}'::jsonb,\n  'processing',\n  100.00,\n  {{$json.processing_time_ms}},\n  NOW()\n)\nON CONFLICT (zalo_user_id, zalo_msg_id) WHERE zalo_msg_id IS NOT NULL\nDO NOTHING;"
+        "query": "INSERT INTO invoice_log (zalo_user_id,zalo_msg_id,channel,sender_id,msg_id,supplier_code,source_type,source_url,parsed_data,status,llm_confidence,processing_time_ms,created_at) VALUES ('{{$json.zalo_user_id}}','{{$json.zalo_msg_id}}','{{$json.channel || 'zalo'}}','{{$json.zalo_user_id}}','{{$json.zalo_msg_id}}','{{$json.supplier_code_sql}}','{{$json.source_type || 'xml'}}','{{$json.source_url.replace(/'/g, \"''\")}}','{{$json.parsed_data_sql}}'::jsonb,'processing',100,{{$json.processing_time_ms}},NOW()) ON CONFLICT (zalo_user_id, zalo_msg_id) WHERE zalo_msg_id IS NOT NULL DO UPDATE SET supplier_code=EXCLUDED.supplier_code,source_type=EXCLUDED.source_type,source_url=EXCLUDED.source_url,parsed_data=EXCLUDED.parsed_data,status=EXCLUDED.status,llm_confidence=EXCLUDED.llm_confidence,processing_time_ms=EXCLUDED.processing_time_ms,channel=EXCLUDED.channel,sender_id=EXCLUDED.sender_id,msg_id=EXCLUDED.msg_id;"
       },
       "id": "9",
       "name": "Insert invoice_log",
@@ -172,6 +172,51 @@
       "position": [
         2020,
         360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-inline",
+              "leftValue": "={{Boolean($json.xml_text)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "11",
+      "name": "Has Inline XML?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const xml = $('Validate Inputs').item.json.xml_text || '';\nconst base64 = Buffer.from(xml, 'utf8').toString('base64');\nreturn [{ json: $('Validate Inputs').item.json, binary: { data: { data: base64, mimeType: 'application/xml', fileName: 'telegram-inline.xml' } } }];"
+      },
+      "id": "12",
+      "name": "Build XML Binary from Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        520
       ]
     }
   ],
@@ -220,7 +265,7 @@
         ],
         [
           {
-            "node": "Download XML",
+            "node": "Has Inline XML?",
             "type": "main",
             "index": 0
           }
@@ -265,6 +310,35 @@
         [
           {
             "node": "Return Parsed Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Inline XML?": {
+      "main": [
+        [
+          {
+            "node": "Build XML Binary from Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build XML Binary from Text": {
+      "main": [
+        [
+          {
+            "node": "Parse XML",
             "type": "main",
             "index": 0
           }
