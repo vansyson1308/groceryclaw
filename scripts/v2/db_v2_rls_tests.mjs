@@ -79,13 +79,31 @@ function assertTenantAIsolation() {
   `);
   expectEq(countAudit, '1', 'tenant A should only see its own audit logs');
 
-  const crossWrite = scalar(`
+  const sameTenantWrite = scalar(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
       SET LOCAL app.current_tenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
       INSERT INTO jobs (tenant_id, type, payload)
-      VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cross_tenant_write', '{}'::jsonb)
-      ON CONFLICT DO NOTHING;
+      VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'same_tenant_write', '{}'::jsonb);
+      SELECT count(*)::text FROM jobs WHERE tenant_id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND type='same_tenant_write';
+    COMMIT;
+  `);
+  expectEq(sameTenantWrite, '1', 'same-tenant write should succeed for app_user');
+
+  const crossWrite = scalar(`
+    BEGIN;
+      SET LOCAL ROLE groceryclaw_app_user;
+      SET LOCAL app.current_tenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+      DO $$
+      BEGIN
+        BEGIN
+          INSERT INTO jobs (tenant_id, type, payload)
+          VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cross_tenant_write', '{}'::jsonb);
+        EXCEPTION WHEN insufficient_privilege THEN
+          NULL;
+        END;
+      END
+      $$;
       SELECT count(*)::text FROM jobs WHERE tenant_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND type='cross_tenant_write';
     COMMIT;
   `);
