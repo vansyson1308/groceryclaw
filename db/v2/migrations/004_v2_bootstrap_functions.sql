@@ -49,6 +49,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 DECLARE
   v_now TIMESTAMPTZ := clock_timestamp();
   v_normalized TEXT;
