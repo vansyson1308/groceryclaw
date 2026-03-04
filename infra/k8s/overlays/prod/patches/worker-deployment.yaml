@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 6
+  template:
+    spec:
+      containers:
+        - name: worker
+          resources:
+            requests:
+              cpu: 750m
+              memory: 768Mi
+            limits:
+              cpu: "3"
+              memory: 2Gi
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: WORKER_CONCURRENCY
+              value: "10"

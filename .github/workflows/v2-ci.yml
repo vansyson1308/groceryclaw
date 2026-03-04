@@ -1,0 +1,116 @@
+name: V2 CI
+
+on:
+  push:
+    branches:
+      - main
+      - work
+  pull_request:
+
+jobs:
+  v2-ci:
+    name: v2-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: groceryclaw_v2_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d groceryclaw_v2_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply V2 migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+        run: npm run db:v2:migrate
+
+      - name: RLS integration gate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+        run: npm run db:v2:test:rls
+
+      - name: Bootstrap function integration gate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+        run: npm run db:v2:test:bootstrap
+
+
+      - name: Load test harness (light)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+          LOAD_REQUIRE_DB: 'true'
+        run: npm run load:light
+
+      - name: Performance SLO gate
+        env:
+          PERF_GATE_REQUIRE_QUEUE_LAG: 'false'
+          PERF_GATE_REQUIRE_DUPLICATE_METRIC: 'false'
+        run: npm run perf:gate
+
+      - name: Upload load reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-load-reports
+          path: |
+            artifacts/load/*.json
+            docs/saas_v2/perf_reports/*.json
+            docs/saas_v2/perf_reports/*.md
+
+
+  docs-consistency:
+    name: docs-consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert authoritative V2 docs exist
+        run: |
+          set -euo pipefail
+          test -f PRD_V2.md
+          test -f ARCHITECTURE_V2.md
+          test -f MASTER_DESIGN_PACK.md
+
+      - name: Forbid unresolved verification marker outside checklists
+        run: |
+          set -euo pipefail
+          if rg -n "TODO:\s*NEEDS VERIFICATION" --glob '!PRD_V2.md' --glob '!ARCHITECTURE_V2.md' --glob '!MASTER_DESIGN_PACK.md'; then
+            echo "Forbidden unresolved marker found outside authoritative docs." >&2
+            exit 1
+          fi

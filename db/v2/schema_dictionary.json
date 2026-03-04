@@ -1,0 +1,848 @@
+{
+  "tables": {
+    "tenants": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "name": {
+          "type": "text",
+          "nullable": false
+        },
+        "kiotviet_retailer": {
+          "type": "text",
+          "nullable": true
+        },
+        "processing_mode": {
+          "type": "text",
+          "nullable": false
+        },
+        "config": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "zalo_users": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "platform_user_id": {
+          "type": "text",
+          "nullable": false
+        },
+        "display_name": {
+          "type": "text",
+          "nullable": true
+        },
+        "last_interaction_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "invite_attempt_count": {
+          "type": "integer",
+          "nullable": false
+        },
+        "invite_lockout_until": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "invite_last_attempt_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "tenant_users": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "zalo_user_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "zalo_users.id"
+        },
+        "role": {
+          "type": "text",
+          "nullable": false
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "invited_by": {
+          "type": "uuid",
+          "nullable": true,
+          "fk": "tenant_users.id"
+        },
+        "invited_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "revoked_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "invite_codes": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "code_hash": {
+          "type": "bytea",
+          "nullable": false
+        },
+        "code_hint": {
+          "type": "text",
+          "nullable": false
+        },
+        "target_role": {
+          "type": "text",
+          "nullable": false
+        },
+        "created_by": {
+          "type": "uuid",
+          "nullable": true,
+          "fk": "tenant_users.id"
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "used_by": {
+          "type": "uuid",
+          "nullable": true,
+          "fk": "zalo_users.id"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "used_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "attempt_count": {
+          "type": "integer",
+          "nullable": false
+        },
+        "last_attempt_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "lockout_until": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "secret_versions": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "secret_type": {
+          "type": "text",
+          "nullable": false
+        },
+        "version": {
+          "type": "integer",
+          "nullable": false
+        },
+        "encrypted_dek": {
+          "type": "bytea",
+          "nullable": false
+        },
+        "encrypted_value": {
+          "type": "bytea",
+          "nullable": false
+        },
+        "dek_nonce": {
+          "type": "bytea",
+          "nullable": false
+        },
+        "value_nonce": {
+          "type": "bytea",
+          "nullable": false
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "rotated_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "revoked_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "wipe_after": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "inbound_events": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "zalo_user_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "zalo_users.id"
+        },
+        "zalo_msg_id": {
+          "type": "text",
+          "nullable": false
+        },
+        "event_type": {
+          "type": "text",
+          "nullable": false
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "file_url": {
+          "type": "text",
+          "nullable": true
+        },
+        "file_storage_key": {
+          "type": "text",
+          "nullable": true
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "error_message": {
+          "type": "text",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "jobs": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "type": {
+          "type": "text",
+          "nullable": false
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "attempts": {
+          "type": "integer",
+          "nullable": false
+        },
+        "max_attempts": {
+          "type": "integer",
+          "nullable": false
+        },
+        "available_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "started_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "completed_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "error_message": {
+          "type": "text",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "error_code": {
+          "type": "text",
+          "nullable": true
+        }
+      }
+    },
+    "idempotency_keys": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "key_scope": {
+          "type": "text",
+          "nullable": false
+        },
+        "key_value": {
+          "type": "text",
+          "nullable": false
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "metadata": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "expires_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      }
+    },
+    "pending_notifications": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "zalo_user_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "zalo_users.id"
+        },
+        "platform_user_id": {
+          "type": "text",
+          "nullable": true
+        },
+        "message_type": {
+          "type": "text",
+          "nullable": false
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "expires_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "flushed_at": {
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "error_code": {
+          "type": "text",
+          "nullable": true
+        }
+      }
+    },
+    "audit_logs": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "fk": "tenants.id"
+        },
+        "actor_type": {
+          "type": "text",
+          "nullable": false
+        },
+        "actor_id": {
+          "type": "text",
+          "nullable": true
+        },
+        "event_type": {
+          "type": "text",
+          "nullable": false
+        },
+        "resource_type": {
+          "type": "text",
+          "nullable": true
+        },
+        "resource_id": {
+          "type": "text",
+          "nullable": true
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "correlation_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "admin_audit_logs": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "pk": true
+        },
+        "actor_subject": {
+          "type": "text",
+          "nullable": false
+        },
+        "actor_email": {
+          "type": "text",
+          "nullable": true
+        },
+        "auth_mode": {
+          "type": "text",
+          "nullable": false
+        },
+        "action": {
+          "type": "text",
+          "nullable": false
+        },
+        "target_tenant_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "request_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      }
+    },
+    "canonical_invoices": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "inbound_event_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "inbound_events.id"
+        },
+        "invoice_fingerprint": {
+          "type": "text",
+          "nullable": false
+        },
+        "supplier_code": {
+          "type": "text",
+          "nullable": true
+        },
+        "invoice_number": {
+          "type": "text",
+          "nullable": false
+        },
+        "invoice_date": {
+          "type": "date",
+          "nullable": false
+        },
+        "currency": {
+          "type": "text",
+          "nullable": false
+        },
+        "subtotal": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "tax_total": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "total": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "raw_payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "canonical_invoice_items": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "canonical_invoice_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "canonical_invoices.id"
+        },
+        "line_no": {
+          "type": "integer",
+          "nullable": false
+        },
+        "sku": {
+          "type": "text",
+          "nullable": true
+        },
+        "product_name": {
+          "type": "text",
+          "nullable": false
+        },
+        "quantity": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "unit_price": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "line_total": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "uom": {
+          "type": "text",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "mapping_dictionary": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "alias_text": {
+          "type": "text",
+          "nullable": false
+        },
+        "target_sku": {
+          "type": "text",
+          "nullable": false
+        },
+        "confidence": {
+          "type": "integer",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "product_cache": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "sku": {
+          "type": "text",
+          "nullable": false
+        },
+        "barcode": {
+          "type": "text",
+          "nullable": true
+        },
+        "product_name": {
+          "type": "text",
+          "nullable": false
+        },
+        "unit": {
+          "type": "text",
+          "nullable": true
+        },
+        "active": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "unit_conversions": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "from_unit": {
+          "type": "text",
+          "nullable": false
+        },
+        "to_unit": {
+          "type": "text",
+          "nullable": false
+        },
+        "multiplier": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "resolved_invoice_items": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "canonical_invoice_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "canonical_invoices.id"
+        },
+        "canonical_item_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "canonical_invoice_items.id"
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "resolved_sku": {
+          "type": "text",
+          "nullable": true
+        },
+        "resolved_unit": {
+          "type": "text",
+          "nullable": true
+        },
+        "quantity": {
+          "type": "numeric",
+          "nullable": false
+        },
+        "unresolved_reason": {
+          "type": "text",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    },
+    "sync_results": {
+      "columns": {
+        "id": {
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        "tenant_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "tenants.id"
+        },
+        "canonical_invoice_id": {
+          "type": "uuid",
+          "nullable": false,
+          "foreign_key": "canonical_invoices.id"
+        },
+        "external_system": {
+          "type": "text",
+          "nullable": false
+        },
+        "external_reference_id": {
+          "type": "text",
+          "nullable": true
+        },
+        "status": {
+          "type": "text",
+          "nullable": false
+        },
+        "payload": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "correlation_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamptz",
+          "nullable": false
+        }
+      }
+    }
+  }
+}

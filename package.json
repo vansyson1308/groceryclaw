@@ -1,0 +1,50 @@
+{
+  "name": "groceryclaw",
+  "private": true,
+  "version": "0.1.0",
+  "description": "GroceryClaw monorepo with legacy MVP and V2 SaaS scaffold.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "rm -rf apps/*/dist packages/*/dist",
+    "test": "npm run build && node --test tests/v2/*.test.mjs tests/v2/db/*.test.mjs tests/v2/integration/*.test.mjs",
+    "start:gateway": "npm run build --workspace @groceryclaw/gateway && node apps/gateway/dist/server.js",
+    "start:admin": "npm run build --workspace @groceryclaw/admin && node apps/admin/dist/server.js",
+    "lint": "node tools/v2/lint.mjs",
+    "format:check": "node tools/v2/format-check.mjs",
+    "typecheck": "tsc -b tsconfig.build.json",
+    "v2:up": "docker compose --env-file infra/compose/v2/.env.example -f infra/compose/v2/docker-compose.yml up -d --build",
+    "v2:down": "docker compose --env-file infra/compose/v2/.env.example -f infra/compose/v2/docker-compose.yml down",
+    "v2:logs": "docker compose --env-file infra/compose/v2/.env.example -f infra/compose/v2/docker-compose.yml logs -f --tail=100",
+    "db:v2:migrate": "node scripts/v2/db_v2_migrate.mjs",
+    "db:v2:rollback": "node scripts/v2/db_v2_rollback.mjs",
+    "db:v2:status": "node scripts/v2/db_v2_status.mjs",
+    "db:v2:contract": "node scripts/v2/db_v2_schema_contract.mjs",
+    "db:v2:seed": "node scripts/v2/db_v2_seed.mjs",
+    "db:v2:test:rls": "node scripts/v2/db_v2_rls_tests.mjs",
+    "db:v2:test:bootstrap": "node scripts/v2/db_v2_bootstrap_tests.mjs",
+    "load:light": "node scripts/v2/load_run_k6.mjs light",
+    "load:full": "node scripts/v2/load_run_k6.mjs full",
+    "perf:gate": "node scripts/v2/perf_gate.mjs",
+    "canary:set-mode": "node --experimental-strip-types scripts/canary_set_mode.ts",
+    "canary:status": "node --experimental-strip-types scripts/canary_status.ts",
+    "secrets:revoke": "node --experimental-strip-types scripts/revoke_secret.ts",
+    "dlq:list": "node --experimental-strip-types scripts/dlq_list.ts",
+    "dlq:replay": "node --experimental-strip-types scripts/dlq_replay.ts",
+    "db:v2:backup": "./scripts/db_v2_backup.sh",
+    "db:v2:restore": "./scripts/db_v2_restore.sh",
+    "v2:reset": "docker compose --env-file infra/compose/v2/.env -f infra/compose/v2/docker-compose.yml down -v --remove-orphans",
+    "v2:smoke": "bash scripts/v2/v2_smoke.sh",
+    "k8s:smoke": "bash scripts/v2/k8s_prod_smoke.sh",
+    "k8s:audit": "node scripts/v2/k8s_manifest_audit.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
