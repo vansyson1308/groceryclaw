@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { createLogger, encryptPayload, InMemoryTokenBucketRateLimiter, loadBaseConfig } from '../../../packages/common/dist/index.js';
+import { createLogger, encryptPayload, InMemoryTokenBucketRateLimiter, loadBaseConfig, Pool } from '../../../packages/common/dist/index.js';
 import { authenticateRequest, loadAdminAuthConfig, type AdminRole, type AuthenticatedPrincipal } from './auth.js';
 import { isAllowedByRole } from './rbac.js';
 
@@ -14,6 +14,7 @@ const config = loadBaseConfig({
 const authConfig = loadAdminAuthConfig(process.env);
 const logger = createLogger({ service: 'admin', level: config.logLevel });
 const dbCmd = process.env.ADMIN_DB_CMD ?? '';
+const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
 const tenantEndpointsEnabled = (process.env.ADMIN_TENANT_ENDPOINTS_ENABLED ?? 'true') === 'true';
 const invitePepper = process.env.ADMIN_INVITE_PEPPER ?? '';
 const inviteTtlHours = Number(process.env.ADMIN_INVITE_TTL_HOURS ?? '72');
@@ -21,6 +22,7 @@ const inviteRateLimitPerMinute = Number(process.env.ADMIN_INVITE_RATE_PER_TENANT
 const inviteLimiter = new InMemoryTokenBucketRateLimiter(inviteRateLimitPerMinute, inviteRateLimitPerMinute);
 const secretsEnabled = (process.env.ADMIN_SECRETS_ENABLED ?? 'true') === 'true';
 const adminMekB64 = process.env.ADMIN_MEK_B64 ?? '';
+const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
 
 function json(
   res: { writeHead: (status: number, headers?: Record<string, string>) => unknown; end: (body?: string) => void },
@@ -35,27 +37,29 @@ function sqlQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function runSql(sql: string): string {
-  if (!dbCmd) {
-    throw new Error('admin_db_not_configured');
-  }
-
-  const result = spawnSync('bash', ['-lc', dbCmd], {
-    input: sql,
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  if (result.status !== 0) {
-    throw new Error('admin_db_error');
-  }
-
+function runCmdAdapter(command: string, input: string): string {
+  const [exec, ...args] = command.trim().split(/\s+/);
+  if (!exec) throw new Error('admin_db_error');
+  const result = spawnSync(exec, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (result.status !== 0) throw new Error('admin_db_error');
   return result.stdout.trim();
 }
 
-function writeAdminAudit(principal: AuthenticatedPrincipal, action: string, requestId: string, payload: Record<string, unknown>, targetTenantId?: string): void {
+async function runSql(sql: string): Promise<string> {
+  if (pgPool) {
+    const result = await pgPool.query(sql);
+    if (result.rows.length === 0) return '';
+    return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
+  }
+  if (process.env.NODE_ENV === 'test' && dbCmd) {
+    return runCmdAdapter(dbCmd, sql);
+  }
+  throw new Error('admin_db_not_configured');
+}
+
+async function writeAdminAudit(principal: AuthenticatedPrincipal, action: string, requestId: string, payload: Record<string, unknown>, targetTenantId?: string): Promise<void> {
   try {
-    runSql(`
+    await runSql(`
       INSERT INTO admin_audit_logs (actor_subject, actor_email, auth_mode, action, target_tenant_id, payload, request_id)
       VALUES (
         ${sqlQuote(principal.subject)},
@@ -255,7 +259,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const result = runSql(`
+      const result = await runSql(`
         INSERT INTO tenants (name, kiotviet_retailer, processing_mode, status, config)
         VALUES (
           ${sqlQuote(parsed.name)},
@@ -272,7 +276,7 @@ const server = createServer(async (req, res) => {
         throw new Error('admin_db_error');
       }
       const [id, name, processingMode, status] = line.split('|');
-      writeAdminAudit(principal, 'tenant_create', requestId, { name, processing_mode: processingMode, status }, id);
+      await writeAdminAudit(principal, 'tenant_create', requestId, { name, processing_mode: processingMode, status }, id);
 
       json(res, 201, { id, name, processing_mode: processingMode, status });
       return;
@@ -295,7 +299,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const result = runSql(`
+      const result = await runSql(`
         SELECT id::text, name, processing_mode, status, config::text
         FROM tenants
         WHERE id = ${sqlQuote(tenantId)}::uuid
@@ -346,7 +350,7 @@ const server = createServer(async (req, res) => {
         setClauses.push(`config = ${sqlQuote(JSON.stringify(parsed.metadata))}::jsonb`);
       }
 
-      const result = runSql(`
+      const result = await runSql(`
         UPDATE tenants
         SET ${setClauses.join(', ')}
         WHERE id = ${sqlQuote(tenantId)}::uuid
@@ -360,7 +364,7 @@ const server = createServer(async (req, res) => {
       }
 
       const [id, processingMode, status, configRaw] = line.split('|');
-      writeAdminAudit(principal, 'tenant_patch', requestId, {
+      await writeAdminAudit(principal, 'tenant_patch', requestId, {
         processing_mode: processingMode,
         status
       }, id);
@@ -402,7 +406,7 @@ const server = createServer(async (req, res) => {
       const codeHashHex = hashInviteCode(normalized, invitePepper);
       const codeHint = `${normalized.slice(0, 2)}****${normalized.slice(-2)}`;
 
-      const result = runSql(`
+      const result = await runSql(`
         INSERT INTO invite_codes (tenant_id, code_hash, code_hint, target_role, status, expires_at)
         VALUES (
           ${sqlQuote(tenantId)}::uuid,
@@ -421,7 +425,7 @@ const server = createServer(async (req, res) => {
       }
       const [id, expiresAt, status, targetRole] = line.split('|');
 
-      writeAdminAudit(principal, 'invite_create', requestId, {
+      await writeAdminAudit(principal, 'invite_create', requestId, {
         invite_id: id,
         target_role: targetRole,
         expires_at: expiresAt,
@@ -456,7 +460,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const out = runSql(`
+      const out = await runSql(`
         SELECT id::text || '|' || status || '|' || target_role || '|' || code_hint || '|' || expires_at::text
         FROM invite_codes
         WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
@@ -506,7 +510,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const existingVersionOut = runSql(`
+      const existingVersionOut = await runSql(`
         SELECT COALESCE(MAX(version), 0)::text
         FROM secret_versions
         WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
@@ -521,7 +525,7 @@ const server = createServer(async (req, res) => {
       const dekNonceHex = encrypted.dekNonce.toString('hex');
       const valueNonceHex = encrypted.valueNonce.toString('hex');
 
-      const out = runSql(`
+      const out = await runSql(`
         BEGIN;
         UPDATE secret_versions
         SET status = 'rotated', rotated_at = now()
@@ -548,7 +552,7 @@ const server = createServer(async (req, res) => {
       if (!line) throw new Error('admin_db_error');
       const [id, version, status, createdAt] = line.split('|');
 
-      writeAdminAudit(principal, 'secret_rotate', requestId, {
+      await writeAdminAudit(principal, 'secret_rotate', requestId, {
         secret_id: id,
         secret_type: parsed.secretType,
         version,
@@ -578,7 +582,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const out = runSql(`
+      const out = await runSql(`
         UPDATE secret_versions
         SET status = 'revoked', revoked_at = now()
         WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
@@ -594,7 +598,7 @@ const server = createServer(async (req, res) => {
       }
       const [id, secretType, version, status, revokedAt] = line.split('|');
 
-      writeAdminAudit(principal, 'secret_revoke', requestId, {
+      await writeAdminAudit(principal, 'secret_revoke', requestId, {
         secret_id: id,
         secret_type: secretType,
         version: Number(version),
@@ -622,7 +626,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const out = runSql(`
+      const out = await runSql(`
         SELECT id::text || '|' || secret_type || '|' || version::text || '|' || status || '|' || created_at::text || '|' || COALESCE(revoked_at::text, '')
         FROM secret_versions
         WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
@@ -672,6 +676,6 @@ server.listen(config.port, config.host, () => {
     breakglass_enabled: authConfig.breakglass.enabled,
     tenant_endpoints_enabled: tenantEndpointsEnabled,
     secrets_endpoints_enabled: secretsEnabled,
-    db_admin_configured: Boolean(dbCmd)
+    db_admin_configured: Boolean(pgPool)
   });
 });

@@ -7,7 +7,7 @@ GroceryClaw is an invoice and operations platform with two runtime options: a **
 - Receives inbound channel events (currently modeled as Zalo webhook payloads).
 - Verifies webhook authenticity and rejects spoofed traffic.
 - Routes each tenant by `processing_mode` (`legacy` or `v2`) for canary rollout.
-- Enqueues async jobs for worker processing (parse/map/sync/notify flows).
+- Enqueues async jobs to Redis-backed BullMQ queue for worker processing (parse/map/sync/notify flows).
 - Provides private Admin APIs for tenant mode flips, invite flows, and secret rotation/revocation.
 
 ## Legacy vs V2: which mode should you use?
@@ -95,6 +95,7 @@ Open `infra/compose/v2/.env` and set at minimum:
 - `WEBHOOK_SIGNATURE_SECRET` (local test secret, not real production secret).
 - `ADMIN_INVITE_PEPPER` (random string for dev).
 - `ADMIN_MEK_B64` / `WORKER_MEK_B64` (keep placeholder for local only).
+- `APP_DB_USER` / `APP_DB_PASSWORD` (runtime least-privilege DB role used by app services).
 
 ### 3) One-command up
 

@@ -3,10 +3,11 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-groceryclaw_v2}
-      POSTGRES_USER: ${POSTGRES_USER:-groceryclaw}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-groceryclaw_dev}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
     volumes:
       - v2_postgres_data:/var/lib/postgresql/data
+      - ./postgres-init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
     networks:
       - v2_private
     healthcheck:
@@ -39,11 +40,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_HOST: ${GATEWAY_HOST:-0.0.0.0}
       GATEWAY_PORT: ${GATEWAY_PORT:-8080}
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
-      GATEWAY_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
-      GATEWAY_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:process-inbound:wait
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,11 +75,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ADMIN_HOST: ${ADMIN_HOST:-127.0.0.1}
       ADMIN_PORT: ${ADMIN_PORT:-3001}
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
-      ADMIN_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
-      GATEWAY_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:process-inbound:wait
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
       ADMIN_ENABLED: ${ADMIN_ENABLED:-true}
       ADMIN_OIDC_ISSUER: ${ADMIN_OIDC_ISSUER:-https://issuer.example}
       ADMIN_OIDC_AUDIENCE: ${ADMIN_OIDC_AUDIENCE:-groceryclaw-admin}
@@ -123,16 +122,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WORKER_HOST: ${WORKER_HOST:-0.0.0.0}
       WORKER_PORT: ${WORKER_PORT:-3002}
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
-      WORKER_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
       WORKER_METRICS_HOST: 127.0.0.1
       WORKER_METRICS_PORT: 9090
       WORKER_CONCURRENCY: 5
+      BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
-      WORKER_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:map-sync:wait
       WORKER_XML_PARSE_ENABLED: ${WORKER_XML_PARSE_ENABLED:-true}
       WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-zalo.me,zadn.vn}
       WORKER_XML_MAX_BYTES: ${WORKER_XML_MAX_BYTES:-1048576}
