@@ -1,0 +1,53 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: no-api-access
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-no-api-access
+subjects:
+  - kind: ServiceAccount
+    name: gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: no-api-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: worker-no-api-access
+subjects:
+  - kind: ServiceAccount
+    name: worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: no-api-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-no-api-access
+subjects:
+  - kind: ServiceAccount
+    name: admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: no-api-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: migrate-no-api-access
+subjects:
+  - kind: ServiceAccount
+    name: migrate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: no-api-access

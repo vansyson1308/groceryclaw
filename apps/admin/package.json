@@ -1,0 +1,15 @@
+{
+  "name": "@groceryclaw/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@groceryclaw/common": "0.1.0"
+  }
+}

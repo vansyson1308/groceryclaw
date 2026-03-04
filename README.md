@@ -1,388 +1,434 @@
-# GroceryClaw — Ultra-Detailed Beginner Guide (Windows + Telegram + ngrok)
+# GroceryClaw
 
-> If you can copy/paste commands in Windows and follow steps slowly, you can run this project.
-> This README is the **main source of truth** for setup. Deeper docs are linked where needed.
+GroceryClaw is an invoice and operations platform with two runtime options: a **Legacy MVP** (n8n-first, low-code) and a **V2 SaaS runtime** (Gateway + Worker + Admin + Postgres + Redis). This README is written for non-coders and operators so you can run V2 locally with copy/paste commands and understand what is safe to expose.
+
+## What GroceryClaw does
+
+- Receives inbound channel events (currently modeled as Zalo webhook payloads).
+- Verifies webhook authenticity and rejects spoofed traffic.
+- Routes each tenant by `processing_mode` (`legacy` or `v2`) for canary rollout.
+- Enqueues async jobs for worker processing (parse/map/sync/notify flows).
+- Provides private Admin APIs for tenant mode flips, invite flows, and secret rotation/revocation.
+
+## Legacy vs V2: which mode should you use?
+
+### Legacy MVP (n8n)
+Use when:
+- You need low-code workflow editing.
+- You are already operating existing legacy automations.
+
+Main docs:
+- `docs/ARCHITECTURE.md`
+- `docs/SMOKE_TESTS.md`
+- `docs/RUNBOOK.md`
+
+### V2 SaaS Option B (recommended for phased rollout)
+Use when:
+- You need tenant-scoped controls, RLS-backed data model, CI gates, and canary/rollback discipline.
+- You want deterministic scripts for migration, perf/security gates, DLQ replay, backup/restore.
+
+Main docs:
+- `docs/saas_v2/RELEASE_CHECKLIST.md`
+- `docs/saas_v2/RUNBOOK.md`
+- `docs/saas_v2/SECURITY_CHECKLIST.md`
+- `docs/saas_v2/SLO_GATES.md`
+- `docs/saas_v2/TROUBLESHOOTING.md`
+- `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
+- `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
 
 ---
 
-## A) What is GroceryClaw? (1-minute explanation)
+## V2 architecture (high level)
 
-GroceryClaw is an automation system for shop owners and operators.
-It receives invoices from chat (Telegram now, Zalo also supported), parses invoice lines (XML or image AI), maps items to KiotViet products, and helps create purchase orders.
+- **Gateway** (public): receives `/webhooks/zalo`, verifies signatures, acknowledges fast, enqueues jobs.
+- **Worker** (private): consumes queue, runs async pipelines.
+- **Admin** (private): tenant controls, invites, secret lifecycle.
+- **Postgres** (private): V2 schema + migrations + RLS data model.
+- **Redis** (private): queue transport.
 
-Think of it like this:
-1. You send invoice data.
-2. Bot + workflows process it.
-3. Results are saved in a database.
-4. KiotViet actions are triggered safely (with confirmation flows when confidence is low).
-
-This repo includes:
-- n8n workflows (the automation logic)
-- PostgreSQL schema + migrations
-- scripts for setup, validation, backup/restore
-- docs for deployment/security/operations
+**Important:** Gateway is the only service intended for public ingress.
 
 ---
 
-## B) Architecture (ASCII)
+## Safety first (read before running)
+
+1. **Do NOT expose Admin, Postgres, or Redis to the public internet.**
+2. **Gateway is the only public surface.** Put it behind HTTPS/reverse proxy in production.
+3. Use firewall/VPN/private network for Admin and data stores.
+4. Never commit real secrets/tokens to Git.
+5. Keep `WEBHOOK_VERIFY_MODE=mode1` for production-like verification.
+6. Rotate/revoke secrets using Admin flows and runbook steps.
+
+---
+
+## Prerequisites (V2 quick start)
+
+Minimum for local Docker run:
+- Docker Desktop / Docker Engine + Compose plugin.
+- Node.js 20+ and npm.
+- Git.
+- Recommended machine: 4 CPU, 8 GB RAM, 10+ GB free disk.
+- Free host port: `8080` (Gateway).
+
+Optional (for backup/restore scripts):
+- `pg_dump`, `pg_restore`, `psql`.
+
+---
+
+## Quick Start (V2, ~10 minutes)
+
+### 1) Clone and install
+
+```bash
+git clone <your-repo-url>
+cd groceryclaw
+npm install
+```
+
+### 2) Prepare env file
+
+```bash
+cp infra/compose/v2/.env.example infra/compose/v2/.env
+```
+
+Open `infra/compose/v2/.env` and set at minimum:
+- `WEBHOOK_SIGNATURE_SECRET` (local test secret, not real production secret).
+- `ADMIN_INVITE_PEPPER` (random string for dev).
+- `ADMIN_MEK_B64` / `WORKER_MEK_B64` (keep placeholder for local only).
+
+### 3) One-command up
+
+```bash
+make v2-up
+```
+
+Expected result:
+- Docker containers for `postgres`, `redis`, `gateway`, `admin`, `worker` are running.
+- Gateway is reachable on `http://127.0.0.1:8080`.
+
+### 4) Run smoke verification
+
+```bash
+make v2-smoke
+```
+
+Smoke performs:
+1. bring stack up,
+2. run V2 migrations,
+3. check Gateway `/healthz` and `/readyz`,
+4. send signed webhook fixture,
+5. verify queue length increased.
+
+Expected final line:
+- `Smoke check passed: gateway healthy, signed webhook accepted, queue length=<n>`
+
+### 5) Shut down
+
+```bash
+make v2-down
+```
+
+To wipe local V2 DB/Redis volumes:
+
+```bash
+make v2-reset
+```
+
+---
+
+## One-command helpers
+
+From repo root:
+
+```bash
+make v2-up      # start stack
+make v2-down    # stop stack (keep volumes)
+make v2-reset   # stop + remove volumes
+make v2-smoke   # run migration + health + webhook + queue smoke test
+```
+
+npm alternatives:
+
+```bash
+npm run v2:up
+npm run v2:down
+npm run v2:reset
+npm run v2:smoke
+```
+
+---
+
+## Verify manually (if you prefer step-by-step)
+
+### Health checks
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+curl -i http://127.0.0.1:8080/readyz
+```
+
+Expected: HTTP `200` and JSON with `"status":"ok"`.
+
+### Send sample webhook fixture
+
+```bash
+BODY_FILE=/tmp/zalo_valid.json
+cp tests/fixtures/zalo_webhook_valid.json "$BODY_FILE"
+SIG=$(openssl dgst -sha256 -hmac "$(awk -F= '/^WEBHOOK_SIGNATURE_SECRET=/{print $2}' infra/compose/v2/.env)" "$BODY_FILE" | awk '{print $2}')
+
+curl -i -X POST http://127.0.0.1:8080/webhooks/zalo \
+  -H 'content-type: application/json' \
+  -H "x-zalo-signature: $SIG" \
+  --data-binary @"$BODY_FILE"
+```
+
+Expected: HTTP `200` and JSON containing `"status":"accepted"`.
+
+---
+
+## Single VPS deployment (low-code operator path)
+
+1. Provision VPS with Docker + Compose and a domain.
+2. Clone repo and create `infra/compose/v2/.env` from example.
+3. Keep Admin/DB/Redis private (no public port mapping).
+4. Put Gateway behind HTTPS reverse proxy (Nginx/Caddy/Traefik).
+5. Run:
+   ```bash
+   make v2-up
+   npm run db:v2:migrate
+   make v2-smoke
+   ```
+6. Follow release controls before live traffic:
+   - `docs/saas_v2/RELEASE_CHECKLIST.md`
+   - `docs/saas_v2/SLO_GATES.md`
+   - `docs/saas_v2/SECURITY_CHECKLIST.md`
+
+---
+
+## Deploy to Kubernetes (No-code friendly)
+
+If you can copy/paste commands, you can deploy this template.
+
+### A) Prerequisites (one time)
+
+1. Create a managed Kubernetes cluster (EKS/GKE/AKS/DO).
+2. Install local tools:
+
+```bash
+kubectl version --client
+helm version
+```
+
+3. Install cluster addons:
+
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo add jetstack https://charts.jetstack.io
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx   --namespace ingress-nginx --create-namespace
+helm upgrade --install cert-manager jetstack/cert-manager   --namespace cert-manager --create-namespace --set crds.enabled=true
+helm upgrade --install external-secrets external-secrets/external-secrets   --namespace external-secrets --create-namespace
+```
+
+Expected output hint: each `helm upgrade --install` ends with `STATUS: deployed`.
+
+4. Create TLS issuers:
+
+```bash
+kubectl apply -k infra/k8s/prereqs
+kubectl get clusterissuer
+```
+
+Expected output hint: `letsencrypt-staging` and `letsencrypt-prod` show `READY=True`.
+
+### B) DNS + secrets
+
+1. Point DNS `api.<your-domain>` to ingress-nginx external IP.
+2. Create app secrets (recommended: External Secrets):
+
+```bash
+kubectl apply -n groceryclaw-v2 -f infra/k8s/overlays/prod/external-secrets.example.yaml
+```
+
+Dev-only fallback (do not commit values):
+
+```bash
+kubectl create namespace groceryclaw-v2
+kubectl -n groceryclaw-v2 create secret generic app-secrets   --from-literal=POSTGRES_URL='postgres://...'   --from-literal=REDIS_URL='redis://...'   --from-literal=WEBHOOK_SIGNATURE_SECRET='replace-me'   --from-literal=ADMIN_INVITE_PEPPER='replace-me'   --from-literal=ADMIN_MEK_B64='replace-me-b64'   --from-literal=WORKER_MEK_B64='replace-me-b64'
+```
+
+### C) Deploy app and run migrations
+
+```bash
+kubectl apply -k infra/k8s/overlays/prod
+kubectl get deploy,svc,ingress -n groceryclaw-v2
+
+kubectl create job --from=job/db-v2-migrate db-v2-migrate-$(date +%s) -n groceryclaw-v2
+kubectl get jobs -n groceryclaw-v2
+```
+
+Expected output hint:
+- `gateway`, `worker`, `admin` deployments show `AVAILABLE` replicas.
+- Ingress exists for `gateway` only.
+
+### D) Verify production health
+
+```bash
+kubectl -n groceryclaw-v2 get pods
+kubectl -n groceryclaw-v2 logs deploy/gateway --tail=100
+curl -i https://api.<your-domain>/healthz
+```
+
+Expected output hint: `/healthz` returns HTTP `200`.
+
+Run smoke after each deploy:
+
+```bash
+export WEBHOOK_SIGNATURE_SECRET='<same-secret-used-in-cluster>'
+npm run k8s:smoke
+```
+
+Smoke validates: gateway health, migration job presence, signed fixture webhook accepted, enqueue evidence (Redis queue length or worker log evidence).
+
+### E) Set live webhook endpoint
+
+Set provider webhook URL to:
 
 ```text
-                    ┌───────────────────────────────┐
-                    │        Telegram / Zalo        │
-                    │  (text, photo, XML document)  │
-                    └───────────────┬───────────────┘
-                                    │ webhook/update
-                                    ▼
-                         ┌────────────────────┐
-                         │        n8n         │
-                         │ ingress + routers  │
-                         │ parse + mapping    │
-                         │ PO + pricing + ops │
-                         └───────┬─────┬──────┘
-                                 │     │
-                     SQL read/write     │ HTTP APIs
-                                 │     │
-                                 ▼     ▼
-                      ┌──────────────────────┐
-                      │      PostgreSQL      │
-                      │ invoice_log, mapping │
-                      │ sessions, ops_events │
-                      └──────────────────────┘
-                                       │
-                                       ▼
-                 ┌──────────────────────────────────────┐
-                 │ External Services                    │
-                 │ - KiotViet Public API               │
-                 │ - OpenAI Vision (image extraction)  │
-                 └──────────────────────────────────────┘
+https://api.<your-domain>/webhooks/zalo
 ```
 
----
+### F) Canary rollout and rollback
 
-## C) Prerequisites (Windows 10/11)
-
-### Required software
-1. **Git for Windows**
-2. **Docker Desktop** (with WSL2 backend enabled)
-3. **WSL Ubuntu** (recommended shell environment)
-4. **ngrok account + ngrok CLI** (for public HTTPS webhook in local dev)
-
-### Why WSL?
-This repository scripts are Bash (`.sh`) and run easiest in Ubuntu WSL.
-
-### You should see this
-- Docker Desktop is running.
-- In WSL terminal, `docker --version` prints a version.
-- In WSL terminal, `git --version` prints a version.
-
----
-
-## D) Install steps (copy/paste)
-
-> All commands below run in **WSL Ubuntu terminal** (not PowerShell).
-
-### 1) Clone repository
-```bash
-git clone <YOUR_REPO_URL>
-cd groceryclaw
-```
-
-### 2) Create `.env` from template
-```bash
-cp .env.example .env
-```
-
-Now edit `.env` using nano:
-```bash
-nano .env
-```
-Save: `Ctrl+O`, Enter. Exit: `Ctrl+X`.
-
-### 3) Plain-language explanation of `.env` keys
-- `POSTGRES_DB` = database name (keep default)
-- `POSTGRES_USER` = database username (keep default locally)
-- `POSTGRES_PASSWORD` = database password (**change from default**)
-- `N8N_PORT` = n8n UI port (default 5678)
-- `N8N_WEBHOOK_BASE_URL` = public base URL for webhook callbacks (important for Telegram/ngrok)
-- `ZALO_*` = Zalo integration keys (for later when enabling Zalo)
-- `KIOTVIET_CLIENT_ID` = KiotViet API client id
-- `KIOTVIET_CLIENT_SECRET` = KiotViet API client secret
-- `KIOTVIET_RETAILER` = your retailer identifier/name in KiotViet API
-- `OPENAI_API_KEY` = key for image invoice vision parsing
-- `TELEGRAM_BOT_TOKEN` = token from BotFather
-- `WEBHOOK_REPLAY_WINDOW_SECONDS` = anti-replay window for webhook security
-- `INVOICE_PARSED_DATA_RETENTION_DAYS` = redaction retention for parsed payloads
-- `OPS_EVENTS_RETENTION_DAYS` = retention for operational logs
-
-### 4) Start services
-```bash
-docker compose up -d
-```
-
-### 5) Run migrations + seed + smoke
-```bash
-./scripts/db_migrate.sh
-./scripts/import_global_fmcg_master.sh
-./scripts/smoke_db.sh
-./scripts/validate_workflows.sh
-```
-
-### You should see this
-- `docker compose ps` shows `postgres` and `n8n` as running.
-- migration script prints applied/skipped migration files.
-- seed script reports imported row count.
-- smoke script says all checks passed.
-
----
-
-## E) ngrok setup (default local Telegram path)
-
-### Why ngrok is needed
-Telegram must call a **public HTTPS URL**.
-Your local `http://localhost:5678` is private, so Telegram cannot reach it directly.
-ngrok gives you a temporary public HTTPS URL that forwards to local n8n.
-
-### 1) Start ngrok
-```bash
-ngrok http 5678
-```
-
-Copy the HTTPS URL (example: `https://abcd-12-34-56-78.ngrok-free.app`).
-
-### 2) Put ngrok URL into `.env`
-Set:
-```env
-N8N_WEBHOOK_BASE_URL=https://YOUR-NGROK-URL/
-```
-(Important: keep trailing slash `/`)
-
-### 3) Restart containers
-```bash
-docker compose down
-docker compose up -d
-```
-
-### You should see this
-- ngrok shows active forwarding to `http://localhost:5678`.
-- n8n is still reachable at `http://localhost:5678`.
-
----
-
-## F) Telegram bot setup (BotFather)
-
-### 1) Create bot
-1. Open Telegram app.
-2. Search `@BotFather`.
-3. Send command: `/newbot`.
-4. Follow prompts for bot name and username.
-5. BotFather gives you a token.
-
-### 2) Where to put token
-Put token in `.env`:
-```env
-TELEGRAM_BOT_TOKEN=123456:ABCDEF...
-```
-
-### IMPORTANT safety rule
-- Never commit real token into git.
-- Never paste token inside workflow JSON files.
-- Use `.env` + n8n credentials only.
-
----
-
-## G) Import workflows into n8n (step-by-step)
-
-Open n8n UI: `http://localhost:5678`
-
-### 1) Import order
-Use this exact order document:
-- `docs/ops/WORKFLOW_IMPORT_ORDER.md`
-
-### 2) Import files
-In n8n: **Workflows → Import from File**
-Import from `n8n/workflows/*.json` following import order.
-
-### 3) Configure Postgres credential in n8n
-When a Postgres node asks for credential:
-- Host: `postgres`  (**not** localhost)
-- Port: `5432`
-- Database: value from `.env` (`POSTGRES_DB`)
-- User: value from `.env` (`POSTGRES_USER`)
-- Password: value from `.env` (`POSTGRES_PASSWORD`)
-
-### 4) Configure OpenAI credential (if using image flow)
-Use your OpenAI API key.
-
-### 5) Activate Telegram ingress
-Activate workflow: `telegram_ingress_router`.
-
-### 6) (Optional) Activate other schedules carefully
-Activate in order; start with token refresh/product sync before higher-level business flows.
-
-### You should see this
-- Imported workflows show no missing node errors.
-- Telegram ingress workflow can be activated successfully.
-
----
-
-## H) Smoke tests (quick checks + expected outcomes)
-
-Detailed version: `docs/SMOKE_TESTS.md`
-
-### 1) DB ready check
-```bash
-./scripts/smoke_db.sh
-```
-Expected: table counts and “all checks passed”.
-
-### 2) Telegram text message
-- Send text to your bot.
-Expected:
-- n8n execution appears in `telegram_ingress_router`
-- `ops_events` row with Telegram ingress info.
-
-### 3) Telegram photo
-- Send a clear invoice photo.
-Expected:
-- image parse flow triggered
-- `invoice_log` written with Telegram source type/url
-- may route to Draft flow if confidence is low.
-
-### 4) XML path (if used)
-- Send XML as document.
-Expected:
-- XML parse normalization runs
-- parsed invoice stored in `invoice_log`.
-
-### 5) Pricing alert (optional)
-Expected:
-- price rule evaluation and decision path (confirm/keep/custom) works when prerequisites are met.
-
----
-
-## I) Getting KiotViet credentials (plain explanation)
-
-You need 3 values:
-1. `KIOTVIET_CLIENT_ID` — app identifier for KiotViet API.
-2. `KIOTVIET_CLIENT_SECRET` — app secret (private password-like value).
-3. `KIOTVIET_RETAILER` — your retailer code/name used in KiotViet API requests.
-
-### General steps
-1. Login to KiotViet developer/API area.
-2. Create/register API application.
-3. Copy client ID + secret.
-4. Identify retailer value used by API docs.
-5. Put values into `.env`.
-
-### Official docs
-- KiotViet API docs: https://developers.kiotviet.vn/
-
-### Test product sync
-Run `kiotviet_product_sync` workflow manually in n8n.
-Expected: product cache rows updated in DB.
-
----
-
-## J) Troubleshooting (common errors)
-
-### 1) Telegram webhook HTTPS error
-Symptoms:
-- Telegram bot not triggering n8n.
-Fix:
-- ngrok must be running.
-- `N8N_WEBHOOK_BASE_URL` must be HTTPS ngrok URL with trailing slash.
-- restart `docker compose up -d` after changing `.env`.
-
-### 2) n8n cannot connect Postgres
-Symptoms:
-- Postgres nodes fail connection.
-Fix:
-- In n8n credential host, use `postgres` (container name), **not** `localhost`.
-- verify DB user/password/database match `.env`.
-
-### 3) OpenAI Vision invalid JSON
-Symptoms:
-- image parse fails validation.
-Fix:
-- retry with clearer invoice photo.
-- check OpenAI key/model config.
-- low confidence should go to Draft/needs_review path.
-
-### 4) KiotViet 401/403
-Symptoms:
-- KiotViet HTTP nodes unauthorized.
-Fix:
-- check `KIOTVIET_CLIENT_ID/SECRET/RETAILER` values.
-- verify account/app permission scope.
-- rerun token fetch node/workflow.
-
-More operations playbook: `docs/RUNBOOK.md`
-
----
-
-## K) Safety notes (must read)
-
-1. **DO NOT commit `.env`**.
-2. Workflow exports must be secret-free (`./scripts/validate_workflows.sh`).
-3. Do not persist Telegram tokenized file URLs; store `file_id`-based references only.
-4. Backup before risky operations:
-   ```bash
-   ./scripts/backup_postgres.sh
-   ```
-
-Security details: `docs/SECURITY.md` and `docs/ops/SECRETS.md`
-
----
-
-## L) Switching to Zalo later (high-level)
-
-Telegram and Zalo can co-exist.
-
-- Keep existing Zalo workflows intact (`zalo_webhook_receiver_v3` etc.).
-- Keep channel-specific ingress, but route into shared core parse/mapping/PO flows.
-- Use channel-aware identity linking (`tenant_links`, channel sender/msg fields) to map users/tenants cleanly.
-
-See:
-- `docs/workflows/ZALO_WEBHOOK_V3.md`
-- `docs/workflows/TELEGRAM_INGRESS.md`
-
----
-
-## Optional: VPS (domain) path (instead of ngrok)
-
-If you move from local to VPS:
-1. Deploy same stack with Docker Compose on VPS.
-2. Configure real domain + HTTPS reverse proxy.
-3. Set `N8N_WEBHOOK_BASE_URL=https://your-domain/`.
-4. Reconfigure Telegram/Zalo webhooks to the domain URL.
-
-Deployment details:
-- `docs/DEPLOYMENT.md`
-
----
-
-
-## One-command checklist (WSL copy/paste)
-
-Run these in WSL after editing `.env`:
+Canary rollout by tenant:
 
 ```bash
-docker compose up -d
-./scripts/db_migrate.sh
-./scripts/import_global_fmcg_master.sh
-./scripts/validate_workflows.sh
-./scripts/smoke_db.sh
+npm run canary:set-mode -- --tenants <tenant-uuid> --mode v2 --apply
+npm run canary:status -- --tenants <tenant-uuid>
 ```
 
-Then:
-1. Import workflows in n8n (see `docs/ops/WORKFLOW_IMPORT_ORDER.md`)
-2. Run smoke tests (`docs/SMOKE_TESTS.md`)
+Immediate rollback:
 
-## Extra docs map
-- Architecture: `docs/ARCHITECTURE.md`
-- Deployment: `docs/DEPLOYMENT.md`
-- Local smoke tests: `docs/SMOKE_TESTS.md`
-- Workflow import order: `docs/ops/WORKFLOW_IMPORT_ORDER.md`
-- Runbook: `docs/RUNBOOK.md`
-- Security: `docs/SECURITY.md`
-- Secrets handling: `docs/ops/SECRETS.md`
+```bash
+npm run canary:set-mode -- --tenants <tenant-uuid> --mode legacy --apply
+kubectl rollout undo deployment/gateway -n groceryclaw-v2
+kubectl rollout undo deployment/worker -n groceryclaw-v2
+kubectl rollout undo deployment/admin -n groceryclaw-v2
+```
+
+### G) Kubernetes troubleshooting quick list (top 10)
+
+1. **Certificate stuck in Pending**: verify DNS points to ingress LB; run `kubectl describe certificate -n groceryclaw-v2`.
+2. **Ingress has no external IP**: check ingress controller service (`kubectl -n ingress-nginx get svc`).
+3. **Pods CrashLoopBackOff**: check `kubectl logs deploy/<service> -n groceryclaw-v2` for missing secret/env keys.
+4. **Image pull errors**: verify image tag and registry credentials (`kubectl describe pod <pod> -n groceryclaw-v2`).
+5. **DB connection failures**: verify `POSTGRES_URL` in `app-secrets` and network policies.
+6. **Redis auth/connection failures**: verify `REDIS_URL` and that worker can reach Redis.
+7. **Webhook 401/403**: verify `WEBHOOK_SIGNATURE_SECRET` and provider signature header configuration.
+8. **Migration job fails**: inspect logs from created migration job and DB permissions.
+9. **No worker metrics in Prometheus**: ensure `worker-metrics` service exists and `ServiceMonitor` is applied.
+10. **Smoke test fails immediately**: verify local tools are installed (`kubectl`, `curl`, `openssl` for k8s smoke; `docker` for compose smoke).
+
+Before applying to cluster, run static manifest sanity:
+
+```bash
+npm run k8s:audit
+```
+
+Read the full guides:
+- `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
+- `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
+- `docs/saas_v2/DEPLOY_K8S_MONITORING.md`
+- `docs/saas_v2/DEPLOY_K8S_BACKUP.md`
+
+---
+
+## Operations
+
+### Logs
+
+```bash
+npm run v2:logs
+# or
+docker compose --env-file infra/compose/v2/.env -f infra/compose/v2/docker-compose.yml logs -f --tail=200
+```
+
+### DLQ and replay tools (safe by default)
+
+```bash
+npm run dlq:list -- --tenant-id <tenant-id> --status dead_letter --limit 100
+npm run dlq:replay -- --tenant-id <tenant-id> --job-ids <job1,job2>
+npm run dlq:replay -- --tenant-id <tenant-id> --job-ids <job1,job2> --apply
+```
+
+### Backup / restore
+
+```bash
+DB_V2_BACKUP_URL="$DATABASE_URL" npm run db:v2:backup -- backups/v2/latest.dump
+DB_V2_RESTORE_URL="$DATABASE_URL" npm run db:v2:restore -- --yes backups/v2/latest.dump
+```
+
+More details:
+- `docs/saas_v2/RUNBOOK.md`
+- `docs/saas_v2/RETRY_POLICY.md`
+- `docs/saas_v2/CHAOS_DRILLS.md`
+
+---
+
+## Updating / upgrading safely
+
+```bash
+git pull
+npm install
+make v2-up
+npm run db:v2:migrate
+make v2-smoke
+```
+
+If a release is unhealthy:
+- rollback tenant cohort to `processing_mode=legacy` via Admin canary scripts,
+- follow `docs/saas_v2/ROLLBACK_DRILL.md` and `docs/saas_v2/RUNBOOK.md`.
+
+---
+
+## Common problems
+
+Use the dedicated troubleshooting guide:
+- `docs/saas_v2/TROUBLESHOOTING.md`
+- `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
+- `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
+
+It covers:
+- port conflicts,
+- Docker startup failures,
+- migration failures,
+- webhook auth failures,
+- queue not receiving jobs,
+- backup/restore issues.
+
+---
+
+## Dev and contribution notes
+
+> **CI note:** Do not delete `package-lock.json`; dependency-audit and reproducible CI installs require it.
+
+> **Dev tooling note:** V2 lint file discovery uses Node globbing (`fast-glob`), so `rg` is not required in CI.
+
+Quality checks:
+
+```bash
+npm run lint
+npm run format:check
+npm run typecheck
+npm run test
+```
+
+Security gates:
+
+```bash
+npm audit --omit=dev --audit-level=high
+```
+
+CI also runs security/perf/reliability gates defined in `.github/workflows/`.

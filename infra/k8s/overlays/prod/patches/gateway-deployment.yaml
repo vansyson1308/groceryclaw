@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 4
+  template:
+    spec:
+      containers:
+        - name: gateway
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: GATEWAY_HOST
+              value: 0.0.0.0

@@ -1,0 +1,173 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_USER: ${POSTGRES_USER:-groceryclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-groceryclaw_dev}
+    volumes:
+      - v2_postgres_data:/var/lib/postgresql/data
+    networks:
+      - v2_private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-redis_dev_password}"]
+    volumes:
+      - v2_redis_data:/data
+    networks:
+      - v2_private
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_dev_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build:
+      context: ../../..
+      dockerfile: apps/gateway/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GATEWAY_HOST: ${GATEWAY_HOST:-0.0.0.0}
+      GATEWAY_PORT: ${GATEWAY_PORT:-8080}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      GATEWAY_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
+      GATEWAY_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:process-inbound:wait
+      V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - v2_private
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  admin:
+    build:
+      context: ../../..
+      dockerfile: apps/admin/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ADMIN_HOST: ${ADMIN_HOST:-127.0.0.1}
+      ADMIN_PORT: ${ADMIN_PORT:-3001}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      ADMIN_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
+      GATEWAY_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:process-inbound:wait
+      V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      ADMIN_ENABLED: ${ADMIN_ENABLED:-true}
+      ADMIN_OIDC_ISSUER: ${ADMIN_OIDC_ISSUER:-https://issuer.example}
+      ADMIN_OIDC_AUDIENCE: ${ADMIN_OIDC_AUDIENCE:-groceryclaw-admin}
+      ADMIN_OIDC_JWKS_URI: ${ADMIN_OIDC_JWKS_URI:-http://host.docker.internal:18082/.well-known/jwks.json}
+      ADMIN_OIDC_ROLES_CLAIM: ${ADMIN_OIDC_ROLES_CLAIM:-roles}
+      ADMIN_BREAKGLASS_ENABLED: ${ADMIN_BREAKGLASS_ENABLED:-false}
+      ADMIN_BREAKGLASS_API_KEY: ${ADMIN_BREAKGLASS_API_KEY:-}
+      ADMIN_BREAKGLASS_SCOPE: ${ADMIN_BREAKGLASS_SCOPE:-read_only}
+      ADMIN_TENANT_ENDPOINTS_ENABLED: ${ADMIN_TENANT_ENDPOINTS_ENABLED:-true}
+      ADMIN_INVITE_PEPPER: ${ADMIN_INVITE_PEPPER:-replace-me}
+      ADMIN_INVITE_TTL_HOURS: ${ADMIN_INVITE_TTL_HOURS:-72}
+      ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE: ${ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE:-10}
+      ADMIN_SECRETS_ENABLED: ${ADMIN_SECRETS_ENABLED:-true}
+      ADMIN_MEK_B64: ${ADMIN_MEK_B64:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - v2_private
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: ../../..
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      WORKER_HOST: ${WORKER_HOST:-0.0.0.0}
+      WORKER_PORT: ${WORKER_PORT:-3002}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-groceryclaw}:${POSTGRES_PASSWORD:-groceryclaw_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      WORKER_DB_CMD: psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 -q -t -A -f -
+      WORKER_METRICS_HOST: 127.0.0.1
+      WORKER_METRICS_PORT: 9090
+      WORKER_CONCURRENCY: 5
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
+      WORKER_QUEUE_CMD: redis-cli -h redis -a ${REDIS_PASSWORD:-redis_dev_password} RPUSH bull:map-sync:wait
+      WORKER_XML_PARSE_ENABLED: ${WORKER_XML_PARSE_ENABLED:-true}
+      WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-zalo.me,zadn.vn}
+      WORKER_XML_MAX_BYTES: ${WORKER_XML_MAX_BYTES:-1048576}
+      WORKER_XML_TIMEOUT_MS: ${WORKER_XML_TIMEOUT_MS:-10000}
+      WORKER_MAPPING_ENABLED: ${WORKER_MAPPING_ENABLED:-true}
+      WORKER_KIOTVIET_SYNC_ENABLED: ${WORKER_KIOTVIET_SYNC_ENABLED:-true}
+      KIOTVIET_SYNC_MAX_RETRIES: ${KIOTVIET_SYNC_MAX_RETRIES:-3}
+      KIOTVIET_SYNC_BACKOFF_MS: ${KIOTVIET_SYNC_BACKOFF_MS:-200}
+      KIOTVIET_TIMEOUT_MS: ${KIOTVIET_TIMEOUT_MS:-2000}
+      KIOTVIET_STUB_BASE_URL: ${KIOTVIET_STUB_BASE_URL:-http://127.0.0.1:18080}
+      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN:-stub-token}
+      WORKER_MEK_B64: ${WORKER_MEK_B64:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      WORKER_NOTIFIER_ENABLED: ${WORKER_NOTIFIER_ENABLED:-true}
+      NOTIFIER_MAX_MESSAGE_LENGTH: ${NOTIFIER_MAX_MESSAGE_LENGTH:-500}
+      ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://127.0.0.1:18081}
+      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-stub-zalo-token}
+      ZALO_STUB_TIMEOUT_MS: ${ZALO_STUB_TIMEOUT_MS:-2000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - v2_private
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  v2_private:
+    driver: bridge
+
+volumes:
+  v2_postgres_data:
+  v2_redis_data:
