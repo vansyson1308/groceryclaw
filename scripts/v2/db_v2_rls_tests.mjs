@@ -14,6 +14,15 @@ function scalar(sql) {
 function setupFixture() {
   runSql(`
     BEGIN;
+      -- Full cleanup in FK-safe order to keep fixture deterministic across test runs.
+      DELETE FROM sync_results;
+      DELETE FROM resolved_invoice_items;
+      DELETE FROM unit_conversions;
+      DELETE FROM product_cache;
+      DELETE FROM mapping_dictionary;
+      DELETE FROM canonical_invoice_items;
+      DELETE FROM canonical_invoices;
+      DELETE FROM admin_audit_logs;
       DELETE FROM audit_logs;
       DELETE FROM pending_notifications;
       DELETE FROM idempotency_keys;
