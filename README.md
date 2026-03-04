@@ -92,10 +92,13 @@ cp infra/compose/v2/.env.example infra/compose/v2/.env
 ```
 
 Open `infra/compose/v2/.env` and set at minimum:
+- `POSTGRES_SUPERUSER` / `POSTGRES_SUPERUSER_PASSWORD` (local bootstrap DB admin for container init).
+- `POSTGRES_DB` (local DB name).
+- `APP_DB_USER` / `APP_DB_PASSWORD` (runtime least-privilege DB role used by app services).
+- `REDIS_PASSWORD` (local Redis auth password).
 - `WEBHOOK_SIGNATURE_SECRET` (local test secret, not real production secret).
 - `ADMIN_INVITE_PEPPER` (random string for dev).
 - `ADMIN_MEK_B64` / `WORKER_MEK_B64` (keep placeholder for local only).
-- `APP_DB_USER` / `APP_DB_PASSWORD` (runtime least-privilege DB role used by app services).
 
 ### 3) One-command up
 

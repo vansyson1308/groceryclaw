@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_USER="${APP_DB_USER:-groceryclaw_app_runtime}"
-APP_PASSWORD="${APP_DB_PASSWORD:-groceryclaw_runtime_dev}"
+APP_USER="${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}"
+APP_PASSWORD="${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<SQL
 DO \$\$

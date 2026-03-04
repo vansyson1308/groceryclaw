@@ -3,8 +3,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-groceryclaw_v2}
-      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:?set POSTGRES_SUPERUSER in infra/compose/v2/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in infra/compose/v2/.env}
     volumes:
       - v2_postgres_data:/var/lib/postgresql/data
       - ./postgres-init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
@@ -19,13 +19,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-redis_dev_password}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}"]
     volumes:
       - v2_redis_data:/data
     networks:
       - v2_private
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_dev_password}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,8 +40,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_HOST: ${GATEWAY_HOST:-0.0.0.0}
       GATEWAY_PORT: ${GATEWAY_PORT:-8080}
-      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
     depends_on:
@@ -75,8 +75,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ADMIN_HOST: ${ADMIN_HOST:-127.0.0.1}
       ADMIN_PORT: ${ADMIN_PORT:-3001}
-      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
       ADMIN_ENABLED: ${ADMIN_ENABLED:-true}
@@ -122,15 +122,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WORKER_HOST: ${WORKER_HOST:-0.0.0.0}
       WORKER_PORT: ${WORKER_PORT:-3002}
-      POSTGRES_URL: postgresql://${APP_DB_USER:-groceryclaw_app_runtime}:${APP_DB_PASSWORD:-groceryclaw_runtime_dev}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       WORKER_METRICS_HOST: 127.0.0.1
       WORKER_METRICS_PORT: 9090
       WORKER_CONCURRENCY: 5
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}
       WORKER_XML_PARSE_ENABLED: ${WORKER_XML_PARSE_ENABLED:-true}
       WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-zalo.me,zadn.vn}
       WORKER_XML_MAX_BYTES: ${WORKER_XML_MAX_BYTES:-1048576}
@@ -141,12 +141,12 @@ services:
       KIOTVIET_SYNC_BACKOFF_MS: ${KIOTVIET_SYNC_BACKOFF_MS:-200}
       KIOTVIET_TIMEOUT_MS: ${KIOTVIET_TIMEOUT_MS:-2000}
       KIOTVIET_STUB_BASE_URL: ${KIOTVIET_STUB_BASE_URL:-http://127.0.0.1:18080}
-      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN:-stub-token}
+      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN}
       WORKER_MEK_B64: ${WORKER_MEK_B64:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
       WORKER_NOTIFIER_ENABLED: ${WORKER_NOTIFIER_ENABLED:-true}
       NOTIFIER_MAX_MESSAGE_LENGTH: ${NOTIFIER_MAX_MESSAGE_LENGTH:-500}
       ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://127.0.0.1:18081}
-      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-stub-zalo-token}
+      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN}
       ZALO_STUB_TIMEOUT_MS: ${ZALO_STUB_TIMEOUT_MS:-2000}
     depends_on:
       postgres:
