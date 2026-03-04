@@ -69,22 +69,25 @@ async function main() {
 
   if (!tenantId) throw new Error('missing --tenant-id');
   if (!jobIdsCsv.trim()) throw new Error('missing --job-ids <id1,id2,...>');
+
   const jobIds = jobIdsCsv.split(',').map((x) => x.trim()).filter(Boolean);
 
-  if (!dbCmd && !apply) {
+  // Strict no-side-effect dry-run mode: no DB/queue calls, plan only.
+  if (!apply) {
     console.log(JSON.stringify({
       dry_run: true,
       tenant_id: tenantId,
       requested_job_ids: jobIds,
-      found: 0,
       replayable: [],
-      skipped: jobIds.map((id) => ({ id, reason: 'db_lookup_skipped_missing_db_cmd' })),
-      warning: 'No db command configured; dry-run shows requested jobs only.'
+      skipped: jobIds.map((id) => ({ id, reason: 'dry_run_no_side_effects' })),
+      note: 'Dry-run is side-effect free and does not query DB state.'
     }, null, 2));
     return;
   }
 
   if (!dbCmd) throw new Error('missing db cmd (--db-cmd or ADMIN_DB_CMD)');
+  if (!queueCmd) throw new Error('missing queue cmd (--queue-cmd or WORKER_QUEUE_CMD)');
+
   const idsArray = jobIds.map((id) => `${sqlQuote(id)}::uuid`).join(', ');
 
   const out = runSql(`
@@ -100,20 +103,6 @@ async function main() {
   });
 
   const { replayable, skipped } = planReplay(rows, tenantId);
-
-  if (!apply) {
-    console.log(JSON.stringify({
-      dry_run: true,
-      tenant_id: tenantId,
-      requested_job_ids: jobIds,
-      found: rows.length,
-      replayable: replayable.map((r) => ({ id: r.id, type: r.type, status: r.status })),
-      skipped
-    }, null, 2));
-    return;
-  }
-
-  if (!queueCmd) throw new Error('missing queue cmd (--queue-cmd or WORKER_QUEUE_CMD)');
 
   const replayedIds: string[] = [];
   for (const row of replayable) {

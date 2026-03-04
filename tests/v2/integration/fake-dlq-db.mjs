@@ -18,7 +18,6 @@ function saveState(state) {
 
 const state = loadState();
 if (!state.jobs) state.jobs = [];
-if (auditFile) appendFileSync(auditFile, `${sql}\n---\n`, 'utf8');
 
 if (sql.includes('FROM jobs') && sql.includes('id = ANY')) {
   const tenantId = sql.match(/tenant_id = '([0-9a-f-]{36})'::uuid/i)?.[1] ?? '';
@@ -43,7 +42,7 @@ if (sql.includes('UPDATE jobs') && sql.includes("status = 'queued'")) {
 }
 
 if (sql.includes('INSERT INTO admin_audit_logs') && sql.includes('dlq_replay')) {
-  if (auditFile) appendFileSync(auditFile, sql, 'utf8');
+  if (auditFile) appendFileSync(auditFile, `${sql}\n`, 'utf8');
   process.exit(0);
 }
 
