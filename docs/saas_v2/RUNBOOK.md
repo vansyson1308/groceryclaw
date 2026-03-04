@@ -11,14 +11,14 @@ node --experimental-strip-types scripts/dlq_list.ts \
 ## DLQ replay (safe-by-default)
 Dry-run (no mutation):
 ```bash
-node --experimental-strip-types scripts/dlq_replay.ts \
+node scripts/dlq_replay.mjs \
   --tenant-id <tenant-id> \
   --job-ids <job1,job2>
 ```
 
 Apply replay (requires queue+db commands configured):
 ```bash
-node --experimental-strip-types scripts/dlq_replay.ts \
+node scripts/dlq_replay.mjs \
   --tenant-id <tenant-id> \
   --job-ids <job1,job2> \
   --apply

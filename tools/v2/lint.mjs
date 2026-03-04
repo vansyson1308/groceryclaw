@@ -67,14 +67,15 @@ try {
 }
 
 const issues = [];
+const verificationMarker = ['TODO:', 'NEEDS VERIFICATION'].join(' ');
 
 for (const file of files) {
   const content = readFileSync(file, 'utf8');
   if (content.includes(' as any') || content.includes(': any') || content.includes('<any>')) {
     issues.push(`${file}: avoid explicit any in V2 scaffold code`);
   }
-  if (content.includes('TODO: NEEDS VERIFICATION')) {
-    issues.push(`${file}: forbidden marker TODO: NEEDS VERIFICATION`);
+  if (content.includes(verificationMarker)) {
+    issues.push(`${file}: forbidden marker ${verificationMarker}`);
   }
 }
 

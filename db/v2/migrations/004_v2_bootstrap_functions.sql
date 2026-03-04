@@ -49,6 +49,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 DECLARE
   v_now TIMESTAMPTZ := clock_timestamp();
   v_normalized TEXT;
@@ -61,9 +62,40 @@ DECLARE
   v_invite RECORD;
   v_existing_membership_tenant UUID;
 BEGIN
+  -- Ensure user exists and read lockout state
+  INSERT INTO zalo_users (platform_user_id, last_interaction_at)
+  VALUES (p_platform_user_id, v_now)
+  ON CONFLICT (platform_user_id)
+  DO UPDATE SET updated_at = v_now
+  RETURNING id, invite_lockout_until INTO v_user_id, v_user_lockout_until;
+
+  -- Per-user lockout check
+  IF v_user_lockout_until IS NOT NULL AND v_user_lockout_until > v_now THEN
+    RETURN QUERY SELECT false, NULL::uuid, NULL::text;
+    RETURN;
+  END IF;
+
   -- Normalize: trim, remove spaces/hyphens, uppercase, strict charset/length
   v_normalized := upper(regexp_replace(trim(p_code), '[ -]', '', 'g'));
   IF v_normalized !~ '^[A-Z0-9]{6,32}$' THEN
+    UPDATE zalo_users
+    SET
+      invite_attempt_count = CASE
+        WHEN invite_last_attempt_at IS NULL OR invite_last_attempt_at < v_now - INTERVAL '60 minutes' THEN 1
+        ELSE invite_attempt_count + 1
+      END,
+      invite_lockout_until = CASE
+        WHEN (
+          CASE
+            WHEN invite_last_attempt_at IS NULL OR invite_last_attempt_at < v_now - INTERVAL '60 minutes' THEN 1
+            ELSE invite_attempt_count + 1
+          END
+        ) >= 5 THEN v_now + INTERVAL '60 minutes'
+        ELSE invite_lockout_until
+      END,
+      invite_last_attempt_at = v_now
+    WHERE id = v_user_id;
+
     RETURN QUERY SELECT false, NULL::uuid, NULL::text;
     RETURN;
   END IF;
@@ -86,13 +118,6 @@ BEGIN
 
   v_code_hash := digest(v_pepper || convert_to(v_normalized, 'UTF8'), 'sha256');
 
-  -- Ensure user exists and read lockout state
-  INSERT INTO zalo_users (platform_user_id, last_interaction_at)
-  VALUES (p_platform_user_id, v_now)
-  ON CONFLICT (platform_user_id)
-  DO UPDATE SET updated_at = v_now
-  RETURNING id, invite_lockout_until INTO v_user_id, v_user_lockout_until;
-
   -- one-user-one-tenant invariant (V2 basic)
   SELECT tu.tenant_id
   INTO v_existing_membership_tenant
@@ -102,12 +127,6 @@ BEGIN
   LIMIT 1;
 
   IF v_existing_membership_tenant IS NOT NULL THEN
-    RETURN QUERY SELECT false, NULL::uuid, NULL::text;
-    RETURN;
-  END IF;
-
-  -- Per-user lockout check
-  IF v_user_lockout_until IS NOT NULL AND v_user_lockout_until > v_now THEN
     RETURN QUERY SELECT false, NULL::uuid, NULL::text;
     RETURN;
   END IF;
