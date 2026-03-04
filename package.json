@@ -33,7 +33,7 @@
     "canary:status": "node --experimental-strip-types scripts/canary_status.ts",
     "secrets:revoke": "node --experimental-strip-types scripts/revoke_secret.ts",
     "dlq:list": "node --experimental-strip-types scripts/dlq_list.ts",
-    "dlq:replay": "node --experimental-strip-types scripts/dlq_replay.ts",
+    "dlq:replay": "node scripts/dlq_replay.mjs",
     "db:v2:backup": "./scripts/db_v2_backup.sh",
     "db:v2:restore": "./scripts/db_v2_restore.sh",
     "v2:reset": "docker compose --env-file infra/compose/v2/.env -f infra/compose/v2/docker-compose.yml down -v --remove-orphans",

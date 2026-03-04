@@ -22,7 +22,7 @@ test('dlq replay dry-run is side-effect free and prints a plan only', () => {
     ]
   }), 'utf8');
 
-  const run = spawnSync('node', ['--experimental-strip-types', 'scripts/dlq_replay.ts', '--tenant-id', tenantId, '--job-ids', `${deadJob},${doneJob}`], {
+  const run = spawnSync('node', ['scripts/dlq_replay.mjs', '--tenant-id', tenantId, '--job-ids', `${deadJob},${doneJob}`], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -34,7 +34,7 @@ test('dlq replay dry-run is side-effect free and prints a plan only', () => {
     }
   });
 
-  assert.equal(run.status, 0);
+  assert.equal(run.status, 0, `exit=${run.status} stderr=${run.stderr}`);
   const output = JSON.parse(run.stdout);
   assert.equal(output.dry_run, true);
   assert.equal(output.replayable.length, 0);
@@ -60,7 +60,7 @@ test('dlq replay apply requeues dead-letter and writes exactly one audit record'
     ]
   }), 'utf8');
 
-  const run = spawnSync('node', ['--experimental-strip-types', 'scripts/dlq_replay.ts', '--tenant-id', tenantId, '--job-ids', deadJob, '--apply'], {
+  const run = spawnSync('node', ['scripts/dlq_replay.mjs', '--tenant-id', tenantId, '--job-ids', deadJob, '--apply'], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -72,7 +72,7 @@ test('dlq replay apply requeues dead-letter and writes exactly one audit record'
     }
   });
 
-  assert.equal(run.status, 0);
+  assert.equal(run.status, 0, `exit=${run.status} stderr=${run.stderr}`);
 
   const state = JSON.parse(readFileSync(stateFile, 'utf8'));
   assert.equal(state.jobs.find((x) => x.id === deadJob).status, 'queued');

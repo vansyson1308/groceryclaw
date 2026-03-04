@@ -2,29 +2,21 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
-interface DlqJobRow {
-  id: string;
-  tenant_id: string;
-  type: string;
-  status: string;
-  payload: string;
-}
-
-function getArg(name: string): string | null {
+function getArg(name) {
   const idx = process.argv.indexOf(name);
   if (idx === -1) return null;
   return process.argv[idx + 1] ?? null;
 }
 
-function hasFlag(name: string): boolean {
+function hasFlag(name) {
   return process.argv.includes(name);
 }
 
-function sqlQuote(value: string): string {
+function sqlQuote(value) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function runSql(sql: string, dbCmd: string): string {
+function runSql(sql, dbCmd) {
   const result = spawnSync('bash', ['-lc', dbCmd], {
     input: sql,
     encoding: 'utf8',
@@ -34,16 +26,16 @@ function runSql(sql: string, dbCmd: string): string {
   return result.stdout.trim();
 }
 
-function runQueue(payload: Record<string, unknown>, queueCmd: string): void {
+function runQueue(payload, queueCmd) {
   const message = JSON.stringify(payload).replace(/'/g, "''");
   const cmd = `${queueCmd} '${message}'`;
   const result = spawnSync('bash', ['-lc', cmd], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error('dlq_queue_error');
 }
 
-export function planReplay(rows: DlqJobRow[], tenantId: string): { replayable: DlqJobRow[]; skipped: Array<{ id: string; reason: string }> } {
-  const replayable: DlqJobRow[] = [];
-  const skipped: Array<{ id: string; reason: string }> = [];
+export function planReplay(rows, tenantId) {
+  const replayable = [];
+  const skipped = [];
 
   for (const row of rows) {
     if (row.tenant_id !== tenantId) {
@@ -97,18 +89,18 @@ async function main() {
       AND id = ANY(ARRAY[${idsArray}]);
   `, dbCmd);
 
-  const rows: DlqJobRow[] = out.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+  const rows = out.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
     const [id, tenant_id, type, status, ...payloadParts] = line.split('|');
     return { id, tenant_id, type, status, payload: payloadParts.join('|') || '{}' };
   });
 
   const { replayable, skipped } = planReplay(rows, tenantId);
 
-  const replayedIds: string[] = [];
+  const replayedIds = [];
   for (const row of replayable) {
-    let payload: Record<string, unknown> = {};
+    let payload = {};
     try {
-      payload = JSON.parse(row.payload) as Record<string, unknown>;
+      payload = JSON.parse(row.payload);
     } catch {
       skipped.push({ id: row.id, reason: 'invalid_payload_json' });
       continue;
