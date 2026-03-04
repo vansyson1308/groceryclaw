@@ -412,6 +412,8 @@ It covers:
 
 ## Dev and contribution notes
 
+> **CI note:** Do not delete `package-lock.json`; dependency-audit and reproducible CI installs require it.
+
 Quality checks:
 
 ```bash
