@@ -30,7 +30,7 @@ for (let t = 0; t < tenantCount; t += 1) {
     const platformUserId = `load_tenant_${t}_user_${u}`;
     const zaloUserId = randomUUID();
     userRows += `(${sqlQuote(zaloUserId)}::uuid, ${sqlQuote(platformUserId)}, ${sqlQuote(`Load user ${t}-${u}`)}, now(), now()),\n`;
-    membershipRows += `(${sqlQuote(tenantId)}::uuid, ${sqlQuote(platformUserId)}, ${sqlQuote(zaloUserId)}::uuid, 'staff', 'active', now()),\n`;
+    membershipRows += `(${sqlQuote(randomUUID())}::uuid, ${sqlQuote(tenantId)}::uuid, ${sqlQuote(zaloUserId)}::uuid, 'staff', 'active'),\n`;
   }
 
   if (includeSecrets) {
@@ -52,19 +52,17 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   config = EXCLUDED.config;
 
-INSERT INTO zalo_users (id, platform_user_id, display_name, first_seen_at, last_interaction_at)
+INSERT INTO zalo_users (id, platform_user_id, display_name, last_interaction_at, updated_at)
 VALUES
 ${trim(userRows)}
 ON CONFLICT (platform_user_id) DO UPDATE SET
   last_interaction_at = EXCLUDED.last_interaction_at;
 
-INSERT INTO tenant_memberships (tenant_id, platform_user_id, zalo_user_id, role, status, linked_at)
+INSERT INTO tenant_users (id, tenant_id, zalo_user_id, role, status)
 VALUES
 ${trim(membershipRows)}
-ON CONFLICT (tenant_id, platform_user_id) DO UPDATE SET
-  status = EXCLUDED.status,
-  linked_at = EXCLUDED.linked_at,
-  zalo_user_id = EXCLUDED.zalo_user_id;
+ON CONFLICT (tenant_id, zalo_user_id) DO UPDATE SET
+  status = EXCLUDED.status;
 ${includeSecrets ? `
 INSERT INTO secret_versions (id, tenant_id, secret_type, version, encrypted_dek, encrypted_value, dek_nonce, value_nonce, status, created_at)
 VALUES
