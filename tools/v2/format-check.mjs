@@ -1,11 +1,89 @@
-import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, sep } from 'node:path';
 
-const files = execSync("rg --files apps packages tests docs .github/workflows package.json tsconfig.base.json tsconfig.build.json .gitignore README.md", { encoding: 'utf8' })
-  .split('\n')
-  .map((s) => s.trim())
-  .filter(Boolean)
-  .filter((s) => !s.includes('/dist/'));
+const ROOT_FILES = [
+  'package.json',
+  'package-lock.json',
+  'tsconfig.base.json',
+  'tsconfig.build.json',
+  '.gitignore',
+  'README.md'
+];
+
+const GLOB_PATTERNS = [
+  'apps/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,json,md,yml,yaml}',
+  'packages/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,json,md,yml,yaml}',
+  'tests/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,json,md,yml,yaml}',
+  'docs/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,json,md,yml,yaml}',
+  '.github/workflows/**/*.{yml,yaml}'
+];
+
+const IGNORE_PARTS = new Set(['node_modules', 'dist', 'build', 'coverage', '.git', '.next', '.turbo', '.cache']);
+const ALLOWED_EXT = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.md', '.yml', '.yaml']);
+
+function hasIgnoredPart(filePath) {
+  return filePath.split(/[\\/]+/).some((part) => IGNORE_PARTS.has(part));
+}
+
+async function collectWithFastGlob() {
+  const mod = await import('fast-glob');
+  const fg = mod.default ?? mod;
+  return fg(GLOB_PATTERNS, {
+    dot: false,
+    onlyFiles: true,
+    unique: true,
+    ignore: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/coverage/**',
+      '**/.git/**',
+      '**/.next/**',
+      '**/.turbo/**',
+      '**/.cache/**'
+    ]
+  });
+}
+
+function collectFallback() {
+  const roots = ['apps', 'packages', 'tests', 'docs', '.github/workflows'];
+  const files = [];
+
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      const rel = full.split(sep).join('/');
+      if (hasIgnoredPart(rel)) continue;
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const ext = rel.includes('.') ? rel.slice(rel.lastIndexOf('.')) : '';
+      if (ALLOWED_EXT.has(ext)) files.push(rel);
+    }
+  };
+
+  for (const root of roots) {
+    try {
+      if (statSync(root).isDirectory()) walk(root);
+    } catch {
+      // ignore missing root
+    }
+  }
+
+  return files;
+}
+
+let discovered = [];
+try {
+  discovered = await collectWithFastGlob();
+} catch {
+  discovered = collectFallback();
+}
+
+const rootFiles = ROOT_FILES.filter((file) => existsSync(file));
+const files = [...new Set([...discovered, ...rootFiles])].sort();
 
 const violations = [];
 for (const file of files) {
