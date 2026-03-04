@@ -5,6 +5,8 @@ import {
   createLogger,
   detectInviteIntent,
   InMemoryTokenBucketRateLimiter,
+  Pool,
+  Queue,
   loadGatewayConfig,
   validateZaloWebhookPayload,
   verifyWebhookRequest,
@@ -19,6 +21,11 @@ const onboardingEnabled = (process.env.V2_ONBOARDING_ENABLED ?? 'true') === 'tru
 const maxBodyBytes = Number(process.env.GATEWAY_MAX_BODY_BYTES ?? '262144');
 const dbCmd = process.env.GATEWAY_DB_CMD ?? '';
 const queueCmd = process.env.GATEWAY_QUEUE_CMD ?? '';
+const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+const redisHost = process.env.REDIS_HOST ?? 'redis';
+const redisPort = Number(process.env.REDIS_PORT ?? '6379');
+const redisPassword = process.env.REDIS_PASSWORD ?? '';
+const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
 const replayCacheTtlSeconds = Number(process.env.WEBHOOK_REPLAY_TTL_SECONDS ?? '86400');
 const invitePepperHex = process.env.INVITE_PEPPER_HEX ?? '';
 const invitePepperB64 = process.env.INVITE_PEPPER_B64 ?? '';
@@ -29,6 +36,18 @@ const inviteUserRatePerMinute = Number(process.env.ONBOARDING_INVITE_USER_RATE_P
 const inviteIpRatePerMinute = Number(process.env.ONBOARDING_INVITE_IP_RATE_PER_MINUTE ?? '20');
 const inviteByUserLimiter = new InMemoryTokenBucketRateLimiter(inviteUserRatePerMinute, inviteUserRatePerMinute);
 const inviteByIpLimiter = new InMemoryTokenBucketRateLimiter(inviteIpRatePerMinute, inviteIpRatePerMinute);
+
+const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
+const queue = (() => {
+  if (process.env.NODE_ENV === 'test') return null;
+  return new Queue(queueName, {
+    connection: {
+      host: redisHost,
+      port: redisPort,
+      ...(redisPassword ? { password: redisPassword } : {})
+    }
+  });
+})();
 
 type ResponseLike = {
   writeHead: (statusCode: number, headers?: Record<string, string>) => unknown;
@@ -64,23 +83,30 @@ function sqlQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function runSql(sql: string): string {
-  if (!dbCmd) return '';
-  const result = spawnSync('bash', ['-lc', dbCmd], {
-    input: sql,
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  if (result.status !== 0) {
-    throw new Error('db_error');
-  }
+function runCmdAdapter(command: string, input: string): string {
+  const [exec, ...args] = command.trim().split(/\s+/);
+  if (!exec) throw new Error('adapter_error');
+  const result = spawnSync(exec, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (result.status !== 0) throw new Error('adapter_error');
   return result.stdout.trim();
 }
 
-function resolveMembership(platformUserId: string): { tenantId?: string } {
-  if (!dbCmd) return {};
+async function runSql(sql: string): Promise<string> {
+  if (pgPool) {
+    const result = await pgPool.query(sql);
+    if (result.rows.length === 0) return '';
+    return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
+  }
+  if (process.env.NODE_ENV === 'test' && dbCmd) {
+    return runCmdAdapter(dbCmd, sql);
+  }
+  return '';
+}
 
-  const out = runSql(`
+async function resolveMembership(platformUserId: string): Promise<{ tenantId?: string }> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return {};
+
+  const out = await runSql(`
     SELECT tenant_id::text
     FROM resolve_membership_by_platform_user_id(${sqlQuote(platformUserId)})
     LIMIT 1;
@@ -90,8 +116,8 @@ function resolveMembership(platformUserId: string): { tenantId?: string } {
   return tenantId ? { tenantId } : {};
 }
 
-function consumeInviteCode(platformUserId: string, inviteCode: string): { ok: boolean; tenantId?: string; roleAssigned?: string } {
-  if (!dbCmd) return { ok: false };
+async function consumeInviteCode(platformUserId: string, inviteCode: string): Promise<{ ok: boolean; tenantId?: string; roleAssigned?: string }> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return { ok: false };
 
   const setPepperSql = invitePepperHex
     ? `SET LOCAL app.invite_pepper = ${sqlQuote(invitePepperHex)};`
@@ -99,7 +125,7 @@ function consumeInviteCode(platformUserId: string, inviteCode: string): { ok: bo
       ? `SET LOCAL app.invite_pepper_b64 = ${sqlQuote(invitePepperB64)};`
       : '';
 
-  const out = runSql(`
+  const out = await runSql(`
     BEGIN;
     ${setPepperSql}
     SELECT ok::text, COALESCE(tenant_id::text, ''), COALESCE(role_assigned, '')
@@ -121,9 +147,9 @@ function consumeInviteCode(platformUserId: string, inviteCode: string): { ok: bo
   };
 }
 
-function getTenantProcessingMode(tenantId: string): 'legacy' | 'v2' {
-  if (!dbCmd) return 'v2';
-  const out = runSql(`
+async function getTenantProcessingMode(tenantId: string): Promise<'legacy' | 'v2'> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return 'v2';
+  const out = await runSql(`
     BEGIN;
     SET LOCAL app.current_tenant = ${sqlQuote(tenantId)};
     SELECT processing_mode
@@ -138,11 +164,11 @@ function getTenantProcessingMode(tenantId: string): 'legacy' | 'v2' {
 }
 
 
-function resolveZaloUserId(platformUserId: string): string | undefined {
-  if (!dbCmd) {
+async function resolveZaloUserId(platformUserId: string): Promise<string | undefined> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) {
     return undefined;
   }
-  const out = runSql(`
+  const out = await runSql(`
     SELECT id::text
     FROM zalo_users
     WHERE platform_user_id = ${sqlQuote(platformUserId)}
@@ -152,12 +178,12 @@ function resolveZaloUserId(platformUserId: string): string | undefined {
   return value;
 }
 
-function recordInboundInteraction(tenantId: string, platformUserId: string): string | undefined {
-  if (!dbCmd) {
+async function recordInboundInteraction(tenantId: string, platformUserId: string): Promise<string | undefined> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) {
     return undefined;
   }
 
-  const out = runSql(`
+  const out = await runSql(`
     BEGIN;
     SET LOCAL app.current_tenant = ${sqlQuote(tenantId)};
     UPDATE zalo_users
@@ -185,8 +211,8 @@ function tryReplayCache(tenantId: string | undefined, zaloMsgId: string): boolea
   return true;
 }
 
-function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): { inserted: boolean; inboundEventId: string } {
-  if (!dbCmd) {
+async function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): Promise<{ inserted: boolean; inboundEventId: string }> {
+  if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) {
     const resolvedTenant = tenantId ?? 'unlinked';
     const key = `${resolvedTenant}:${event.zalo_msg_id}`;
     if (inMemoryDedupe.has(key)) {
@@ -213,7 +239,7 @@ function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): { inser
     COMMIT;
   `;
 
-  const out = runSql(insertSql);
+  const out = await runSql(insertSql);
   const id = out.split('\n').map((x) => x.trim()).find((x) => /^[0-9a-f-]{36}$/i.test(x));
   if (!id) {
     return { inserted: false, inboundEventId: `${resolvedTenant}:${event.zalo_msg_id}` };
@@ -221,20 +247,27 @@ function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): { inser
   return { inserted: true, inboundEventId: id };
 }
 
-function enqueue(payload: Record<string, unknown>) {
-  if (!queueCmd) return;
+async function enqueue(payload: Record<string, unknown>) {
+  if (!queue && !(process.env.NODE_ENV === 'test' && queueCmd)) return;
 
   const withEnqueueTs = ('enqueued_at_ms' in payload) ? payload : { ...payload, enqueued_at_ms: Date.now() };
-  const message = JSON.stringify(withEnqueueTs).replace(/'/g, "''");
-  const cmd = `${queueCmd} '${message}'`;
-  const result = spawnSync('bash', ['-lc', cmd], { encoding: 'utf8' });
-  if (result.status !== 0) {
-    throw new Error('queue_error');
+  if (queue) {
+    await queue.add(String(withEnqueueTs.job_type ?? 'UNKNOWN_JOB'), withEnqueueTs, {
+      removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE ?? '1000'),
+      removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000')
+    });
+    return;
+  }
+  if (process.env.NODE_ENV === 'test' && queueCmd) {
+    const [exec, ...args] = queueCmd.trim().split(/\s+/);
+    if (!exec) throw new Error('queue_error');
+    const result = spawnSync(exec, [...args, JSON.stringify(withEnqueueTs)], { encoding: 'utf8' });
+    if (result.status !== 0) throw new Error('queue_error');
   }
 }
 
-function enqueueNotify(platformUserId: string, template: 'invite_success' | 'invite_generic_failure' | 'invite_wait_retry' | 'onboarding_prompt', tenantId?: string) {
-  enqueue({
+async function enqueueNotify(platformUserId: string, template: 'invite_success' | 'invite_generic_failure' | 'invite_wait_retry' | 'onboarding_prompt', tenantId?: string) {
+  await enqueue({
     job_type: 'NOTIFY_USER',
     template,
     platform_user_id: platformUserId,
@@ -250,13 +283,13 @@ function getSourceIp(headers: Record<string, string | string[] | undefined>): st
   return '';
 }
 
-function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, tenantId: string) {
-  const inserted = insertInboundEvent(event, tenantId);
-  const processingMode = getTenantProcessingMode(tenantId);
-  const zaloUserId = recordInboundInteraction(tenantId, event.platform_user_id) ?? resolveZaloUserId(event.platform_user_id);
+async function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, tenantId: string) {
+  const inserted = await insertInboundEvent(event, tenantId);
+  const processingMode = await getTenantProcessingMode(tenantId);
+  const zaloUserId = (await recordInboundInteraction(tenantId, event.platform_user_id)) ?? await resolveZaloUserId(event.platform_user_id);
 
   if (zaloUserId) {
-    enqueue({
+    await enqueue({
       job_type: 'FLUSH_PENDING_NOTIFICATIONS',
       correlation_id: requestId,
       tenant_id: tenantId,
@@ -268,7 +301,7 @@ function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, tenantId:
   }
 
   if (inserted.inserted) {
-    enqueue({
+    await enqueue({
       job_type: processingMode === 'legacy' ? 'LEGACY_FORWARD_INBOUND' : 'PROCESS_INBOUND_EVENT',
       correlation_id: requestId,
       request_hash: createHash('sha256').update(JSON.stringify(event.raw)).digest('hex').slice(0, 12),
@@ -362,7 +395,7 @@ const server = createServer(async (req, res) => {
       }
 
       const event = validated.value;
-      const membership = resolveMembership(event.platform_user_id);
+      const membership = await resolveMembership(event.platform_user_id);
 
       if (!membership.tenantId) {
         if (onboardingEnabled) {
@@ -373,23 +406,23 @@ const server = createServer(async (req, res) => {
             const byIp = inviteByIpLimiter.consume(`invite:ip:${sourceIp}`);
 
             if (!byUser.allowed || !byIp.allowed) {
-              enqueueNotify(event.platform_user_id, 'invite_wait_retry');
+              await enqueueNotify(event.platform_user_id, 'invite_wait_retry');
               respondAccepted(res, requestId, startedAtMs, { stage: 'invite_rate_limited' });
               return;
             }
 
-            const consumeResult = consumeInviteCode(event.platform_user_id, inviteIntent.inviteCode);
+            const consumeResult = await consumeInviteCode(event.platform_user_id, inviteIntent.inviteCode);
             if (consumeResult.ok && consumeResult.tenantId) {
-              enqueueNotify(event.platform_user_id, 'invite_success', consumeResult.tenantId);
+              await enqueueNotify(event.platform_user_id, 'invite_success', consumeResult.tenantId);
             } else {
-              enqueueNotify(event.platform_user_id, 'invite_generic_failure');
+              await enqueueNotify(event.platform_user_id, 'invite_generic_failure');
             }
             respondAccepted(res, requestId, startedAtMs, { stage: 'invite_processed' });
             return;
           }
         }
 
-        enqueueNotify(event.platform_user_id, 'onboarding_prompt');
+        await enqueueNotify(event.platform_user_id, 'onboarding_prompt');
         respondAccepted(res, requestId, startedAtMs, { stage: 'onboarding_prompt' });
         return;
       }
@@ -399,7 +432,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      enqueueLinkedFlow(event, requestId, membership.tenantId);
+      await enqueueLinkedFlow(event, requestId, membership.tenantId);
       respondAccepted(res, requestId, startedAtMs, { stage: 'linked_flow_enqueued' });
       return;
     } catch (error) {

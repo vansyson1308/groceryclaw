@@ -3,6 +3,9 @@ import {
   createLogger,
   InMemoryTokenBucketRateLimiter,
   loadBaseConfig,
+  Pool,
+  Queue,
+  Worker,
   NotifierOutboundRateLimiter,
   validateWorkerJobEnvelope,
   type WorkerJobEnvelope
@@ -26,6 +29,25 @@ const metricsHost = process.env.WORKER_METRICS_HOST ?? '127.0.0.1';
 const metricsPort = Number(process.env.WORKER_METRICS_PORT ?? '9090');
 const dbCmd = process.env.WORKER_DB_CMD ?? process.env.GATEWAY_DB_CMD ?? '';
 const queueCmd = process.env.WORKER_QUEUE_CMD ?? '';
+const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+
+const redisHost = process.env.REDIS_HOST ?? 'redis';
+const redisPort = Number(process.env.REDIS_PORT ?? '6379');
+const redisPassword = process.env.REDIS_PASSWORD ?? '';
+const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+const defaultAttempts = Number(process.env.NOTIFIER_MAX_ATTEMPTS ?? '4');
+
+const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
+const queue = (() => {
+  if (process.env.NODE_ENV === 'test') return null;
+  return new Queue(queueName, {
+    connection: {
+      host: redisHost,
+      port: redisPort,
+      ...(redisPassword ? { password: redisPassword } : {})
+    }
+  });
+})();
 
 const interactionWindowEnforced = (process.env.WORKER_INTERACTION_WINDOW_ENFORCED ?? 'true') === 'true';
 const flushPendingEnabled = (process.env.WORKER_FLUSH_PENDING_ENABLED ?? 'true') === 'true';
@@ -41,24 +63,37 @@ const outboundRateLimiter = new NotifierOutboundRateLimiter({
   perUserBurst: Number(process.env.NOTIFIER_USER_BURST ?? '5')
 });
 
-function runSql(sql: string): Promise<void> {
-  if (!dbCmd) return Promise.resolve();
-  const result = spawnSync('bash', ['-lc', dbCmd], {
-    input: sql,
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  if (result.status !== 0) {
-    return Promise.reject(new Error('worker_db_error'));
+function runCmdAdapter(command: string, input: string): string {
+  const [exec, ...args] = command.trim().split(/\s+/);
+  if (!exec) throw new Error('worker_adapter_error');
+  const result = spawnSync(exec, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (result.status !== 0) throw new Error('worker_adapter_error');
+  return result.stdout.trim();
+}
+
+async function runSql(sql: string): Promise<void> {
+  if (pgPool) {
+    await pgPool.query(sql);
+    return;
   }
-  return Promise.resolve();
+  if (process.env.NODE_ENV === 'test' && dbCmd) {
+    runCmdAdapter(dbCmd, sql);
+    return;
+  }
+  throw new Error('worker_db_not_configured');
 }
 
 async function runQueryOne(sql: string): Promise<string> {
-  if (!dbCmd) return '';
-  const result = spawnSync('bash', ['-lc', dbCmd], { input: sql, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  if (result.status !== 0) throw new Error('worker_db_error');
-  return result.stdout.trim();
+  if (pgPool) {
+    const result = await pgPool.query(sql);
+    if (result.rows.length === 0) return '';
+    const row = result.rows[0] ?? {};
+    return Object.values(row).join('|').trim();
+  }
+  if (process.env.NODE_ENV === 'test' && dbCmd) {
+    return runCmdAdapter(dbCmd, sql);
+  }
+  return '';
 }
 
 async function runQueryMany(sql: string): Promise<string[]> {
@@ -67,11 +102,22 @@ async function runQueryMany(sql: string): Promise<string[]> {
 }
 
 async function enqueue(payload: Record<string, unknown>): Promise<void> {
-  if (!queueCmd) return;
-  const message = JSON.stringify(payload).replace(/'/g, "''");
-  const cmd = `${queueCmd} '${message}'`;
-  const result = spawnSync('bash', ['-lc', cmd], { encoding: 'utf8' });
-  if (result.status !== 0) throw new Error('worker_queue_error');
+  if (queue) {
+    await queue.add(String(payload.job_type ?? 'UNKNOWN_JOB'), payload, {
+      attempts: Number(process.env.BULLMQ_DEFAULT_ATTEMPTS ?? '4'),
+      removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE ?? '1000'),
+      removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000')
+    });
+    return;
+  }
+  if (process.env.NODE_ENV === 'test' && queueCmd) {
+    const [exec, ...args] = queueCmd.trim().split(/\s+/);
+    if (!exec) throw new Error('worker_queue_error');
+    const result = spawnSync(exec, [...args, JSON.stringify(payload)], { encoding: 'utf8' });
+    if (result.status !== 0) throw new Error('worker_queue_error');
+    return;
+  }
+  throw new Error('worker_queue_not_configured');
 }
 
 async function processInboundEvent(job: WorkerJobEnvelope): Promise<void> {
@@ -156,7 +202,6 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
   }, job);
 }
 
-
 function getQueueLagMs(rawData: unknown): number | null {
   if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null;
   const enqueuedAt = (rawData as Record<string, unknown>).enqueued_at_ms;
@@ -213,68 +258,57 @@ async function runWithFailureAccounting(rawData: unknown): Promise<void> {
 }
 
 async function startBullMqWorker() {
-  try {
-    const { Worker } = await import('bullmq');
-    const redisHost = process.env.REDIS_HOST ?? 'redis';
-    const redisPort = Number(process.env.REDIS_PORT ?? '6379');
-    const redisPassword = process.env.REDIS_PASSWORD ?? '';
-    const defaultAttempts = Number(process.env.NOTIFIER_MAX_ATTEMPTS ?? '4');
-
-    const connection: { host: string; port: number; password?: string } = {
-      host: redisHost,
-      port: redisPort
-    };
-    if (redisPassword) {
-      connection.password = redisPassword;
-    }
-
-    const worker = new Worker('process-inbound', async (job: { data: unknown; attemptsMade?: number; opts?: { attempts?: number } }) => {
-      try {
-        await runWithFailureAccounting(job.data);
-      } catch (error) {
-        if (error instanceof NotifierRetriableError) {
-          const maxAttempts = job.opts?.attempts ?? defaultAttempts;
-          const currentAttempt = (job.attemptsMade ?? 0) + 1;
-          if (currentAttempt >= maxAttempts && dlqEnabled) {
-            logger.error('worker_notifier_dlq', {
-              attempts_made: currentAttempt,
-              max_attempts: maxAttempts,
-              error_code: error.errorCode
-            });
-            return;
-          }
-          throw error;
-        }
-
-        logger.error('worker_job_failed', {
-          reason: error instanceof Error ? error.message : 'unknown_error'
-        });
-      }
-    }, {
-      connection,
-      concurrency: Number(process.env.WORKER_CONCURRENCY ?? '5')
-    });
-
-    worker.on('failed', (...args: unknown[]) => {
-      const err = args[1] instanceof Error ? args[1] : new Error('unknown');
-      logger.error('worker_bullmq_job_failed', { reason: err.message });
-    });
-
-    worker.on('error', (...args: unknown[]) => {
-      const err = args[0] instanceof Error ? args[0] : new Error('unknown');
-      logger.error('worker_bullmq_error', { reason: err.message });
-    });
-
-    logger.info('worker_bullmq_started', {
-      queue: 'process-inbound',
-      notifier_dlq_enabled: dlqEnabled,
-      notifier_max_attempts: defaultAttempts
-    });
-  } catch {
-    logger.warn('worker_bullmq_unavailable', {
-      note: 'bullmq package not available at runtime; worker runs in placeholder mode'
-    });
+  const connection: { host: string; port: number; password?: string } = {
+    host: redisHost,
+    port: redisPort
+  };
+  if (redisPassword) {
+    connection.password = redisPassword;
   }
+
+  const worker = new Worker(queueName, async (job: { data: unknown; attemptsMade?: number; opts?: { attempts?: number } }) => {
+    try {
+      await runWithFailureAccounting(job.data);
+    } catch (error) {
+      if (error instanceof NotifierRetriableError) {
+        const maxAttempts = job.opts?.attempts ?? defaultAttempts;
+        const currentAttempt = (job.attemptsMade ?? 0) + 1;
+        if (currentAttempt >= maxAttempts && dlqEnabled) {
+          logger.error('worker_notifier_dlq', {
+            attempts_made: currentAttempt,
+            max_attempts: maxAttempts,
+            error_code: error.errorCode
+          });
+          return;
+        }
+        throw error;
+      }
+
+      logger.error('worker_job_failed', {
+        reason: error instanceof Error ? error.message : 'unknown_error'
+      });
+    }
+  }, {
+    connection,
+    concurrency: Number(process.env.WORKER_CONCURRENCY ?? '5')
+  });
+
+  worker.on('failed', (...args: unknown[]) => {
+    const err = args[1] instanceof Error ? args[1] : new Error('unknown');
+    logger.error('worker_bullmq_job_failed', { reason: err.message });
+  });
+
+  worker.on('error', (...args: unknown[]) => {
+    const err = args[0] instanceof Error ? args[0] : new Error('unknown');
+    logger.error('worker_bullmq_error', { reason: err.message });
+  });
+
+  await worker.waitUntilReady();
+  logger.info('worker_bullmq_started', {
+    queue: queueName,
+    notifier_dlq_enabled: dlqEnabled,
+    notifier_max_attempts: defaultAttempts
+  });
 }
 
 startWorkerMetricsServer(metricsHost, metricsPort);
@@ -287,6 +321,7 @@ logger.info('worker startup', {
 
 startBullMqWorker().catch((error) => {
   logger.error('worker_startup_failed', { reason: error instanceof Error ? error.message : 'unknown_error' });
+  (globalThis as { process?: { exit?: (code: number) => void } }).process?.exit?.(1);
 });
 
 setInterval(() => {
