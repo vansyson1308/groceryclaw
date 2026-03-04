@@ -57,6 +57,7 @@ STABLE
 SECURITY INVOKER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 DECLARE
   v_raw text;
 BEGIN

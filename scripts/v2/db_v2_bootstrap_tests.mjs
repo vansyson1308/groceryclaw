@@ -11,7 +11,21 @@ function one(sql) {
 function seed() {
   runSql(`
     BEGIN;
+      -- Full cleanup in FK-safe order to keep fixture deterministic across test runs.
+      DELETE FROM sync_results;
+      DELETE FROM resolved_invoice_items;
+      DELETE FROM unit_conversions;
+      DELETE FROM product_cache;
+      DELETE FROM mapping_dictionary;
+      DELETE FROM canonical_invoice_items;
+      DELETE FROM canonical_invoices;
+      DELETE FROM admin_audit_logs;
       DELETE FROM audit_logs;
+      DELETE FROM pending_notifications;
+      DELETE FROM idempotency_keys;
+      DELETE FROM jobs;
+      DELETE FROM inbound_events;
+      DELETE FROM secret_versions;
       DELETE FROM invite_codes;
       DELETE FROM tenant_users;
       DELETE FROM zalo_users;

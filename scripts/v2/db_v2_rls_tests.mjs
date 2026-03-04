@@ -14,6 +14,15 @@ function scalar(sql) {
 function setupFixture() {
   runSql(`
     BEGIN;
+      -- Full cleanup in FK-safe order to keep fixture deterministic across test runs.
+      DELETE FROM sync_results;
+      DELETE FROM resolved_invoice_items;
+      DELETE FROM unit_conversions;
+      DELETE FROM product_cache;
+      DELETE FROM mapping_dictionary;
+      DELETE FROM canonical_invoice_items;
+      DELETE FROM canonical_invoices;
+      DELETE FROM admin_audit_logs;
       DELETE FROM audit_logs;
       DELETE FROM pending_notifications;
       DELETE FROM idempotency_keys;
@@ -79,13 +88,31 @@ function assertTenantAIsolation() {
   `);
   expectEq(countAudit, '1', 'tenant A should only see its own audit logs');
 
-  const crossWrite = scalar(`
+  const sameTenantWrite = scalar(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
       SET LOCAL app.current_tenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
       INSERT INTO jobs (tenant_id, type, payload)
-      VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cross_tenant_write', '{}'::jsonb)
-      ON CONFLICT DO NOTHING;
+      VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'same_tenant_write', '{}'::jsonb);
+      SELECT count(*)::text FROM jobs WHERE tenant_id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND type='same_tenant_write';
+    COMMIT;
+  `);
+  expectEq(sameTenantWrite, '1', 'same-tenant write should succeed for app_user');
+
+  const crossWrite = scalar(`
+    BEGIN;
+      SET LOCAL ROLE groceryclaw_app_user;
+      SET LOCAL app.current_tenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+      DO $$
+      BEGIN
+        BEGIN
+          INSERT INTO jobs (tenant_id, type, payload)
+          VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cross_tenant_write', '{}'::jsonb);
+        EXCEPTION WHEN insufficient_privilege THEN
+          NULL;
+        END;
+      END
+      $$;
       SELECT count(*)::text FROM jobs WHERE tenant_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND type='cross_tenant_write';
     COMMIT;
   `);
