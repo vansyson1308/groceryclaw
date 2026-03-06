@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -43,6 +44,10 @@ test('gateway /readyz flips to 503 when redis or postgres is down', {
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-readyz-'));
   const envFile = path.join(dir, '.env');
 
+  const pgPassword = randomBytes(12).toString('hex');
+  const redisPassword = randomBytes(12).toString('hex');
+  const webhookSecret = randomBytes(16).toString('hex');
+
   writeFileSync(envFile, [
     'NODE_ENV=development',
     'LOG_LEVEL=info',
@@ -50,11 +55,11 @@ test('gateway /readyz flips to 503 when redis or postgres is down', {
     'GATEWAY_PORT=8080',
     'POSTGRES_DB=groceryclaw_readyz_test',
     'POSTGRES_SUPERUSER=postgres',
-    'POSTGRES_SUPERUSER_PASSWORD=postgres',
+    `POSTGRES_SUPERUSER_PASSWORD=${pgPassword}`,
     'APP_DB_USER=app_user',
-    'APP_DB_PASSWORD=change_me',
-    'REDIS_PASSWORD=change_me',
-    'WEBHOOK_SIGNATURE_SECRET=test-secret',
+    `APP_DB_PASSWORD=${pgPassword}`,
+    `REDIS_PASSWORD=${redisPassword}`,
+    `WEBHOOK_SIGNATURE_SECRET=${webhookSecret}`,
     'READYZ_STRICT=true',
     'READYZ_TIMEOUT_MS=300'
   ].join('\n'));

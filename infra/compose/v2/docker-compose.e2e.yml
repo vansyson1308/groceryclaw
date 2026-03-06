@@ -2,7 +2,7 @@ services:
   gateway:
     environment:
       WEBHOOK_VERIFY_MODE: ${WEBHOOK_VERIFY_MODE:-mode1}
-      WEBHOOK_SIGNATURE_SECRET: ${WEBHOOK_SIGNATURE_SECRET:-e2e-webhook-secret}
+      WEBHOOK_SIGNATURE_SECRET: ${WEBHOOK_SIGNATURE_SECRET:-stub-webhook-secret-set-at-runtime}
       READYZ_STRICT: 'true'
     ports: []
 
@@ -11,9 +11,9 @@ services:
     environment:
       WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-xml-stub}
       ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://zalo-stub:18081}
-      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-e2e-zalo-token}
+      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-stub-zalo-token-set-at-runtime}
       KIOTVIET_STUB_BASE_URL: ${KIOTVIET_STUB_BASE_URL:-http://kiotviet-stub:18080}
-      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN:-e2e-kiotviet-token}
+      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN:-stub-kiotviet-token-set-at-runtime}
       READYZ_STRICT: 'true'
 
   xml-stub:

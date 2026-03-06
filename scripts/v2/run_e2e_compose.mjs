@@ -1,10 +1,67 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID, createHmac } from 'node:crypto';
+import { randomUUID, createHmac, randomBytes } from 'node:crypto';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const project = `gc-e2e-${randomUUID().slice(0, 8)}`;
-const envFile = 'infra/compose/v2/e2e.env';
+const tempDir = mkdtempSync(path.join(tmpdir(), 'gc-e2e-'));
+const envFile = path.join(tempDir, '.env');
 const files = ['-f', 'infra/compose/v2/docker-compose.yml', '-f', 'infra/compose/v2/docker-compose.e2e.yml'];
 const composeBase = ['compose', '--project-name', project, '--env-file', envFile, ...files];
+
+function makeEphemeralEnv() {
+  const pgPassword = randomBytes(12).toString('hex');
+  const redisPassword = randomBytes(12).toString('hex');
+  const webhookSecret = randomBytes(16).toString('hex');
+  const invitePepperB64 = randomBytes(32).toString('base64');
+  const mekB64 = randomBytes(32).toString('base64');
+  const breakglassKey = randomBytes(16).toString('hex');
+  const adminIssuer = 'https://issuer.invalid';
+
+  const lines = [
+    'NODE_ENV=test',
+    'LOG_LEVEL=info',
+    'POSTGRES_DB=groceryclaw_v2_e2e',
+    'POSTGRES_SUPERUSER=postgres',
+    `POSTGRES_SUPERUSER_PASSWORD=${pgPassword}`,
+    'APP_DB_USER=app_user',
+    `APP_DB_PASSWORD=${pgPassword}`,
+    `REDIS_PASSWORD=${redisPassword}`,
+    `REDIS_URL=redis://:${redisPassword}@redis:6379/0`,
+    'GATEWAY_HOST=0.0.0.0',
+    'GATEWAY_PORT=8080',
+    'V2_GATEWAY_WEBHOOK_ENABLED=true',
+    'WEBHOOK_VERIFY_MODE=mode1',
+    `WEBHOOK_SIGNATURE_SECRET=${webhookSecret}`,
+    'WORKER_HOST=0.0.0.0',
+    'WORKER_PORT=3002',
+    'WORKER_HEALTH_PORT=3002',
+    'WORKER_HEALTH_SERVER_ENABLED=true',
+    'WORKER_CONCURRENCY=2',
+    'WORKER_XML_PARSE_ENABLED=true',
+    'WORKER_XML_ALLOWED_DOMAINS=xml-stub',
+    'WORKER_KIOTVIET_SYNC_ENABLED=true',
+    'WORKER_NOTIFIER_ENABLED=true',
+    'KIOTVIET_STUB_BASE_URL=http://kiotviet-stub:18080',
+    `KIOTVIET_STUB_TOKEN=${randomBytes(12).toString('hex')}`,
+    'ZALO_STUB_BASE_URL=http://zalo-stub:18081',
+    `ZALO_STUB_TOKEN=${randomBytes(12).toString('hex')}`,
+    'ADMIN_ENABLED=true',
+    'ADMIN_BREAKGLASS_ENABLED=true',
+    `ADMIN_BREAKGLASS_API_KEY=${breakglassKey}`,
+    'ADMIN_BREAKGLASS_SCOPE=ops',
+    `ADMIN_OIDC_ISSUER=${adminIssuer}`,
+    'ADMIN_OIDC_AUDIENCE=groceryclaw-admin',
+    'ADMIN_OIDC_JWKS_URI=http://127.0.0.1:18082/.well-known/jwks.json',
+    `INVITE_PEPPER_B64=${invitePepperB64}`,
+    `ADMIN_MEK_B64=${mekB64}`,
+    `WORKER_MEK_B64=${mekB64}`
+  ];
+
+  writeFileSync(envFile, `${lines.join('\n')}\n`);
+  return { webhookSecret, breakglassKey, redisPassword, pgPassword };
+}
 
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { stdio: 'pipe', encoding: 'utf8', ...opts });
@@ -52,7 +109,8 @@ function webhookHeaders(secret, body) {
 }
 
 async function main() {
-  const webhookSecret = 'e2e-webhook-secret';
+  const generated = makeEphemeralEnv();
+  const webhookSecret = generated.webhookSecret;
   const inviteUser = 'zalo_user_invite_001';
   const linkedUser = 'zalo_user_linked_001';
   const tenantName = `E2E-${randomUUID().slice(0, 8)}`;
@@ -65,7 +123,7 @@ async function main() {
     run('npm', ['run', 'db:v2:migrate'], {
       env: {
         ...process.env,
-        DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_e2e'
+        DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/groceryclaw_v2_e2e`
       }
     });
 
@@ -96,7 +154,7 @@ async function main() {
       }
     }, 120_000);
 
-    const adminHeaders = { 'content-type': 'application/json', 'x-admin-api-key': 'e2e-breakglass-key' };
+    const adminHeaders = { 'content-type': 'application/json', 'x-admin-api-key': generated.breakglassKey };
     const createTenantResp = parseFetchResult(serviceFetch('admin', {
       url: 'http://127.0.0.1:3001/tenants',
       method: 'POST',
@@ -162,7 +220,7 @@ async function main() {
       template_vars: { note: 'defer-check' },
       enqueued_at_ms: Date.now()
     };
-    dockerCompose(['exec', '-T', 'redis', 'redis-cli', '-a', 'redis_pass', 'RPUSH', 'bull:process-inbound:wait', JSON.stringify(notifyJob)]);
+    dockerCompose(['exec', '-T', 'redis', 'redis-cli', '-a', generated.redisPassword, 'RPUSH', 'bull:process-inbound:wait', JSON.stringify(notifyJob)]);
 
     await waitFor('pending notification deferred', async () => {
       try {
@@ -224,9 +282,12 @@ async function main() {
       dockerCompose(['down', '-v', '--remove-orphans']);
     } catch (error) {
       console.error('compose cleanup failed', error instanceof Error ? error.message : String(error));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   }
 }
+
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));

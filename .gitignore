@@ -23,3 +23,6 @@ npm-debug.log*
 # Build artifacts
 dist/
 *.tsbuildinfo
+
+# local/generated e2e env
+infra/compose/v2/e2e.env

@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 
 const composeFile = 'infra/compose/v2/docker-compose.yml';
 const envFile = 'infra/compose/v2/.env.real-db-test';
@@ -17,20 +18,23 @@ function compose(cmd, envPath = envFile) {
 }
 
 function makeEnv() {
+  const pgPassword = randomBytes(12).toString('hex');
+  const dbName = `groceryclaw_v2_real_test_${randomBytes(3).toString('hex')}`;
   const content = [
     'NODE_ENV=test',
     'LOG_LEVEL=info',
-    'POSTGRES_DB=groceryclaw_v2_real_test',
+    `POSTGRES_DB=${dbName}`,
     'POSTGRES_SUPERUSER=postgres',
-    'POSTGRES_SUPERUSER_PASSWORD=postgres',
+    `POSTGRES_SUPERUSER_PASSWORD=${pgPassword}`,
     'APP_DB_USER=app_user',
-    'APP_DB_PASSWORD=change_me',
-    'REDIS_PASSWORD=change_me',
-    'DB_APP_URL=postgresql://app_user:change_me@127.0.0.1:5432/groceryclaw_v2_real_test',
-    'DB_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_real_test',
-    'DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_real_test'
+    `APP_DB_PASSWORD=${pgPassword}`,
+    `REDIS_PASSWORD=${randomBytes(12).toString('hex')}`,
+    `DB_APP_URL=postgresql://app_user:${pgPassword}@127.0.0.1:5432/${dbName}`,
+    `DB_ADMIN_URL=postgresql://postgres:${pgPassword}@127.0.0.1:5432/${dbName}`,
+    `DATABASE_URL=postgresql://postgres:${pgPassword}@127.0.0.1:5432/${dbName}`
   ].join('\n');
   writeFileSync(envFile, `${content}\n`);
+  return { pgPassword, dbName };
 }
 
 async function main() {
@@ -43,17 +47,17 @@ async function main() {
     return;
   }
 
-  makeEnv();
+  const generated = makeEnv();
 
   try {
     compose('up -d postgres');
     run('npm run db:v2:migrate', {
       ...process.env,
-      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_real_test'
+      DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/${generated.dbName}`
     });
     run('npm run test:v2:db:real', {
       ...process.env,
-      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_real_test'
+      DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/${generated.dbName}`
     });
   } finally {
     try {
