@@ -124,11 +124,18 @@ Expected:
 
 ## Post-deploy smoke
 
-Run after each deploy:
+Run either smoke option after each deploy:
 
 ```bash
+# In-cluster job (recommended)
+kubectl apply -f infra/k8s/overlays/prod/smoke-job.yaml
+kubectl wait --for=condition=complete -n groceryclaw-v2 job/v2-smoke --timeout=180s
+
+# Workstation-driven fallback
 WEBHOOK_SIGNATURE_SECRET='<secret>' npm run k8s:smoke
 ```
+
+See `docs/saas_v2/DEPLOY_K8S_SMOKE.md` for details.
 
 ## Rollback
 
@@ -142,3 +149,12 @@ Also see:
 - `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
 - `docs/saas_v2/ROLLBACK_DRILL.md`
 - `docs/saas_v2/RELEASE_CHECKLIST.md`
+
+
+## Worker probes
+
+Worker exposes internal health endpoints on `WORKER_HEALTH_PORT` (default `3002`):
+- liveness: `GET /healthz`
+- readiness: `GET /readyz` (strict dependency check)
+
+Kubernetes probes must target these endpoints on the worker container port; do not use metrics port for readiness.

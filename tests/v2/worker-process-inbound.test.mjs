@@ -67,5 +67,5 @@ test('process inbound invalid xml enqueues notify placeholder', async () => {
   });
 
   assert.ok(queue.some((x) => x.template === 'xml_skipped'));
-  assert.ok(statements.some((sql) => sql.includes("status = 'completed'")));
+  assert.ok(statements.some((sql) => sql.includes('UPDATE inbound_events SET status = $1')));
 });

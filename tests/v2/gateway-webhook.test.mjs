@@ -167,7 +167,7 @@ test('onboarding invite success enqueues notify and linked flow obeys processing
     GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
     FAKE_DB_STATE_FILE: dbState,
     FAKE_QUEUE_FILE: queueFile,
-    INVITE_PEPPER_HEX: '0011',
+    INVITE_PEPPER_B64: Buffer.from('0011', 'hex').toString('base64'),
     ONBOARDING_INVITE_USER_RATE_PER_MINUTE: '2',
     ONBOARDING_INVITE_IP_RATE_PER_MINUTE: '2'
   });
@@ -208,7 +208,7 @@ test('onboarding invalid code and rate-limited paths are generic', async () => {
     GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
     FAKE_DB_STATE_FILE: dbState,
     FAKE_QUEUE_FILE: queueFile,
-    INVITE_PEPPER_HEX: '0011',
+    INVITE_PEPPER_B64: Buffer.from('0011', 'hex').toString('base64'),
     ONBOARDING_INVITE_USER_RATE_PER_MINUTE: '2',
     ONBOARDING_INVITE_IP_RATE_PER_MINUTE: '2'
   });
@@ -233,6 +233,41 @@ test('onboarding invalid code and rate-limited paths are generic', async () => {
   const lines = readFileSync(queueFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
   assert.equal(lines[0].template, 'invite_generic_failure');
   assert.ok(lines.some((item) => item.template === 'invite_wait_retry'));
+
+  proc.kill('SIGTERM');
+});
+
+
+test('platform_user_id with quotes/semicolons is treated as data on linked flow', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-'));
+  const dbState = path.join(dir, 'db-state.json');
+  const queueFile = path.join(dir, 'queue.log');
+  writeFileSync(dbState, JSON.stringify({ linked: true, tenant_id: '11111111-1111-1111-1111-111111111111', processing_mode: 'v2', db_calls: 0 }), 'utf8');
+
+  const proc = await startGateway(3316, {
+    GATEWAY_DB_CMD: 'node tests/v2/integration/fake-db.mjs',
+    GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
+    FAKE_DB_STATE_FILE: dbState,
+    FAKE_QUEUE_FILE: queueFile
+  });
+
+  const payload = JSON.stringify({
+    ...validPayload,
+    platform_user_id: "user'; DROP TABLE tenants; --",
+    zalo_msg_id: 'msg-weird-platform-user'
+  });
+
+  const resp = await fetch('http://127.0.0.1:3316/webhooks/zalo', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-zalo-signature': signBody(payload) },
+    body: payload
+  });
+
+  assert.equal(resp.status, 200);
+  const lines = readFileSync(queueFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const processJob = lines.find((item) => item.job_type === 'PROCESS_INBOUND_EVENT');
+  assert.ok(processJob);
+  assert.equal(processJob.platform_user_id, "user'; DROP TABLE tenants; --");
 
   proc.kill('SIGTERM');
 });

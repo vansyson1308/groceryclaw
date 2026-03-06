@@ -43,11 +43,11 @@ if (sql.includes('UPDATE tenants')) {
   const idMatch = sql.match(/WHERE id = '([0-9a-f-]{36})'::uuid/i);
   const id = idMatch?.[1] ?? '11111111-1111-1111-1111-111111111111';
   const tenant = state.tenants[id] ?? { id, name: 'Tenant', processing_mode: 'legacy', status: 'active', config: {} };
-  if (sql.includes("processing_mode = 'v2'")) tenant.processing_mode = 'v2';
-  if (sql.includes("processing_mode = 'legacy'")) tenant.processing_mode = 'legacy';
-  if (sql.includes("status = 'suspended'")) tenant.status = 'suspended';
-  if (sql.includes("status = 'active'")) tenant.status = 'active';
-  const cfgMatch = sql.match(/config = '([^']+)'::jsonb/s);
+  if (sql.includes("processing_mode = 'v2'") || sql.includes("COALESCE('v2'::text, processing_mode)")) tenant.processing_mode = 'v2';
+  if (sql.includes("processing_mode = 'legacy'") || sql.includes("COALESCE('legacy'::text, processing_mode)")) tenant.processing_mode = 'legacy';
+  if (sql.includes("status = 'suspended'") || sql.includes("COALESCE('suspended'::text, status)")) tenant.status = 'suspended';
+  if (sql.includes("status = 'active'") || sql.includes("COALESCE('active'::text, status)")) tenant.status = 'active';
+  const cfgMatch = sql.match(/config = '([^']+)'::jsonb/s) ?? sql.match(/COALESCE\('([^']+)'::jsonb, config\)/s);
   if (cfgMatch?.[1]) {
     tenant.config = JSON.parse(cfgMatch[1].replace(/''/g, "'"));
   }

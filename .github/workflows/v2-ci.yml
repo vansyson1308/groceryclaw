@@ -12,13 +12,15 @@ jobs:
     name: v2-ci
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CI_POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_DB: groceryclaw_v2_ci
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ env.CI_POSTGRES_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -37,7 +39,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
@@ -48,38 +50,75 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: SQL interpolation guard
+        run: npm run sql:guard
+
+      - name: Generate ephemeral CI secrets
+        run: |
+          {
+            echo "E2E_REDIS_PASSWORD=$(openssl rand -hex 12)"
+            echo "E2E_REDIS_PASSWORD_WRONG=$(openssl rand -hex 12)"
+            echo "E2E_INVITE_PEPPER_B64=$(openssl rand -base64 32 | tr -d '\n')"
+            echo "E2E_MEK_B64=$(openssl rand -base64 32 | tr -d '\n')"
+            echo "E2E_WEBHOOK_SECRET=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+
       - name: Unit tests
         run: npm run test
+
+
+      - name: Start Redis (auth enabled)
+        run: docker run -d --name groceryclaw-ci-redis -p 6379:6379 redis:7-alpine redis-server --requirepass "$E2E_REDIS_PASSWORD" --save '' --appendonly no
+
+      - name: Redis auth integration gate
+        env:
+          REDIS_URL: redis://:${{ env.E2E_REDIS_PASSWORD }}@127.0.0.1:6379/0
+          REDIS_URL_WRONG: redis://:${{ env.E2E_REDIS_PASSWORD_WRONG }}@127.0.0.1:6379/0
+        run: npm run test:v2:redis:integration
+
+      - name: Stop Redis
+        if: always()
+        run: docker rm -f groceryclaw-ci-redis || true
 
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Apply V2 migrations
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+          DATABASE_URL: postgresql://postgres:${{ env.CI_POSTGRES_PASSWORD }}@127.0.0.1:5432/groceryclaw_v2_ci
         run: npm run db:v2:migrate
 
       - name: RLS integration gate
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+          DATABASE_URL: postgresql://postgres:${{ env.CI_POSTGRES_PASSWORD }}@127.0.0.1:5432/groceryclaw_v2_ci
         run: npm run db:v2:test:rls
 
       - name: Bootstrap function integration gate
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+          DATABASE_URL: postgresql://postgres:${{ env.CI_POSTGRES_PASSWORD }}@127.0.0.1:5432/groceryclaw_v2_ci
         run: npm run db:v2:test:bootstrap
 
 
+      - name: Real Postgres tenant transaction integration tests
+        env:
+          REAL_DB_TESTS_USE_EXISTING_DB: 'true'
+          DATABASE_URL: postgresql://postgres:${{ env.CI_POSTGRES_PASSWORD }}@127.0.0.1:5432/groceryclaw_v2_ci
+        run: npm run test:v2:db:real:compose
+
+
+
+      - name: Mandatory V2 E2E integration gate
+        run: npm run e2e
+
       - name: Load test harness (light)
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+          DATABASE_URL: postgresql://postgres:${{ env.CI_POSTGRES_PASSWORD }}@127.0.0.1:5432/groceryclaw_v2_ci
           LOAD_REQUIRE_DB: 'true'
         run: npm run load:light
 
       - name: Performance SLO gate
         env:
-          PERF_GATE_REQUIRE_QUEUE_LAG: 'false'
-          PERF_GATE_REQUIRE_DUPLICATE_METRIC: 'false'
+          PERF_GATE_WARN_ONLY: 'false'
         run: npm run perf:gate
 
       - name: Upload load reports
@@ -100,6 +139,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Assert authoritative V2 docs exist
         run: |
           set -euo pipefail
@@ -114,3 +162,18 @@ jobs:
             echo "Forbidden unresolved marker found outside authoritative docs." >&2
             exit 1
           fi
+
+      - name: Docs drift check
+        run: npm run docs:drift:check
+
+      - name: README path check
+        run: npm run readme:paths:check
+
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.4.3'
+
+      - name: Kustomize build gate
+        run: npm run k8s:kustomize:check

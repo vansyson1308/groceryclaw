@@ -43,6 +43,7 @@ services:
       POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
     depends_on:
       postgres:
@@ -78,6 +79,7 @@ services:
       POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
       ADMIN_ENABLED: ${ADMIN_ENABLED:-true}
       ADMIN_OIDC_ISSUER: ${ADMIN_OIDC_ISSUER:-https://issuer.example}
@@ -88,7 +90,7 @@ services:
       ADMIN_BREAKGLASS_API_KEY: ${ADMIN_BREAKGLASS_API_KEY:-}
       ADMIN_BREAKGLASS_SCOPE: ${ADMIN_BREAKGLASS_SCOPE:-read_only}
       ADMIN_TENANT_ENDPOINTS_ENABLED: ${ADMIN_TENANT_ENDPOINTS_ENABLED:-true}
-      ADMIN_INVITE_PEPPER: ${ADMIN_INVITE_PEPPER:-replace-me}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
       ADMIN_INVITE_TTL_HOURS: ${ADMIN_INVITE_TTL_HOURS:-72}
       ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE: ${ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE:-10}
       ADMIN_SECRETS_ENABLED: ${ADMIN_SECRETS_ENABLED:-true}
@@ -122,15 +124,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WORKER_HOST: ${WORKER_HOST:-0.0.0.0}
       WORKER_PORT: ${WORKER_PORT:-3002}
+      WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-3002}
+      WORKER_HEALTH_SERVER_ENABLED: ${WORKER_HEALTH_SERVER_ENABLED:-true}
       POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       WORKER_METRICS_HOST: 127.0.0.1
       WORKER_METRICS_PORT: 9090
       WORKER_CONCURRENCY: 5
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}
       WORKER_XML_PARSE_ENABLED: ${WORKER_XML_PARSE_ENABLED:-true}
       WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-zalo.me,zadn.vn}
       WORKER_XML_MAX_BYTES: ${WORKER_XML_MAX_BYTES:-1048576}
@@ -156,7 +157,13 @@ services:
     networks:
       - v2_private
     healthcheck:
-      test: ["CMD", "node", "-e", "process.exit(0)"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:' + (process.env.WORKER_HEALTH_PORT || process.env.WORKER_PORT || '3002') + '/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

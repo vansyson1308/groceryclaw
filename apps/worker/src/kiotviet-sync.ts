@@ -4,14 +4,10 @@ import { runTenantScopedTransaction } from './db-session.js';
 import type { KiotvietAdapter } from './kiotviet-adapter.js';
 import { isRetriableKiotvietError } from './kiotviet-adapter.js';
 
-function sqlQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 export interface KiotvietSyncDeps {
-  readonly queryOne: (sql: string) => Promise<string>;
-  readonly queryMany: (sql: string) => Promise<string[]>;
-  readonly exec: (sql: string) => Promise<void>;
+  readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
+  readonly queryMany: (sql: string, params?: readonly unknown[]) => Promise<string[]>;
+  readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
   readonly adapter: KiotvietAdapter;
   readonly syncEnabled: boolean;
   readonly maxRetries: number;
@@ -43,8 +39,8 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
   if (!deps.syncEnabled) {
     await deps.exec(`
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
-      VALUES (${sqlQuote(job.tenant_id)}::uuid, ${sqlQuote(job.canonical_invoice_id)}::uuid, 'kiotviet', 'skipped', '{"reason":"sync_disabled"}'::jsonb);
-    `);
+      VALUES ($1::uuid, $2::uuid, 'kiotviet', 'skipped', '{"reason":"sync_disabled"}'::jsonb);
+    `, [job.tenant_id, job.canonical_invoice_id]);
     return;
   }
 
@@ -52,28 +48,28 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
   const existing = await deps.queryOne(`
     SELECT metadata::text
     FROM idempotency_keys
-    WHERE tenant_id = ${sqlQuote(job.tenant_id)}::uuid
+    WHERE tenant_id = $1::uuid
       AND key_scope = 'kiotviet_sync'
-      AND key_value = ${sqlQuote(sideEffectKey)}
+      AND key_value = $2
     LIMIT 1;
-  `);
+  `, [job.tenant_id, sideEffectKey]);
 
   if (existing.trim()) {
     await deps.exec(`
       INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
-      VALUES (${sqlQuote(job.tenant_id)}::uuid, 'system', 'worker', 'kiotviet_sync_idempotent_hit', 'canonical_invoices', ${sqlQuote(job.canonical_invoice_id)}, '{}'::jsonb);
-    `);
+      VALUES ($1::uuid, 'system', 'worker', 'kiotviet_sync_idempotent_hit', 'canonical_invoices', $2, '{}'::jsonb);
+    `, [job.tenant_id, job.canonical_invoice_id]);
     return;
   }
 
   const resolvedRows = await deps.queryMany(`
     SELECT resolved_sku || '|' || quantity::text
     FROM resolved_invoice_items
-    WHERE tenant_id = ${sqlQuote(job.tenant_id)}::uuid
-      AND canonical_invoice_id = ${sqlQuote(job.canonical_invoice_id)}::uuid
+    WHERE tenant_id = $1::uuid
+      AND canonical_invoice_id = $2::uuid
       AND status = 'resolved'
     ORDER BY id ASC;
-  `);
+  `, [job.tenant_id, job.canonical_invoice_id]);
 
   const items = resolvedRows
     .map((line) => line.trim())
@@ -87,8 +83,8 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
   if (items.length === 0) {
     await deps.exec(`
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
-      VALUES (${sqlQuote(job.tenant_id)}::uuid, ${sqlQuote(job.canonical_invoice_id)}::uuid, 'kiotviet', 'failed', '{"reason":"no_resolved_items"}'::jsonb);
-    `);
+      VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"no_resolved_items"}'::jsonb);
+    `, [job.tenant_id, job.canonical_invoice_id]);
     return;
   }
 
@@ -97,12 +93,12 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
     const secretRow = await deps.queryOne(`
       SELECT encode(encrypted_dek, 'hex') || '|' || encode(encrypted_value, 'hex') || '|' || encode(dek_nonce, 'hex') || '|' || encode(value_nonce, 'hex')
       FROM secret_versions
-      WHERE tenant_id = ${sqlQuote(job.tenant_id)}::uuid
+      WHERE tenant_id = $1::uuid
         AND secret_type = 'kiotviet_token'
         AND status = 'active'
       ORDER BY version DESC
       LIMIT 1;
-    `);
+    `, [job.tenant_id]);
 
     const line = secretRow.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
     if (line) {
@@ -120,14 +116,8 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
   if (deps.mekB64 && !secretToken) {
     await deps.exec(`
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
-      VALUES (
-        ${sqlQuote(job.tenant_id)}::uuid,
-        ${sqlQuote(job.canonical_invoice_id)}::uuid,
-        'kiotviet',
-        'failed',
-        '{"reason":"missing_active_secret"}'::jsonb
-      );
-    `);
+      VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"missing_active_secret"}'::jsonb);
+    `, [job.tenant_id, job.canonical_invoice_id]);
     return;
   }
 
@@ -151,39 +141,24 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
           await deps.exec(`
             INSERT INTO idempotency_keys (tenant_id, key_scope, key_value, status, metadata)
             VALUES (
-              ${sqlQuote(job.tenant_id as string)}::uuid,
+              $1::uuid,
               'kiotviet_sync',
-              ${sqlQuote(sideEffectKey)},
+              $2,
               'consumed',
-              ${sqlQuote(JSON.stringify({ external_reference_id: response.externalReferenceId, payload_hash: payloadHash }))}::jsonb
+              $3::jsonb
             )
             ON CONFLICT (tenant_id, key_scope, key_value) DO NOTHING;
-          `);
+          `, [job.tenant_id as string, sideEffectKey, JSON.stringify({ external_reference_id: response.externalReferenceId, payload_hash: payloadHash })]);
 
           await deps.exec(`
             INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, external_reference_id, status, payload)
-            VALUES (
-              ${sqlQuote(job.tenant_id as string)}::uuid,
-              ${sqlQuote(job.canonical_invoice_id as string)}::uuid,
-              'kiotviet',
-              ${sqlQuote(response.externalReferenceId)},
-              'success',
-              ${sqlQuote(JSON.stringify(response.raw))}::jsonb
-            );
-          `);
+            VALUES ($1::uuid, $2::uuid, 'kiotviet', $3, 'success', $4::jsonb);
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, response.externalReferenceId, JSON.stringify(response.raw)]);
 
           await deps.exec(`
             INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
-            VALUES (
-              ${sqlQuote(job.tenant_id as string)}::uuid,
-              'system',
-              'worker',
-              'kiotviet_sync_success',
-              'canonical_invoices',
-              ${sqlQuote(job.canonical_invoice_id as string)},
-              ${sqlQuote(JSON.stringify({ external_reference_id: response.externalReferenceId }))}::jsonb
-            );
-          `);
+            VALUES ($1::uuid, 'system', 'worker', 'kiotviet_sync_success', 'canonical_invoices', $2, $3::jsonb);
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ external_reference_id: response.externalReferenceId })]);
         }
       });
       return;
@@ -199,12 +174,6 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
 
   await deps.exec(`
     INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
-    VALUES (
-      ${sqlQuote(job.tenant_id)}::uuid,
-      ${sqlQuote(job.canonical_invoice_id)}::uuid,
-      'kiotviet',
-      'failed',
-      ${sqlQuote(JSON.stringify({ reason: lastError }))}::jsonb
-    );
-  `);
+    VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', $3::jsonb);
+  `, [job.tenant_id, job.canonical_invoice_id, JSON.stringify({ reason: lastError })]);
 }

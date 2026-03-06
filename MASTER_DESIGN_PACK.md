@@ -850,7 +850,7 @@ TEST: "RLS applies to all tenant-scoped tables"
 | `pending_notifications` (expired) | 7 days | Delete where expires_at < now() - 7 days |
 | `invite_codes` (used/revoked or past `expires_at`) | 30 days | Delete codes where `(status IN ('used','revoked') OR expires_at < now()) AND created_at < now() - 30 days` |
 | MinIO raw files | 90 days | Lifecycle policy |
-| Redis job data | 7 days | BullMQ TTL |
+| Redis job data | 7 days | Queue retention handled by app + Redis persistence policy |
 
 ### 3.4 Migrations
 
@@ -1044,16 +1044,24 @@ POST   /admin/tenants/:id/secrets/revoke      — Revoke a specific version
 | TLS termination | 5 ms | Nginx/Caddy |
 | HMAC signature verification | 2 ms | crypto.timingSafeEqual |
 | Timestamp check | 1 ms | Arithmetic comparison |
-| Fastify routing + schema validation | 10 ms | Zod |
+| Node `http` routing + schema validation | 10 ms | Built-in `node:http` + Zod |
 | Tenant resolution (Redis → PG fallback) | 8 ms | zalo_users + tenant_users lookup |
 | Update last_interaction_at | 3 ms | Async (non-blocking for ACK) |
 | Flush pending notifications check | 3 ms | Async (non-blocking) |
 | INSERT inbound_event | 15 ms | PG with unique check |
-| Enqueue BullMQ job | 5 ms | Redis LPUSH |
+| Enqueue Redis queue job | 5 ms | Redis `RPUSH` (`bullmq-lite`) |
 | Response serialization | 3 ms | |
 | **Total** | **55 ms** | **145 ms headroom** |
 
 **Note:** `last_interaction_at` update and pending flush are fire-and-forget; they MUST NOT block the 200 response.
+
+
+### 5.2a Runtime readiness contract (implemented)
+
+- Gateway, Admin, and Worker expose `GET /healthz` (process-up) and `GET /readyz` (dependency-ready).
+- `/readyz` is strict by default and returns **503** when Postgres (`SELECT 1`) or Redis (`PING`) checks fail within timeout budget.
+- Worker health/readiness is served on dedicated `WORKER_HEALTH_PORT` (default `3002`), separate from metrics (`9090`).
+- Deployment probes (compose + k8s) MUST target `/healthz` and `/readyz` on each service's health port, not metrics endpoints.
 
 ### 5.3–5.5 Capacity Model, Autoscaling
 
@@ -1653,8 +1661,8 @@ curl -H "X-Break-Glass-Key: $BREAK_GLASS_KEY" http://admin:3001/admin/tenants
 
 | ADR | Decision | Tradeoff |
 |---|---|---|
-| A1 | Fastify over Express | Faster; smaller ecosystem |
-| A2 | BullMQ + Redis over RabbitMQ/Kafka | Native Node.js; no durable log |
+| A1 | Node `http` server over Fastify/Express | Minimal runtime dependencies; explicit route handling |
+| A2 | Redis list queue (`bullmq-lite`) over RabbitMQ/Kafka | Minimal operational footprint; app-managed retry/DLQ semantics |
 | A3 | PostgreSQL over MySQL | JSONB, RLS, richer indexing |
 | A4 | Drizzle ORM over Prisma/TypeORM | Lightweight, type-safe |
 | A5 | Monorepo with Turborepo | Shared types; slightly complex setup |

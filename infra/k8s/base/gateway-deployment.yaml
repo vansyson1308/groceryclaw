@@ -28,15 +28,17 @@ spec:
           ports:
             - containerPort: 8080
               name: http
+            - containerPort: 9100
+              name: metrics
           envFrom:
             - configMapRef:
                 name: app-config
           env:
-            - name: POSTGRES_URL
+            - name: DB_APP_URL
               valueFrom:
                 secretKeyRef:
                   name: app-secrets
-                  key: POSTGRES_URL
+                  key: DB_APP_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -47,11 +49,18 @@ spec:
                 secretKeyRef:
                   name: app-secrets
                   key: WEBHOOK_SIGNATURE_SECRET
-            - name: ADMIN_INVITE_PEPPER
+            - name: INVITE_PEPPER_B64
               valueFrom:
                 secretKeyRef:
                   name: app-secrets
-                  key: ADMIN_INVITE_PEPPER
+                  key: INVITE_PEPPER_B64
+            - name: GATEWAY_METRICS_HOST
+              value: "0.0.0.0"
+            - name: GATEWAY_METRICS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: GATEWAY_METRICS_PORT
             - name: ADMIN_MEK_B64
               valueFrom:
                 secretKeyRef:

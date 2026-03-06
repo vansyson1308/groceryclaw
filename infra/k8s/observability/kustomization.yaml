@@ -1,5 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - service-monitor-worker.yaml
-  - prometheus-rules-v2.yaml
+  - servicemonitors.yaml
+  - prometheusrules.yaml

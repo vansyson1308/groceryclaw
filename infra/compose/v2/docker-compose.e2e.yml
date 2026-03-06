@@ -1,0 +1,65 @@
+services:
+  gateway:
+    environment:
+      WEBHOOK_VERIFY_MODE: ${WEBHOOK_VERIFY_MODE:-mode1}
+      WEBHOOK_SIGNATURE_SECRET: ${WEBHOOK_SIGNATURE_SECRET:-stub-webhook-secret-set-at-runtime}
+      READYZ_STRICT: 'true'
+    ports: []
+
+
+  worker:
+    environment:
+      WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-xml-stub}
+      ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://zalo-stub:18081}
+      ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-stub-zalo-token-set-at-runtime}
+      KIOTVIET_STUB_BASE_URL: ${KIOTVIET_STUB_BASE_URL:-http://kiotviet-stub:18080}
+      KIOTVIET_STUB_TOKEN: ${KIOTVIET_STUB_TOKEN:-stub-kiotviet-token-set-at-runtime}
+      READYZ_STRICT: 'true'
+
+  xml-stub:
+    image: node:20-bookworm-slim
+    command:
+      - node
+      - -e
+      - |
+        require('http').createServer((req,res)=>{
+          if(req.url==='/invoice.xml'){res.writeHead(200,{'content-type':'application/xml'});res.end('<invoice><supplierCode>S1</supplierCode><invoiceNumber>INV-001</invoiceNumber><invoiceDate>2026-01-01</invoiceDate><currency>VND</currency><subtotal>100</subtotal><taxTotal>10</taxTotal><total>110</total><items><item><name>Item A</name><qty>2</qty><unitPrice>50</unitPrice><lineTotal>100</lineTotal></item></items></invoice>');return;}
+          res.writeHead(404);res.end('not_found');
+        }).listen(18082,'0.0.0.0')
+    networks:
+      - v2_private
+
+  kiotviet-stub:
+    image: node:20-bookworm-slim
+    command:
+      - node
+      - -e
+      - |
+        require('http').createServer((req,res)=>{
+          if(req.method==='POST'&&req.url==='/kiotviet/import-draft'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({external_reference_id:'kv-e2e-1',raw:{ok:true}}));return;}
+          res.writeHead(404);res.end('not_found');
+        }).listen(18080,'0.0.0.0')
+    networks:
+      - v2_private
+
+  zalo-stub:
+    image: node:20-bookworm-slim
+    command:
+      - node
+      - -e
+      - |
+        const fs=require('fs');
+        const log='/tmp/zalo-send.log';
+        require('http').createServer((req,res)=>{
+          if(req.method==='POST'&&req.url==='/zalo/send'){
+            let body=''; req.on('data',c=>body+=c); req.on('end',()=>{fs.appendFileSync(log, body+'\n');res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({message_id:'stub-zalo-1'}));});
+            return;
+          }
+          if(req.method==='GET'&&req.url==='/_sent_count'){
+            const count=fs.existsSync(log)?fs.readFileSync(log,'utf8').trim().split('\n').filter(Boolean).length:0;
+            res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({count}));return;
+          }
+          res.writeHead(404);res.end('not_found');
+        }).listen(18081,'0.0.0.0')
+    networks:
+      - v2_private

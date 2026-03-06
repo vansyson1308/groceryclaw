@@ -32,7 +32,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: app-secrets
-                  key: POSTGRES_URL
+                  key: DB_ADMIN_URL
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

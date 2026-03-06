@@ -1,9 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import {
   createLogger,
+  createPgPool,
+  query,
+  runTenantScopedTransaction,
+  loadRedisConfig,
+  dbPing,
+  redisPing,
   InMemoryTokenBucketRateLimiter,
   loadBaseConfig,
-  Pool,
   Queue,
   Worker,
   NotifierOutboundRateLimiter,
@@ -11,6 +16,7 @@ import {
   type WorkerJobEnvelope
 } from '../../../packages/common/dist/index.js';
 import { recordJobDurationByType, recordJobFailure, recordJobSuccess, recordQueueLag, startWorkerMetricsServer } from './metrics.js';
+import { startWorkerHealthServer } from './health-server.js';
 import { processInboundEventPipeline } from './process-inbound.js';
 import { processMapResolve } from './mapping-resolve.js';
 import { HttpKiotvietAdapter } from './kiotviet-adapter.js';
@@ -29,22 +35,34 @@ const metricsHost = process.env.WORKER_METRICS_HOST ?? '127.0.0.1';
 const metricsPort = Number(process.env.WORKER_METRICS_PORT ?? '9090');
 const dbCmd = process.env.WORKER_DB_CMD ?? process.env.GATEWAY_DB_CMD ?? '';
 const queueCmd = process.env.WORKER_QUEUE_CMD ?? '';
-const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+const postgresUrl = process.env.DB_APP_URL ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+const workerUsePg = (process.env.WORKER_USE_PG ?? 'true') === 'true';
 
-const redisHost = process.env.REDIS_HOST ?? 'redis';
-const redisPort = Number(process.env.REDIS_PORT ?? '6379');
-const redisPassword = process.env.REDIS_PASSWORD ?? '';
+const redisConfig = loadRedisConfig({
+  onWarning: (message) => logger.warn('worker_redis_config_deprecated', { message })
+});
 const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
+const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
+const workerHealthServerEnabled = (process.env.WORKER_HEALTH_SERVER_ENABLED ?? 'true') === 'true';
+const workerHealthPort = Number(process.env.WORKER_HEALTH_PORT ?? process.env.WORKER_PORT ?? '3002');
 const defaultAttempts = Number(process.env.NOTIFIER_MAX_ATTEMPTS ?? '4');
 
-const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
+const pgPool = (postgresUrl && workerUsePg)
+  ? await createPgPool({
+      connectionString: postgresUrl,
+      applicationName: 'worker',
+      statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
+    })
+  : null;
 const queue = (() => {
   if (process.env.NODE_ENV === 'test') return null;
   return new Queue(queueName, {
     connection: {
-      host: redisHost,
-      port: redisPort,
-      ...(redisPassword ? { password: redisPassword } : {})
+      host: redisConfig.host,
+      port: redisConfig.port,
+      db: redisConfig.db,
+      ...(redisConfig.password ? { password: redisConfig.password } : {})
     }
   });
 })();
@@ -71,9 +89,9 @@ function runCmdAdapter(command: string, input: string): string {
   return result.stdout.trim();
 }
 
-async function runSql(sql: string): Promise<void> {
+async function runSql(sql: string, params: readonly unknown[] = []): Promise<void> {
   if (pgPool) {
-    await pgPool.query(sql);
+    await query(pgPool, sql, params);
     return;
   }
   if (process.env.NODE_ENV === 'test' && dbCmd) {
@@ -83,9 +101,9 @@ async function runSql(sql: string): Promise<void> {
   throw new Error('worker_db_not_configured');
 }
 
-async function runQueryOne(sql: string): Promise<string> {
+async function runQueryOne(sql: string, params: readonly unknown[] = []): Promise<string> {
   if (pgPool) {
-    const result = await pgPool.query(sql);
+    const result = await query(pgPool, sql, params);
     if (result.rows.length === 0) return '';
     const row = result.rows[0] ?? {};
     return Object.values(row).join('|').trim();
@@ -96,8 +114,8 @@ async function runQueryOne(sql: string): Promise<string> {
   return '';
 }
 
-async function runQueryMany(sql: string): Promise<string[]> {
-  const out = await runQueryOne(sql);
+async function runQueryMany(sql: string, params: readonly unknown[] = []): Promise<string[]> {
+  const out = await runQueryOne(sql, params);
   return out.split('\n').map((x) => x.trim()).filter(Boolean);
 }
 
@@ -124,6 +142,28 @@ async function processInboundEvent(job: WorkerJobEnvelope): Promise<void> {
   await processInboundEventPipeline({
     queryOne: runQueryOne,
     exec: runSql,
+    runInTenantTransaction: async (tenantId, jobType, work) => {
+      if (!pgPool) {
+        return work({ queryOne: runQueryOne, exec: runSql });
+      }
+
+      return runTenantScopedTransaction({
+        pool: pgPool,
+        tenantId,
+        applicationName: `worker:${jobType}`,
+        work: async (client) => work({
+          queryOne: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            if (result.rows.length === 0) return '';
+            const row = result.rows[0] ?? {};
+            return Object.values(row).join('|').trim();
+          },
+          exec: async (sql, params = []) => {
+            await query(client, sql, params);
+          }
+        })
+      });
+    },
     enqueue,
     xmlParseEnabled: (process.env.WORKER_XML_PARSE_ENABLED ?? 'true') === 'true',
     allowedDomains: (process.env.WORKER_XML_ALLOWED_DOMAINS ?? 'zalo.me,zadn.vn').split(',').map((x) => x.trim()).filter(Boolean),
@@ -202,6 +242,16 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
   }, job);
 }
 
+async function checkReady(): Promise<boolean> {
+  if (!readyzStrict) {
+    return true;
+  }
+
+  const dbOk = pgPool ? await dbPing(pgPool, readyzTimeoutMs) : false;
+  const redisOk = await redisPing(redisConfig, readyzTimeoutMs);
+  return dbOk && redisOk;
+}
+
 function getQueueLagMs(rawData: unknown): number | null {
   if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null;
   const enqueuedAt = (rawData as Record<string, unknown>).enqueued_at_ms;
@@ -258,12 +308,13 @@ async function runWithFailureAccounting(rawData: unknown): Promise<void> {
 }
 
 async function startBullMqWorker() {
-  const connection: { host: string; port: number; password?: string } = {
-    host: redisHost,
-    port: redisPort
+  const connection: { host: string; port: number; db?: number; password?: string } = {
+    host: redisConfig.host,
+    port: redisConfig.port,
+    db: redisConfig.db
   };
-  if (redisPassword) {
-    connection.password = redisPassword;
+  if (redisConfig.password) {
+    connection.password = redisConfig.password;
   }
 
   const worker = new Worker(queueName, async (job: { data: unknown; attemptsMade?: number; opts?: { attempts?: number } }) => {
@@ -312,11 +363,15 @@ async function startBullMqWorker() {
 }
 
 startWorkerMetricsServer(metricsHost, metricsPort);
+if (workerHealthServerEnabled) {
+  startWorkerHealthServer({ host: config.host, port: workerHealthPort, isReady: checkReady });
+}
 logger.info('worker startup', {
   host: config.host,
-  port: config.port,
+  port: workerHealthPort,
   metrics_host: metricsHost,
-  metrics_port: metricsPort
+  metrics_port: metricsPort,
+  health_server_enabled: workerHealthServerEnabled
 });
 
 startBullMqWorker().catch((error) => {
