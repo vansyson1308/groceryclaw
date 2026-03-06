@@ -43,3 +43,35 @@ spec:
     - name: metrics
       port: 9090
       targetPort: metrics
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-metrics
+  labels:
+    app.kubernetes.io/component: gateway-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: gateway
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-metrics
+  labels:
+    app.kubernetes.io/component: admin-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: admin
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: metrics

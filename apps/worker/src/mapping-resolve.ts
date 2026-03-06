@@ -1,14 +1,10 @@
 import type { WorkerJobEnvelope } from '../../../packages/common/dist/index.js';
 import { runTenantScopedTransaction } from './db-session.js';
 
-function sqlQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 export interface MappingDeps {
-  readonly queryOne: (sql: string) => Promise<string>;
-  readonly queryMany: (sql: string) => Promise<string[]>;
-  readonly exec: (sql: string) => Promise<void>;
+  readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
+  readonly queryMany: (sql: string, params?: readonly unknown[]) => Promise<string[]>;
+  readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
   readonly enqueue: (payload: Record<string, unknown>) => Promise<void>;
   readonly mappingEnabled: boolean;
 }
@@ -48,9 +44,9 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       'uom', cii.uom
     )::text
     FROM canonical_invoice_items cii
-    WHERE cii.canonical_invoice_id = ${sqlQuote(job.canonical_invoice_id)}::uuid
+    WHERE cii.canonical_invoice_id = $1::uuid
     ORDER BY cii.line_no ASC;
-  `);
+  `, [job.canonical_invoice_id]);
 
   const canonicalItems = canonicalItemsRaw.map(parseItem).filter((x): x is CanonicalItem => Boolean(x));
 
@@ -67,10 +63,10 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
           const aliasSku = await deps.queryOne(`
             SELECT target_sku
             FROM mapping_dictionary
-            WHERE tenant_id = ${sqlQuote(job.tenant_id as string)}::uuid
-              AND lower(alias_text) = lower(${sqlQuote(item.product_name)})
+            WHERE tenant_id = $1::uuid
+              AND lower(alias_text) = lower($2)
             LIMIT 1;
-          `);
+          `, [job.tenant_id as string, item.product_name]);
           resolvedSku = aliasSku.trim() || null;
         }
 
@@ -79,52 +75,29 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
           await deps.exec(`
             INSERT INTO resolved_invoice_items (
               tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-            ) VALUES (
-              ${sqlQuote(job.tenant_id as string)}::uuid,
-              ${sqlQuote(job.canonical_invoice_id as string)}::uuid,
-              ${sqlQuote(item.id)}::uuid,
-              'unresolved',
-              ${item.quantity},
-              'mapping_not_found'
-            )
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
             ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
-          `);
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
           continue;
         }
 
         await deps.exec(`
           INSERT INTO resolved_invoice_items (
             tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
-          ) VALUES (
-            ${sqlQuote(job.tenant_id as string)}::uuid,
-            ${sqlQuote(job.canonical_invoice_id as string)}::uuid,
-            ${sqlQuote(item.id)}::uuid,
-            'resolved',
-            ${sqlQuote(resolvedSku)},
-            ${item.uom ? sqlQuote(item.uom) : 'NULL'},
-            ${item.quantity}
-          )
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'resolved', $4, $5, $6)
           ON CONFLICT (canonical_item_id) DO UPDATE SET
             status = 'resolved',
             resolved_sku = EXCLUDED.resolved_sku,
             resolved_unit = EXCLUDED.resolved_unit,
             quantity = EXCLUDED.quantity,
             unresolved_reason = NULL;
-        `);
+        `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, resolvedSku, item.uom ?? null, item.quantity]);
       }
 
       await deps.exec(`
         INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
-        VALUES (
-          ${sqlQuote(job.tenant_id as string)}::uuid,
-          'system',
-          'worker',
-          'mapping_resolve',
-          'canonical_invoices',
-          ${sqlQuote(job.canonical_invoice_id as string)},
-          ${sqlQuote(JSON.stringify({ unresolved_count: unresolved.length }))}::jsonb
-        );
-      `);
+        VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
+      `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
     }
   });
 

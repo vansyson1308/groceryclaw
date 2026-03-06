@@ -97,7 +97,7 @@ test('admin tenant + invite endpoints enforce auth/rbac and avoid plaintext stor
     ADMIN_DB_CMD: 'node tests/v2/integration/fake-admin-db.mjs',
     FAKE_ADMIN_AUDIT_FILE: auditFile,
     FAKE_ADMIN_STATE_FILE: stateFile,
-    ADMIN_INVITE_PEPPER: 'test-pepper',
+    INVITE_PEPPER_B64: Buffer.from('test-pepper', 'utf8').toString('base64'),
     ADMIN_INVITE_TTL_HOURS: '72',
     ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE: '2'
   });

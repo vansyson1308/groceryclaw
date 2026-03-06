@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { createLogger, encryptPayload, InMemoryTokenBucketRateLimiter, loadBaseConfig, Pool } from '../../../packages/common/dist/index.js';
+import { computeInviteCodeHashHex, createLogger, createPgPool, dbPing, encryptPayload, getSecurityHeaders, InMemoryTokenBucketRateLimiter, loadBaseConfig, loadRedisConfig, loadSecurityHeadersConfig, normalizeInviteCode, query, redisPing } from '../../../packages/common/dist/index.js';
 import { authenticateRequest, loadAdminAuthConfig, type AdminRole, type AuthenticatedPrincipal } from './auth.js';
 import { isAllowedByRole } from './rbac.js';
 
@@ -13,23 +13,50 @@ const config = loadBaseConfig({
 
 const authConfig = loadAdminAuthConfig(process.env);
 const logger = createLogger({ service: 'admin', level: config.logLevel });
+const redisConfig = loadRedisConfig({
+  onWarning: (message) => logger.warn('admin_redis_config_deprecated', { message })
+});
 const dbCmd = process.env.ADMIN_DB_CMD ?? '';
-const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+const postgresUrl = process.env.DB_ADMIN_URL ?? process.env.DB_APP_URL ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
 const tenantEndpointsEnabled = (process.env.ADMIN_TENANT_ENDPOINTS_ENABLED ?? 'true') === 'true';
-const invitePepper = process.env.ADMIN_INVITE_PEPPER ?? '';
+const invitePepperB64 = process.env.INVITE_PEPPER_B64
+  ?? process.env.ADMIN_INVITE_PEPPER_B64
+  ?? ((process.env.ADMIN_INVITE_PEPPER ?? '').trim() ? Buffer.from(process.env.ADMIN_INVITE_PEPPER ?? '', 'utf8').toString('base64') : '');
+
+
+if (process.env.ADMIN_INVITE_PEPPER && !process.env.INVITE_PEPPER_B64 && !process.env.ADMIN_INVITE_PEPPER_B64) {
+  logger.warn('admin_invite_pepper_deprecated', { message: 'Use INVITE_PEPPER_B64 instead of ADMIN_INVITE_PEPPER' });
+}
 const inviteTtlHours = Number(process.env.ADMIN_INVITE_TTL_HOURS ?? '72');
 const inviteRateLimitPerMinute = Number(process.env.ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE ?? '10');
 const inviteLimiter = new InMemoryTokenBucketRateLimiter(inviteRateLimitPerMinute, inviteRateLimitPerMinute);
 const secretsEnabled = (process.env.ADMIN_SECRETS_ENABLED ?? 'true') === 'true';
 const adminMekB64 = process.env.ADMIN_MEK_B64 ?? '';
-const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
+const pgPool = postgresUrl
+  ? await createPgPool({
+      connectionString: postgresUrl,
+      applicationName: 'admin',
+      statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
+    })
+  : null;
+const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
+const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
+const metricsHost = process.env.ADMIN_METRICS_HOST ?? '0.0.0.0';
+const metricsPort = Number(process.env.ADMIN_METRICS_PORT ?? '9101');
+const securityHeadersConfig = loadSecurityHeadersConfig(process.env);
+logger.debug('admin_redis_config_loaded', {
+  host: redisConfig.host,
+  port: redisConfig.port,
+  db: redisConfig.db,
+  has_password: Boolean(redisConfig.password)
+});
 
 function json(
   res: { writeHead: (status: number, headers?: Record<string, string>) => unknown; end: (body?: string) => void },
   code: number,
   body: Record<string, unknown>
 ) {
-  res.writeHead(code, { 'content-type': 'application/json' });
+  res.writeHead(code, { ...getSecurityHeaders(securityHeadersConfig), 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
@@ -45,14 +72,28 @@ function runCmdAdapter(command: string, input: string): string {
   return result.stdout.trim();
 }
 
-async function runSql(sql: string): Promise<string> {
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function renderSqlForAdapter(sql: string, params: readonly unknown[]): string {
+  return params.reduce<string>((acc, value, index) => {
+    const pattern = new RegExp(`\\$${index + 1}(?!\\d)`, 'g');
+    return acc.replace(pattern, sqlLiteral(value));
+  }, sql);
+}
+
+async function runSql(sql: string, params: readonly unknown[] = []): Promise<string> {
   if (pgPool) {
-    const result = await pgPool.query(sql);
+    const result = await query(pgPool, sql, params);
     if (result.rows.length === 0) return '';
     return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
   }
   if (process.env.NODE_ENV === 'test' && dbCmd) {
-    return runCmdAdapter(dbCmd, sql);
+    return runCmdAdapter(dbCmd, renderSqlForAdapter(sql, params));
   }
   throw new Error('admin_db_not_configured');
 }
@@ -61,20 +102,54 @@ async function writeAdminAudit(principal: AuthenticatedPrincipal, action: string
   try {
     await runSql(`
       INSERT INTO admin_audit_logs (actor_subject, actor_email, auth_mode, action, target_tenant_id, payload, request_id)
-      VALUES (
-        ${sqlQuote(principal.subject)},
-        NULL,
-        ${sqlQuote(principal.authMode === 'break_glass' ? 'break_glass' : 'oidc')},
-        ${sqlQuote(action)},
-        ${targetTenantId ? `${sqlQuote(targetTenantId)}::uuid` : 'NULL'},
-        ${sqlQuote(JSON.stringify(payload))}::jsonb,
-        ${sqlQuote(requestId)}::uuid
-      );
-    `);
+      VALUES ($1, NULL, $2, $3, $4::uuid, $5::jsonb, $6::uuid);
+    `, [
+      principal.subject,
+      principal.authMode === 'break_glass' ? 'break_glass' : 'oidc',
+      action,
+      targetTenantId ?? null,
+      JSON.stringify(payload),
+      requestId
+    ]);
   } catch {
     logger.warn('admin_audit_write_failed', { action, request_id: requestId });
   }
 }
+const metrics = {
+  readyzChecksTotal: 0,
+  readyzFailuresTotal: 0,
+  dbReadyzFailuresTotal: 0,
+  redisReadyzFailuresTotal: 0,
+  requestsTotal: 0,
+  requestFailuresTotal: 0
+};
+
+function renderMetrics(): string {
+  return [
+    '# TYPE groceryclaw_admin_readyz_checks_total counter',
+    `groceryclaw_admin_readyz_checks_total ${metrics.readyzChecksTotal}`,
+    '# TYPE groceryclaw_admin_readyz_failures_total counter',
+    `groceryclaw_admin_readyz_failures_total ${metrics.readyzFailuresTotal}`,
+    '# TYPE groceryclaw_admin_dependency_failures_total counter',
+    `groceryclaw_admin_dependency_failures_total{dependency="db"} ${metrics.dbReadyzFailuresTotal}`,
+    `groceryclaw_admin_dependency_failures_total{dependency="redis"} ${metrics.redisReadyzFailuresTotal}`,
+    '# TYPE groceryclaw_admin_requests_total counter',
+    `groceryclaw_admin_requests_total ${metrics.requestsTotal}`,
+    '# TYPE groceryclaw_admin_request_failures_total counter',
+    `groceryclaw_admin_request_failures_total ${metrics.requestFailuresTotal}`
+  ].join('\n');
+}
+
+const metricsServer = createServer((req, res) => {
+  if (req.method !== 'GET' || req.url !== '/metrics') {
+    res.writeHead(404);
+    res.end('not_found');
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
+  res.end(`${renderMetrics()}\n`);
+});
+
 
 function normalizeHeaders(raw: Record<string, string | string[] | undefined>): Record<string, string | undefined> {
   const normalized: Record<string, string | undefined> = {};
@@ -91,6 +166,17 @@ async function readBody(req: { on: (event: 'data' | 'end' | 'error', listener: (
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+}
+
+
+async function checkReady(): Promise<{ ready: boolean; dbOk: boolean; redisOk: boolean }> {
+  if (!readyzStrict) {
+    return { ready: true, dbOk: true, redisOk: true };
+  }
+
+  const dbOk = pgPool ? await dbPing(pgPool, readyzTimeoutMs) : false;
+  const redisOk = await redisPing(redisConfig, readyzTimeoutMs);
+  return { ready: dbOk && redisOk, dbOk, redisOk };
 }
 
 function parseTenantIdFromPath(pathname: string): string | null {
@@ -146,9 +232,6 @@ function validateSecretRotate(input: unknown): { ok: true; secretType: 'kiotviet
   return { ok: true, secretType, payload: secretPayload as Record<string, unknown> };
 }
 
-function normalizeInviteCode(code: string): string {
-  return code.trim().replace(/[\s-]/g, '').toUpperCase();
-}
 
 function generateInviteCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -158,10 +241,6 @@ function generateInviteCode(): string {
     code += alphabet[idx] ?? 'A';
   }
   return code;
-}
-
-function hashInviteCode(code: string, pepper: string): string {
-  return createHash('sha256').update(`${normalizeInviteCode(code)}:${pepper}`).digest('hex');
 }
 
 async function authorize(
@@ -202,8 +281,20 @@ function tenantStatusFromEnabled(enabled: boolean): 'active' | 'suspended' {
 const server = createServer(async (req, res) => {
   const requestId = (((req.headers ?? {})['x-request-id'] as string | undefined) ?? randomUUID());
 
-  if ((req.method === 'GET') && (req.url === '/healthz' || req.url === '/readyz')) {
+  if ((req.method === 'GET') && req.url === '/healthz') {
     json(res, 200, { status: 'ok', service: 'admin' });
+    return;
+  }
+
+  if ((req.method === 'GET') && req.url === '/readyz') {
+    const ready = await checkReady();
+    metrics.readyzChecksTotal += 1;
+    if (!ready.ready) {
+      metrics.readyzFailuresTotal += 1;
+      if (!ready.dbOk) metrics.dbReadyzFailuresTotal += 1;
+      if (!ready.redisOk) metrics.redisReadyzFailuresTotal += 1;
+    }
+    json(res, ready.ready ? 200 : 503, { status: ready.ready ? 'ok' : 'not_ready', service: 'admin' });
     return;
   }
 
@@ -261,15 +352,9 @@ const server = createServer(async (req, res) => {
 
       const result = await runSql(`
         INSERT INTO tenants (name, kiotviet_retailer, processing_mode, status, config)
-        VALUES (
-          ${sqlQuote(parsed.name)},
-          ${sqlQuote(parsed.code)},
-          'legacy',
-          'active',
-          ${sqlQuote(JSON.stringify(parsed.metadata))}::jsonb
-        )
+        VALUES ($1, $2, 'legacy', 'active', $3::jsonb)
         RETURNING id::text, name, processing_mode, status;
-      `);
+      `, [parsed.name, parsed.code, JSON.stringify(parsed.metadata)]);
 
       const line = result.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) {
@@ -302,9 +387,9 @@ const server = createServer(async (req, res) => {
       const result = await runSql(`
         SELECT id::text, name, processing_mode, status, config::text
         FROM tenants
-        WHERE id = ${sqlQuote(tenantId)}::uuid
+        WHERE id = $1::uuid
         LIMIT 1;
-      `);
+      `, [tenantId]);
 
       const line = result.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) {
@@ -339,23 +424,21 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const setClauses: string[] = ['updated_at = now()'];
-      if (parsed.processingMode) {
-        setClauses.push(`processing_mode = ${sqlQuote(parsed.processingMode)}`);
-      }
-      if (parsed.enabled !== undefined) {
-        setClauses.push(`status = ${sqlQuote(tenantStatusFromEnabled(parsed.enabled))}`);
-      }
-      if (parsed.metadata) {
-        setClauses.push(`config = ${sqlQuote(JSON.stringify(parsed.metadata))}::jsonb`);
-      }
-
       const result = await runSql(`
         UPDATE tenants
-        SET ${setClauses.join(', ')}
-        WHERE id = ${sqlQuote(tenantId)}::uuid
+        SET
+          processing_mode = COALESCE($1::text, processing_mode),
+          status = COALESCE($2::text, status),
+          config = COALESCE($3::jsonb, config),
+          updated_at = now()
+        WHERE id = $4::uuid
         RETURNING id::text, processing_mode, status, config::text;
-      `);
+      `, [
+        parsed.processingMode ?? null,
+        parsed.enabled !== undefined ? tenantStatusFromEnabled(parsed.enabled) : null,
+        parsed.metadata ? JSON.stringify(parsed.metadata) : null,
+        tenantId
+      ]);
 
       const line = result.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) {
@@ -390,7 +473,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      if (!invitePepper) {
+      if (!invitePepperB64) {
         json(res, 503, { error: 'service_unavailable' });
         return;
       }
@@ -403,21 +486,21 @@ const server = createServer(async (req, res) => {
 
       const code = generateInviteCode();
       const normalized = normalizeInviteCode(code);
-      const codeHashHex = hashInviteCode(normalized, invitePepper);
+      const codeHashHex = computeInviteCodeHashHex(normalized, invitePepperB64);
       const codeHint = `${normalized.slice(0, 2)}****${normalized.slice(-2)}`;
 
       const result = await runSql(`
         INSERT INTO invite_codes (tenant_id, code_hash, code_hint, target_role, status, expires_at)
         VALUES (
-          ${sqlQuote(tenantId)}::uuid,
-          decode(${sqlQuote(codeHashHex)}, 'hex'),
-          ${sqlQuote(codeHint)},
+          $1::uuid,
+          decode($2, 'hex'),
+          $3,
           'staff',
           'active',
-          now() + make_interval(hours => ${inviteTtlHours})
+          now() + make_interval(hours => $4)
         )
         RETURNING id::text, expires_at::text, status, target_role;
-      `);
+      `, [tenantId, codeHashHex, codeHint, inviteTtlHours]);
 
       const line = result.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) {
@@ -463,10 +546,10 @@ const server = createServer(async (req, res) => {
       const out = await runSql(`
         SELECT id::text || '|' || status || '|' || target_role || '|' || code_hint || '|' || expires_at::text
         FROM invite_codes
-        WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
+        WHERE tenant_id = $1::uuid
         ORDER BY created_at DESC
         LIMIT 100;
-      `);
+      `, [tenantId]);
 
       const invites = out.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
         const [id, status, targetRole, codeHint, expiresAt] = line.split('|');
@@ -513,9 +596,9 @@ const server = createServer(async (req, res) => {
       const existingVersionOut = await runSql(`
         SELECT COALESCE(MAX(version), 0)::text
         FROM secret_versions
-        WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
-          AND secret_type = ${sqlQuote(parsed.secretType)};
-      `);
+        WHERE tenant_id = $1::uuid
+          AND secret_type = $2;
+      `, [tenantId, parsed.secretType]);
       const maxVersion = Number(existingVersionOut.split('\n').map((x) => x.trim()).find((x) => /^\d+$/.test(x)) ?? '0');
       const nextVersion = maxVersion + 1;
 
@@ -525,28 +608,28 @@ const server = createServer(async (req, res) => {
       const dekNonceHex = encrypted.dekNonce.toString('hex');
       const valueNonceHex = encrypted.valueNonce.toString('hex');
 
-      const out = await runSql(`
-        BEGIN;
+      await runSql(`
         UPDATE secret_versions
         SET status = 'rotated', rotated_at = now()
-        WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
-          AND secret_type = ${sqlQuote(parsed.secretType)}
+        WHERE tenant_id = $1::uuid
+          AND secret_type = $2
           AND status = 'active';
+      `, [tenantId, parsed.secretType]);
 
+      const out = await runSql(`
         INSERT INTO secret_versions (tenant_id, secret_type, version, encrypted_dek, encrypted_value, dek_nonce, value_nonce, status)
         VALUES (
-          ${sqlQuote(tenantId)}::uuid,
-          ${sqlQuote(parsed.secretType)},
-          ${nextVersion},
-          decode(${sqlQuote(encryptedDekHex)}, 'hex'),
-          decode(${sqlQuote(encryptedValueHex)}, 'hex'),
-          decode(${sqlQuote(dekNonceHex)}, 'hex'),
-          decode(${sqlQuote(valueNonceHex)}, 'hex'),
+          $1::uuid,
+          $2,
+          $3,
+          decode($4, 'hex'),
+          decode($5, 'hex'),
+          decode($6, 'hex'),
+          decode($7, 'hex'),
           'active'
         )
         RETURNING id::text, version::text, status, created_at::text;
-        COMMIT;
-      `);
+      `, [tenantId, parsed.secretType, nextVersion, encryptedDekHex, encryptedValueHex, dekNonceHex, valueNonceHex]);
 
       const line = out.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) throw new Error('admin_db_error');
@@ -585,11 +668,11 @@ const server = createServer(async (req, res) => {
       const out = await runSql(`
         UPDATE secret_versions
         SET status = 'revoked', revoked_at = now()
-        WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
-          AND id = ${sqlQuote(secretId)}::uuid
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid
           AND status <> 'revoked'
         RETURNING id::text, secret_type, version::text, status, revoked_at::text;
-      `);
+      `, [tenantId, secretId]);
 
       const line = out.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
       if (!line) {
@@ -629,9 +712,9 @@ const server = createServer(async (req, res) => {
       const out = await runSql(`
         SELECT id::text || '|' || secret_type || '|' || version::text || '|' || status || '|' || created_at::text || '|' || COALESCE(revoked_at::text, '')
         FROM secret_versions
-        WHERE tenant_id = ${sqlQuote(tenantId)}::uuid
+        WHERE tenant_id = $1::uuid
         ORDER BY version DESC;
-      `);
+      `, [tenantId]);
 
       const items = out.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
         const [id, secretType, version, status, createdAt, revokedAt] = line.split('|');
@@ -649,6 +732,7 @@ const server = createServer(async (req, res) => {
       return;
     }
   } catch (error) {
+    metrics.requestFailuresTotal += 1;
     logger.warn('admin_request_failed', {
       request_id: requestId,
       reason: error instanceof Error ? error.message : 'unknown_error'
@@ -666,6 +750,10 @@ const server = createServer(async (req, res) => {
   }
 
   json(res, 404, { error: 'not_found' });
+});
+
+metricsServer.listen(metricsPort, metricsHost, () => {
+  logger.info('admin metrics server started', { metrics_host: metricsHost, metrics_port: metricsPort });
 });
 
 server.listen(config.port, config.host, () => {

@@ -288,30 +288,29 @@ Before enabling production traffic:
 4. Enforce authorization: `role >= staff` for file messages; unlinked users get onboarding prompt (enqueued as NOTIFY job — Gateway MUST NOT call Zalo API directly).
 5. Update `zalo_users.last_interaction_at` (interaction window tracking).
 6. Insert `inbound_event` row (UNIQUE constraint for idempotency).
-7. Enqueue job `PROCESS_INBOUND_EVENT` to BullMQ.
+7. Enqueue job `PROCESS_INBOUND_EVENT` to the Redis-backed worker queue (`bullmq-lite` shim using `RPUSH`/`BRPOP`).
 8. Flush pending notifications (if any exist for this user and window is now open).
 9. Return HTTP 200 within 200 ms budget.
 
-**Technology:** Node.js + Fastify 5.
+**Technology:** Node.js 20 + built-in `node:http` server (`createServer`) with explicit route handling.
 
 **Endpoints exposed to internet:**
 - `POST /webhooks/zalo` — webhook ingress (signature-verified)
-- `GET /health` — health check (no auth)
+- `GET /healthz` — shallow process health check (no auth)
+- `GET /readyz` — strict dependency readiness (Postgres `SELECT 1` + Redis `PING`, 503 on dependency failure)
 
 **Endpoints NOT exposed to internet:**
 - `GET /metrics` — MUST be on admin port (:3001) or internal-only binding.
 
 #### Queue (`infra/redis`)
 
-**Technology:** Redis 7 + BullMQ 5. Redis MUST have `requirepass` set and bind to private interface only.
+**Technology:** Redis 7 + lightweight `bullmq-lite` compatibility layer (implemented via `redis-cli` `RPUSH`/`BRPOP`, not full BullMQ server-side features). Redis MUST have `requirepass` set and bind to private interface only.
 
-| Queue Name | Producer | Consumer | Priority |
+| Queue Name | Producer | Consumer | Implementation semantics |
 |---|---|---|---|
-| `process-inbound` | Gateway | Worker: invoice-xml | Normal |
-| `kiotviet-sync` | Worker: invoice-xml | Worker: kiotviet-sync | Normal |
-| `notify` | Any worker | Worker: notifier | Low |
-| `mapping-resolve` | Worker: invoice-xml | Worker: mapping-resolve | High |
-| `dead-letter` | Any queue (on max retries) | Admin drain | — |
+| `process-inbound` | Gateway | Worker | Redis list `bull:process-inbound:wait` (`RPUSH`/`BRPOP`) |
+
+**Implication:** retry/DLQ behavior is implemented in application logic and job status tables, not by native BullMQ Redis data structures.
 
 #### Worker Pool (`apps/worker`)
 
@@ -366,6 +365,18 @@ RLS policies enforce that only rows matching this tenant are visible/writable.
 - Every use logged with alert to security channel.
 
 **Serves `/metrics` endpoint** (Prometheus format) — accessible only from within private network.
+
+
+
+#### Runtime ports & readiness contract (implemented)
+
+| Service | Default bind | Health endpoint | Readiness endpoint | Readiness logic |
+|---|---|---|---|---|
+| Gateway | `0.0.0.0:8080` | `GET /healthz` | `GET /readyz` | `dbPing(SELECT 1)` + `redisPing(PING)` with short timeout; returns `503` if dependency check fails |
+| Admin (private) | `127.0.0.1:3001` | `GET /healthz` | `GET /readyz` | `dbPing(SELECT 1)` + `redisPing(PING)` with short timeout; returns `503` if dependency check fails |
+| Worker (private) | `0.0.0.0:3002` (health server) | `GET /healthz` | `GET /readyz` | `dbPing(SELECT 1)` + `redisPing(PING)` with short timeout; returns `503` if dependency check fails |
+
+Worker metrics remain on `WORKER_METRICS_PORT` (default `9090`) and are separate from health/readiness probes.
 
 #### Observability Stack
 
@@ -563,8 +574,8 @@ Zalo         Gateway              Redis         invoice-xml     kv-sync       no
 | Layer | Choice | Rationale |
 |---|---|---|
 | Language | TypeScript (Node.js 20 LTS) | Async I/O; shared types; team familiarity |
-| HTTP framework | Fastify 5 | Schema validation, pino, throughput |
-| Queue | BullMQ 5 + Redis 7 | Native Node.js; retry/DLQ/rate-limit |
+| HTTP server | Node.js `node:http` | Minimal runtime surface with explicit routing/validation in code |
+| Queue | Redis 7 + `bullmq-lite` shim | Redis list queue (`RPUSH`/`BRPOP`); retries/DLQ handled by app logic |
 | Database | PostgreSQL 16 | JSONB, **RLS**, proven at scale |
 | ORM | Drizzle ORM | Type-safe SQL; lightweight migrations |
 | Object storage | MinIO | S3-compatible; no vendor lock-in |

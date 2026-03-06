@@ -1,7 +1,7 @@
 {
   "name": "groceryclaw",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "description": "GroceryClaw monorepo with legacy MVP and V2 SaaS scaffold.",
   "workspaces": [
     "apps/*",
@@ -39,7 +39,16 @@
     "v2:reset": "docker compose --env-file infra/compose/v2/.env -f infra/compose/v2/docker-compose.yml down -v --remove-orphans",
     "v2:smoke": "bash scripts/v2/v2_smoke.sh",
     "k8s:smoke": "bash scripts/v2/k8s_prod_smoke.sh",
-    "k8s:audit": "node scripts/v2/k8s_manifest_audit.mjs"
+    "k8s:audit": "node scripts/v2/k8s_manifest_audit.mjs",
+    "test:v2:db:real": "node --test tests/v2/db/real-tenant-transaction.test.mjs tests/v2/integration/invite-roundtrip-real-db.test.mjs",
+    "test:v2:db:real:compose": "node scripts/v2/run_real_db_tests.mjs",
+    "test:v2:redis:integration": "node --test tests/v2/integration/redis-auth.test.mjs",
+    "e2e": "node scripts/v2/run_e2e_compose.mjs",
+    "docs:drift:check": "node tools/v2/docs-drift-check.mjs",
+    "sql:guard": "node tools/v2/sql-interpolation-guard.mjs",
+    "k8s:kustomize:check": "sh -c 'set -e; if command -v kustomize >/dev/null 2>&1; then kustomize build infra/k8s/overlays/prod >/tmp/groceryclaw-kustomize-prod.yaml; kustomize build infra/k8s/observability >/tmp/groceryclaw-kustomize-observability.yaml; elif command -v kubectl >/dev/null 2>&1; then kubectl kustomize infra/k8s/overlays/prod >/tmp/groceryclaw-kustomize-prod.yaml; kubectl kustomize infra/k8s/observability >/tmp/groceryclaw-kustomize-observability.yaml; else echo kustomize_or_kubectl_required >&2; exit 1; fi'",
+    "readme:paths:check": "node tools/v2/readme-path-check.mjs",
+    "release:info": "node tools/v2/release-info.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -47,5 +56,8 @@
   "devDependencies": {
     "typescript": "^5.6.3",
     "fast-glob": "^3.3.2"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
   }
 }

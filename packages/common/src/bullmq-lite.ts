@@ -3,11 +3,12 @@ import { spawnSync } from 'node:child_process';
 export interface RedisConnection {
   host: string;
   port: number;
+  db?: number;
   password?: string;
 }
 
 function redisArgs(connection: RedisConnection): string[] {
-  const args = ['-h', connection.host, '-p', String(connection.port), '--raw'];
+  const args = ['-h', connection.host, '-p', String(connection.port), '-n', String(connection.db ?? 0), '--raw'];
   if (connection.password) args.push('-a', connection.password);
   return args;
 }
@@ -19,7 +20,13 @@ export class Queue {
     const payload = JSON.stringify(data);
     const args = [...redisArgs(this.opts.connection), 'RPUSH', `bull:${this.queueName}:wait`, payload];
     const result = spawnSync('redis-cli', args, { encoding: 'utf8' });
-    if (result.status !== 0) throw new Error('queue_error');
+    if (result.status !== 0) {
+      const errText = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
+      if (errText.includes('NOAUTH') || errText.includes('WRONGPASS') || errText.includes('AUTH')) {
+        throw new Error('queue_auth_error');
+      }
+      throw new Error('queue_error');
+    }
   }
 }
 

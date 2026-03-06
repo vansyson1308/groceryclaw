@@ -27,7 +27,7 @@ CI executes:
 1. `npm run load:light`
 2. `npm run perf:gate`
 
-If gate fails, workflow fails and blocks merge.
+If gate fails, workflow fails and blocks merge (default `PERF_GATE_WARN_ONLY=false` in CI).
 
 ## Warn-only mode (rollback switch)
 For temporary stabilization windows:

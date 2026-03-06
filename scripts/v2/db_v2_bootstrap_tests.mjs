@@ -44,13 +44,13 @@ function seed() {
       VALUES
         ('aaaaaaaa-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'owner', 'active');
 
-      SET LOCAL app.invite_pepper = '746573742d706570706572';
+      SET LOCAL app.invite_pepper_b64 = 'dGVzdC1wZXBwZXI=';
       INSERT INTO invite_codes (
         id, tenant_id, code_hash, code_hint, target_role, status, expires_at, created_at
       ) VALUES (
         'cccccccc-cccc-cccc-cccc-cccccccccccc',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-        digest(decode(current_setting('app.invite_pepper', true), 'hex') || convert_to('ABC123', 'UTF8'), 'sha256'),
+        digest(decode(current_setting('app.invite_pepper_b64', true), 'base64') || convert_to('ABC123', 'UTF8'), 'sha256'),
         '23',
         'staff',
         'active',
@@ -63,7 +63,7 @@ function seed() {
       ) VALUES (
         'dddddddd-dddd-dddd-dddd-dddddddddddd',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-        digest(decode(current_setting('app.invite_pepper', true), 'hex') || convert_to('OLD999', 'UTF8'), 'sha256'),
+        digest(decode(current_setting('app.invite_pepper_b64', true), 'base64') || convert_to('OLD999', 'UTF8'), 'sha256'),
         '99',
         'staff',
         'active',
@@ -95,7 +95,7 @@ function testConsumeInviteSuccessThenFail() {
   const first = one(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
-      SET LOCAL app.invite_pepper = '746573742d706570706572';
+      SET LOCAL app.invite_pepper_b64 = 'dGVzdC1wZXBwZXI=';
       SELECT ok::text || ',' || coalesce(tenant_id::text,'') || ',' || coalesce(role_assigned,'')
       FROM consume_invite_code('platform_staff_b', ' ABC-123 ');
     COMMIT;
@@ -105,7 +105,7 @@ function testConsumeInviteSuccessThenFail() {
   const second = one(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
-      SET LOCAL app.invite_pepper = '746573742d706570706572';
+      SET LOCAL app.invite_pepper_b64 = 'dGVzdC1wZXBwZXI=';
       SELECT ok::text || ',' || coalesce(tenant_id::text,'') || ',' || coalesce(role_assigned,'')
       FROM consume_invite_code('platform_staff_b2', 'ABC123');
     COMMIT;
@@ -126,7 +126,7 @@ function testExpiredInviteFailsGeneric() {
   const result = one(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
-      SET LOCAL app.invite_pepper = '746573742d706570706572';
+      SET LOCAL app.invite_pepper_b64 = 'dGVzdC1wZXBwZXI=';
       SELECT ok::text || ',' || coalesce(tenant_id::text,'') || ',' || coalesce(role_assigned,'')
       FROM consume_invite_code('platform_staff_expired', 'OLD999');
     COMMIT;
@@ -138,7 +138,7 @@ function testUserLockoutAfterFiveFails() {
   runSql(`
     BEGIN;
       SET LOCAL ROLE groceryclaw_app_user;
-      SET LOCAL app.invite_pepper = '746573742d706570706572';
+      SET LOCAL app.invite_pepper_b64 = 'dGVzdC1wZXBwZXI=';
       SELECT consume_invite_code('platform_fail_user', 'NOPE1') FROM generate_series(1,5);
     COMMIT;
   `);

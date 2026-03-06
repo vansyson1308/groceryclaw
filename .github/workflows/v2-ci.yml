@@ -48,8 +48,25 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: SQL interpolation guard
+        run: npm run sql:guard
+
       - name: Unit tests
         run: npm run test
+
+
+      - name: Start Redis (auth enabled)
+        run: docker run -d --name groceryclaw-ci-redis -p 6379:6379 redis:7-alpine redis-server --requirepass ci-redis-pass --save '' --appendonly no
+
+      - name: Redis auth integration gate
+        env:
+          REDIS_URL: redis://:ci-redis-pass@127.0.0.1:6379/0
+          REDIS_URL_WRONG: redis://:bad-pass@127.0.0.1:6379/0
+        run: npm run test:v2:redis:integration
+
+      - name: Stop Redis
+        if: always()
+        run: docker rm -f groceryclaw-ci-redis || true
 
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
@@ -70,6 +87,17 @@ jobs:
         run: npm run db:v2:test:bootstrap
 
 
+      - name: Real Postgres tenant transaction integration tests
+        env:
+          REAL_DB_TESTS_USE_EXISTING_DB: 'true'
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
+        run: npm run test:v2:db:real:compose
+
+
+
+      - name: Mandatory V2 E2E integration gate
+        run: npm run e2e
+
       - name: Load test harness (light)
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci
@@ -78,8 +106,7 @@ jobs:
 
       - name: Performance SLO gate
         env:
-          PERF_GATE_REQUIRE_QUEUE_LAG: 'false'
-          PERF_GATE_REQUIRE_DUPLICATE_METRIC: 'false'
+          PERF_GATE_WARN_ONLY: 'false'
         run: npm run perf:gate
 
       - name: Upload load reports
@@ -100,6 +127,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Assert authoritative V2 docs exist
         run: |
           set -euo pipefail
@@ -114,3 +150,18 @@ jobs:
             echo "Forbidden unresolved marker found outside authoritative docs." >&2
             exit 1
           fi
+
+      - name: Docs drift check
+        run: npm run docs:drift:check
+
+      - name: README path check
+        run: npm run readme:paths:check
+
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.4.3'
+
+      - name: Kustomize build gate
+        run: npm run k8s:kustomize:check

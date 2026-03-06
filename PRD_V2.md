@@ -327,7 +327,7 @@ Each `zalo_user` has an interaction window tracked via `last_interaction_at`:
 
 ### Phase 1 — V2 Beta (8–10 weeks)
 
-**Scope:** Gateway with HMAC verification · `zalo_users` + `tenant_users` with roles · Invitation-gated onboarding · XML parse + mapping · KiotViet sync · Notifier with interaction-window awareness · PostgreSQL with RLS on all tenant tables · Redis + BullMQ · Admin API with OIDC/SSO + RBAC · Envelope-encrypted secrets with versioning · Structured logging + Prometheus · Strangler migration flag.
+**Scope:** Gateway with HMAC verification · `zalo_users` + `tenant_users` with roles · Invitation-gated onboarding · XML parse + mapping · KiotViet sync · Notifier with interaction-window awareness · PostgreSQL with RLS on all tenant tables · Redis-backed queue (bullmq-lite shim) · Admin API with OIDC/SSO + RBAC · Envelope-encrypted secrets with versioning · Structured logging + Prometheus · Strangler migration flag.
 
 **Definition of Done:**
 - [ ] 10 tenants on V2, 100 invoices with zero duplicates

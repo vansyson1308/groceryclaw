@@ -1,0 +1,53 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: groceryclaw-gateway
+  labels:
+    app.kubernetes.io/part-of: groceryclaw-v2
+spec:
+  namespaceSelector:
+    matchNames: [groceryclaw-v2]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: groceryclaw-admin
+  labels:
+    app.kubernetes.io/part-of: groceryclaw-v2
+spec:
+  namespaceSelector:
+    matchNames: [groceryclaw-v2]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: admin-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: groceryclaw-worker
+  labels:
+    app.kubernetes.io/part-of: groceryclaw-v2
+spec:
+  namespaceSelector:
+    matchNames: [groceryclaw-v2]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

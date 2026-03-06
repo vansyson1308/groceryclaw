@@ -24,6 +24,8 @@ declare module 'node:http' {
 
   export interface Server {
     listen(port: number, host: string, listeningListener?: () => void): void;
+    close(): void;
+    unref?(): void;
   }
 
   export function createServer(
@@ -70,6 +72,7 @@ declare module 'node:child_process' {
       input?: string;
       encoding?: string;
       stdio?: [string, string, string];
+      timeout?: number;
     }
   ): { status: number | null; stdout: string; stderr: string };
 }
@@ -85,5 +88,19 @@ declare module 'bullmq' {
       }
     );
     on(event: 'failed' | 'error', listener: (...args: unknown[]) => void): void;
+  }
+}
+
+declare module 'pg' {
+  export class PoolClient {
+    query(text: string, params?: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+    release(): void;
+  }
+
+  export class Pool {
+    constructor(options?: Record<string, unknown>);
+    query(text: string, params?: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+    connect(): Promise<PoolClient>;
+    end(): Promise<void>;
   }
 }

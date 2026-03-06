@@ -5,11 +5,17 @@ import {
   createLogger,
   detectInviteIntent,
   InMemoryTokenBucketRateLimiter,
-  Pool,
+  createPgPool,
+  query,
   Queue,
   loadGatewayConfig,
+  loadRedisConfig,
+  dbPing,
+  redisPing,
   validateZaloWebhookPayload,
   verifyWebhookRequest,
+  getSecurityHeaders,
+  loadSecurityHeadersConfig,
   type ZaloWebhookEvent
 } from '../../../packages/common/dist/index.js';
 
@@ -21,14 +27,24 @@ const onboardingEnabled = (process.env.V2_ONBOARDING_ENABLED ?? 'true') === 'tru
 const maxBodyBytes = Number(process.env.GATEWAY_MAX_BODY_BYTES ?? '262144');
 const dbCmd = process.env.GATEWAY_DB_CMD ?? '';
 const queueCmd = process.env.GATEWAY_QUEUE_CMD ?? '';
-const postgresUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
-const redisHost = process.env.REDIS_HOST ?? 'redis';
-const redisPort = Number(process.env.REDIS_PORT ?? '6379');
-const redisPassword = process.env.REDIS_PASSWORD ?? '';
+const postgresUrl = process.env.DB_APP_URL ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+const redisConfig = loadRedisConfig({
+  onWarning: (message) => logger.warn('gateway_redis_config_deprecated', { message })
+});
 const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
+const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
+const metricsHost = process.env.GATEWAY_METRICS_HOST ?? '0.0.0.0';
+const metricsPort = Number(process.env.GATEWAY_METRICS_PORT ?? '9100');
+const securityHeadersConfig = loadSecurityHeadersConfig(process.env);
 const replayCacheTtlSeconds = Number(process.env.WEBHOOK_REPLAY_TTL_SECONDS ?? '86400');
-const invitePepperHex = process.env.INVITE_PEPPER_HEX ?? '';
-const invitePepperB64 = process.env.INVITE_PEPPER_B64 ?? '';
+const invitePepperB64 = process.env.INVITE_PEPPER_B64
+  ?? (process.env.INVITE_PEPPER_HEX ? Buffer.from(process.env.INVITE_PEPPER_HEX, 'hex').toString('base64') : '');
+
+
+if (process.env.INVITE_PEPPER_HEX && !process.env.INVITE_PEPPER_B64) {
+  logger.warn('gateway_invite_pepper_hex_deprecated', { message: 'Use INVITE_PEPPER_B64 instead of INVITE_PEPPER_HEX' });
+}
 
 const inMemoryDedupe = new Set<string>();
 const replayCache = new Map<string, number>();
@@ -37,17 +53,68 @@ const inviteIpRatePerMinute = Number(process.env.ONBOARDING_INVITE_IP_RATE_PER_M
 const inviteByUserLimiter = new InMemoryTokenBucketRateLimiter(inviteUserRatePerMinute, inviteUserRatePerMinute);
 const inviteByIpLimiter = new InMemoryTokenBucketRateLimiter(inviteIpRatePerMinute, inviteIpRatePerMinute);
 
-const pgPool = postgresUrl ? new Pool({ connectionString: postgresUrl }) : null;
+const pgPool = postgresUrl
+  ? await createPgPool({
+      connectionString: postgresUrl,
+      applicationName: 'gateway',
+      statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
+    })
+  : null;
 const queue = (() => {
   if (process.env.NODE_ENV === 'test') return null;
   return new Queue(queueName, {
     connection: {
-      host: redisHost,
-      port: redisPort,
-      ...(redisPassword ? { password: redisPassword } : {})
+      host: redisConfig.host,
+      port: redisConfig.port,
+      db: redisConfig.db,
+      ...(redisConfig.password ? { password: redisConfig.password } : {})
     }
   });
 })();
+
+const metrics = {
+  readyzChecksTotal: 0,
+  readyzFailuresTotal: 0,
+  dbReadyzFailuresTotal: 0,
+  redisReadyzFailuresTotal: 0,
+  webhookAcceptedTotal: 0,
+  webhookAuthFailuresTotal: 0,
+  webhookServerErrorsTotal: 0,
+  webhookAckMsTotal: 0,
+  webhookAckMsCount: 0
+};
+
+function renderMetrics(): string {
+  return [
+    '# TYPE groceryclaw_gateway_readyz_checks_total counter',
+    `groceryclaw_gateway_readyz_checks_total ${metrics.readyzChecksTotal}`,
+    '# TYPE groceryclaw_gateway_readyz_failures_total counter',
+    `groceryclaw_gateway_readyz_failures_total ${metrics.readyzFailuresTotal}`,
+    '# TYPE groceryclaw_gateway_dependency_failures_total counter',
+    `groceryclaw_gateway_dependency_failures_total{dependency="db"} ${metrics.dbReadyzFailuresTotal}`,
+    `groceryclaw_gateway_dependency_failures_total{dependency="redis"} ${metrics.redisReadyzFailuresTotal}`,
+    '# TYPE groceryclaw_gateway_webhook_accepted_total counter',
+    `groceryclaw_gateway_webhook_accepted_total ${metrics.webhookAcceptedTotal}`,
+    '# TYPE groceryclaw_gateway_webhook_auth_failures_total counter',
+    `groceryclaw_gateway_webhook_auth_failures_total ${metrics.webhookAuthFailuresTotal}`,
+    '# TYPE groceryclaw_gateway_webhook_server_errors_total counter',
+    `groceryclaw_gateway_webhook_server_errors_total ${metrics.webhookServerErrorsTotal}`,
+    '# TYPE groceryclaw_gateway_webhook_ack_ms_total counter',
+    `groceryclaw_gateway_webhook_ack_ms_total ${metrics.webhookAckMsTotal}`,
+    '# TYPE groceryclaw_gateway_webhook_ack_ms_count counter',
+    `groceryclaw_gateway_webhook_ack_ms_count ${metrics.webhookAckMsCount}`
+  ].join('\n');
+}
+
+const metricsServer = createServer((req, res) => {
+  if (req.method !== 'GET' || req.url !== '/metrics') {
+    res.writeHead(404);
+    res.end('not_found');
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
+  res.end(`${renderMetrics()}\n`);
+});
 
 type ResponseLike = {
   writeHead: (statusCode: number, headers?: Record<string, string>) => unknown;
@@ -55,8 +122,19 @@ type ResponseLike = {
 };
 
 function json(res: ResponseLike, code: number, body: Record<string, unknown>) {
-  res.writeHead(code, { 'content-type': 'application/json' });
+  res.writeHead(code, { ...getSecurityHeaders(securityHeadersConfig), 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
+}
+
+
+async function checkReady(): Promise<{ ready: boolean; dbOk: boolean; redisOk: boolean }> {
+  if (!readyzStrict) {
+    return { ready: true, dbOk: true, redisOk: true };
+  }
+
+  const dbOk = pgPool ? await dbPing(pgPool, readyzTimeoutMs) : false;
+  const redisOk = await redisPing(redisConfig, readyzTimeoutMs);
+  return { ready: dbOk && redisOk, dbOk, redisOk };
 }
 
 function readBody(req: { on: (event: 'data' | 'end' | 'error', listener: (...args: unknown[]) => void) => void }): Promise<Buffer> {
@@ -91,14 +169,28 @@ function runCmdAdapter(command: string, input: string): string {
   return result.stdout.trim();
 }
 
-async function runSql(sql: string): Promise<string> {
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function renderSqlForAdapter(sql: string, params: readonly unknown[]): string {
+  return params.reduce<string>((acc, value, index) => {
+    const pattern = new RegExp(`\\$${index + 1}(?!\\d)`, 'g');
+    return acc.replace(pattern, sqlLiteral(value));
+  }, sql);
+}
+
+async function runSql(sql: string, params: readonly unknown[] = []): Promise<string> {
   if (pgPool) {
-    const result = await pgPool.query(sql);
+    const result = await query(pgPool, sql, params);
     if (result.rows.length === 0) return '';
     return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
   }
   if (process.env.NODE_ENV === 'test' && dbCmd) {
-    return runCmdAdapter(dbCmd, sql);
+    return runCmdAdapter(dbCmd, renderSqlForAdapter(sql, params));
   }
   return '';
 }
@@ -108,9 +200,9 @@ async function resolveMembership(platformUserId: string): Promise<{ tenantId?: s
 
   const out = await runSql(`
     SELECT tenant_id::text
-    FROM resolve_membership_by_platform_user_id(${sqlQuote(platformUserId)})
+    FROM resolve_membership_by_platform_user_id($1)
     LIMIT 1;
-  `);
+  `, [platformUserId]);
   if (!out) return {};
   const tenantId = out.split('\n')[0]?.trim();
   return tenantId ? { tenantId } : {};
@@ -119,12 +211,34 @@ async function resolveMembership(platformUserId: string): Promise<{ tenantId?: s
 async function consumeInviteCode(platformUserId: string, inviteCode: string): Promise<{ ok: boolean; tenantId?: string; roleAssigned?: string }> {
   if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return { ok: false };
 
-  const setPepperSql = invitePepperHex
-    ? `SET LOCAL app.invite_pepper = ${sqlQuote(invitePepperHex)};`
-    : invitePepperB64
-      ? `SET LOCAL app.invite_pepper_b64 = ${sqlQuote(invitePepperB64)};`
-      : '';
+  if (pgPool) {
+    const tx = await pgPool.connect();
+    try {
+      await query(tx, 'BEGIN');
+      if (invitePepperB64) {
+        await query(tx, "SELECT set_config('app.invite_pepper_b64', $1, true)", [invitePepperB64]);
+      }
+      const result = await query(tx, `
+        SELECT ok::text AS ok_raw, COALESCE(tenant_id::text, '') AS tenant_id_raw, COALESCE(role_assigned, '') AS role_assigned_raw
+        FROM consume_invite_code($1, $2)
+        LIMIT 1;
+      `, [platformUserId, inviteCode]);
+      await query(tx, 'COMMIT');
+      const row = result.rows[0];
+      if (!row) return { ok: false };
+      const okRaw = String(row.ok_raw ?? 'false');
+      const tenantId = String(row.tenant_id_raw ?? '').trim();
+      const roleAssigned = String((row.role_assigned_raw ?? '')).trim();
+      return { ok: okRaw === 't' || okRaw === 'true', ...(tenantId ? { tenantId } : {}), ...(roleAssigned ? { roleAssigned } : {}) };
+    } catch {
+      try { await query(tx, 'ROLLBACK'); } catch {}
+      return { ok: false };
+    } finally {
+      tx.release();
+    }
+  }
 
+  const setPepperSql = invitePepperB64 ? `SET LOCAL app.invite_pepper_b64 = ${sqlQuote(invitePepperB64)};` : '';
   const out = await runSql(`
     BEGIN;
     ${setPepperSql}
@@ -150,14 +264,11 @@ async function consumeInviteCode(platformUserId: string, inviteCode: string): Pr
 async function getTenantProcessingMode(tenantId: string): Promise<'legacy' | 'v2'> {
   if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return 'v2';
   const out = await runSql(`
-    BEGIN;
-    SET LOCAL app.current_tenant = ${sqlQuote(tenantId)};
     SELECT processing_mode
     FROM tenants
-    WHERE id = ${sqlQuote(tenantId)}::uuid
+    WHERE id = $1::uuid
     LIMIT 1;
-    COMMIT;
-  `);
+  `, [tenantId]);
 
   const line = out.split('\n').map((item) => item.trim()).find((item) => item === 'legacy' || item === 'v2');
   return line === 'legacy' ? 'legacy' : 'v2';
@@ -171,9 +282,9 @@ async function resolveZaloUserId(platformUserId: string): Promise<string | undef
   const out = await runSql(`
     SELECT id::text
     FROM zalo_users
-    WHERE platform_user_id = ${sqlQuote(platformUserId)}
+    WHERE platform_user_id = $1
     LIMIT 1;
-  `);
+  `, [platformUserId]);
   const value = out.split('\n').map((line) => line.trim()).find((line) => /^[0-9a-f-]{36}$/i.test(line));
   return value;
 }
@@ -183,18 +294,18 @@ async function recordInboundInteraction(tenantId: string, platformUserId: string
     return undefined;
   }
 
-  const out = await runSql(`
-    BEGIN;
-    SET LOCAL app.current_tenant = ${sqlQuote(tenantId)};
+  await runSql(`
     UPDATE zalo_users
     SET last_interaction_at = now()
-    WHERE platform_user_id = ${sqlQuote(platformUserId)};
+    WHERE platform_user_id = $1;
+  `, [platformUserId]);
+
+  const out = await runSql(`
     SELECT id::text
     FROM zalo_users
-    WHERE platform_user_id = ${sqlQuote(platformUserId)}
+    WHERE platform_user_id = $1
     LIMIT 1;
-    COMMIT;
-  `);
+  `, [platformUserId]);
 
   return out.split('\n').map((line) => line.trim()).find((line) => /^[0-9a-f-]{36}$/i.test(line));
 }
@@ -223,23 +334,19 @@ async function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): P
   }
 
   const resolvedTenant = tenantId ?? '00000000-0000-0000-0000-000000000000';
-  const insertSql = `
-    BEGIN;
+  const out = await runSql(`
     INSERT INTO inbound_events (tenant_id, zalo_user_id, zalo_msg_id, event_type, payload, status)
     VALUES (
-      ${sqlQuote(resolvedTenant)}::uuid,
-      COALESCE((SELECT id FROM zalo_users WHERE platform_user_id = ${sqlQuote(event.platform_user_id)} LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid),
-      ${sqlQuote(event.zalo_msg_id)},
-      ${sqlQuote(event.message_type)},
-      ${sqlQuote(JSON.stringify(event.raw))}::jsonb,
+      $1::uuid,
+      COALESCE((SELECT id FROM zalo_users WHERE platform_user_id = $2 LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid),
+      $3,
+      $4,
+      $5::jsonb,
       'received'
     )
     ON CONFLICT (tenant_id, zalo_msg_id) DO NOTHING
     RETURNING id::text;
-    COMMIT;
-  `;
-
-  const out = await runSql(insertSql);
+  `, [resolvedTenant, event.platform_user_id, event.zalo_msg_id, event.message_type, JSON.stringify(event.raw)]);
   const id = out.split('\n').map((x) => x.trim()).find((x) => /^[0-9a-f-]{36}$/i.test(x));
   if (!id) {
     return { inserted: false, inboundEventId: `${resolvedTenant}:${event.zalo_msg_id}` };
@@ -333,6 +440,9 @@ function respondAccepted(
   extras?: Record<string, unknown>
 ) {
   const ackMs = Date.now() - startedAtMs;
+  metrics.webhookAcceptedTotal += 1;
+  metrics.webhookAckMsTotal += ackMs;
+  metrics.webhookAckMsCount += 1;
   logger.info('gateway_ack_ms', { request_id: requestId, gateway_ack_ms: ackMs, ...(extras ?? {}) });
   json(res, 200, { status: 'accepted', request_id: requestId });
 }
@@ -340,8 +450,20 @@ function respondAccepted(
 const server = createServer(async (req, res) => {
   const requestId = (req.headers?.['x-request-id'] as string | undefined) ?? randomUUID();
 
-  if ((req.method === 'GET') && (req.url === '/healthz' || req.url === '/readyz')) {
+  if ((req.method === 'GET') && req.url === '/healthz') {
     json(res, 200, { status: 'ok', service: 'gateway' });
+    return;
+  }
+
+  if ((req.method === 'GET') && req.url === '/readyz') {
+    const ready = await checkReady();
+    metrics.readyzChecksTotal += 1;
+    if (!ready.ready) {
+      metrics.readyzFailuresTotal += 1;
+      if (!ready.dbOk) metrics.dbReadyzFailuresTotal += 1;
+      if (!ready.redisOk) metrics.redisReadyzFailuresTotal += 1;
+    }
+    json(res, ready.ready ? 200 : 503, { status: ready.ready ? 'ok' : 'not_ready', service: 'gateway' });
     return;
   }
 
@@ -371,6 +493,7 @@ const server = createServer(async (req, res) => {
       }, raw);
 
       if (!authResult.ok) {
+        metrics.webhookAuthFailuresTotal += 1;
         logger.warn('webhook_auth_fail', {
           request_id: requestId,
           reason: authResult.reason,
@@ -447,6 +570,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
+      metrics.webhookServerErrorsTotal += 1;
       logger.error('gateway_webhook_failed', {
         request_id: requestId,
         reason
@@ -457,6 +581,10 @@ const server = createServer(async (req, res) => {
   }
 
   json(res, 404, { error: 'not_found' });
+});
+
+metricsServer.listen(metricsPort, metricsHost, () => {
+  logger.info('gateway metrics server started', { metrics_host: metricsHost, metrics_port: metricsPort });
 });
 
 server.listen(config.port, config.host, () => {

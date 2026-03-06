@@ -92,10 +92,11 @@ kubectl apply -n groceryclaw-v2 -f infra/k8s/overlays/prod/external-secrets.exam
 ```bash
 kubectl create namespace groceryclaw-v2
 kubectl -n groceryclaw-v2 create secret generic app-secrets \
-  --from-literal=POSTGRES_URL='postgres://...' \
+  --from-literal=DB_APP_URL='postgres://app_user:...@postgres.internal:5432/groceryclaw_v2' \
+  --from-literal=DB_ADMIN_URL='postgres://admin_user:...@postgres.internal:5432/groceryclaw_v2' \
   --from-literal=REDIS_URL='redis://...' \
   --from-literal=WEBHOOK_SIGNATURE_SECRET='replace-me' \
-  --from-literal=ADMIN_INVITE_PEPPER='replace-me' \
+  --from-literal=INVITE_PEPPER_B64='replace-me' \
   --from-literal=ADMIN_MEK_B64='replace-me-b64' \
   --from-literal=WORKER_MEK_B64='replace-me-b64'
 ```
@@ -162,3 +163,16 @@ Network policies can be removed independently if you need emergency recovery:
 ```bash
 kubectl delete -f infra/k8s/base/networkpolicy.yaml -n groceryclaw-v2
 ```
+
+
+## 13) Post-deploy smoke job
+
+Run the in-cluster smoke job after deploy:
+
+```bash
+kubectl apply -f infra/k8s/overlays/prod/smoke-job.yaml
+kubectl wait --for=condition=complete -n groceryclaw-v2 job/v2-smoke --timeout=180s
+kubectl logs -n groceryclaw-v2 job/v2-smoke
+```
+
+Detailed guide: `docs/saas_v2/DEPLOY_K8S_SMOKE.md`.

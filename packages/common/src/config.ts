@@ -12,6 +12,12 @@ export interface GatewayConfig extends BaseConfig {
   readonly webhookAuth: WebhookAuthConfig;
 }
 
+export interface DatabaseConfig {
+  readonly dbAppUrl: string;
+  readonly dbAdminUrl: string;
+  readonly dbStatementTimeoutMs: number;
+}
+
 function required(name: string, value: string | undefined): string {
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -73,6 +79,33 @@ function parseVerifyMode(value: string | undefined): WebhookVerifyMode {
 function parseCsv(value: string | undefined): string[] {
   if (!value) return [];
   return value.split(',').map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+function parseDbUrl(value: string, field: 'DB_APP_URL' | 'DB_ADMIN_URL'): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${field} must be a valid URL`);
+  }
+
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error(`${field} must use postgres:// or postgresql:// protocol`);
+  }
+
+  return value;
+}
+
+export function loadDatabaseConfig(envInput?: Record<string, string | undefined>): DatabaseConfig {
+  const env = envInput ?? process.env;
+  const dbAppUrl = parseDbUrl(required('DB_APP_URL', env.DB_APP_URL), 'DB_APP_URL');
+  const dbAdminUrl = parseDbUrl(required('DB_ADMIN_URL', env.DB_ADMIN_URL), 'DB_ADMIN_URL');
+
+  return {
+    dbAppUrl,
+    dbAdminUrl,
+    dbStatementTimeoutMs: parsePositiveInt(env.DB_STATEMENT_TIMEOUT_MS, 'DB_STATEMENT_TIMEOUT_MS', 5000)
+  };
 }
 
 export function loadBaseConfig(opts: {

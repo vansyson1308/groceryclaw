@@ -1,0 +1,111 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: groceryclaw-v2-alerts
+  labels:
+    app.kubernetes.io/part-of: groceryclaw-v2
+spec:
+  groups:
+    - name: groceryclaw-v2-availability
+      rules:
+        - alert: GroceryclawGatewayReadyDown
+          expr: increase(groceryclaw_gateway_readyz_failures_total[10m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#dependency-outage-postgres-or-redis
+          annotations:
+            summary: Gateway readiness checks failing
+            description: Gateway /readyz has failed repeatedly in the last 10m.
+
+        - alert: GroceryclawAdminReadyDown
+          expr: increase(groceryclaw_admin_readyz_failures_total[10m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#dependency-outage-postgres-or-redis
+          annotations:
+            summary: Admin readiness checks failing
+            description: Admin /readyz has failed repeatedly in the last 10m.
+
+        - alert: GroceryclawDbDependencyFailureSpike
+          expr: increase(groceryclaw_gateway_dependency_failures_total{dependency="db"}[10m]) + increase(groceryclaw_admin_dependency_failures_total{dependency="db"}[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#dependency-outage-postgres-or-redis
+          annotations:
+            summary: DB dependency failures increasing
+            description: Gateway/Admin report frequent DB readiness failures.
+
+        - alert: GroceryclawRedisDependencyFailureSpike
+          expr: increase(groceryclaw_gateway_dependency_failures_total{dependency="redis"}[10m]) + increase(groceryclaw_admin_dependency_failures_total{dependency="redis"}[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#dependency-outage-postgres-or-redis
+          annotations:
+            summary: Redis dependency failures increasing
+            description: Gateway/Admin report frequent Redis readiness failures.
+
+    - name: groceryclaw-v2-slo-signals
+      rules:
+        - alert: GroceryclawAckLatencyProxyHigh
+          expr: |
+            (
+              rate(groceryclaw_gateway_webhook_ack_ms_total[10m])
+              /
+              clamp_min(rate(groceryclaw_gateway_webhook_ack_ms_count[10m]), 1)
+            ) > 500
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#queue-backlog-surge
+          annotations:
+            summary: Gateway ACK latency average above 500ms
+            description: Proxy metric for ACK p95; investigate queue lag and downstream dependencies.
+
+        - alert: GroceryclawQueueLagHigh
+          expr: |
+            (
+              rate(groceryclaw_worker_queue_lag_ms_total[5m])
+              /
+              clamp_min(rate(groceryclaw_worker_queue_lag_samples_total[5m]), 1)
+            ) > 2000
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#queue-backlog-surge
+          annotations:
+            summary: Worker queue lag average above 2s
+            description: Queue lag proxy indicates sustained worker delay.
+
+        - alert: GroceryclawWebhookAuthFailSpike
+          expr: increase(groceryclaw_gateway_webhook_auth_failures_total[10m]) > 30
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#webhook-auth-failures-spike
+          annotations:
+            summary: Webhook auth failures are spiking
+            description: 401/403 webhook failures exceed baseline.
+
+        - alert: GroceryclawNotifierPendingBacklogHigh
+          expr: groceryclaw_notifier_pending_backlog > 200
+          for: 15m
+          labels:
+            severity: warning
+            runbook: docs/saas_v2/RUNBOOK.md#notifier-storms-and-pending-backlog
+          annotations:
+            summary: Notifier pending backlog above threshold
+            description: Investigate notifier deferral/flush and outbound dependencies.
+
+        - alert: GroceryclawDlqSpike
+          expr: vector(0)
+          for: 10m
+          labels:
+            severity: info
+            runbook: docs/saas_v2/RUNBOOK.md#queue-backlog-surge
+          annotations:
+            summary: DLQ growth detected (rule disabled)
+            description: Enable once a dedicated DLQ metric is exported by worker runtime.

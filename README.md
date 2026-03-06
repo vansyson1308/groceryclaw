@@ -1,6 +1,20 @@
 # GroceryClaw
 
+[![V2 CI](https://github.com/vansyson1308/groceryclaw/actions/workflows/v2-ci.yml/badge.svg)](https://github.com/vansyson1308/groceryclaw/actions/workflows/v2-ci.yml)
+[![Security Baseline](https://github.com/vansyson1308/groceryclaw/actions/workflows/security-baseline.yml/badge.svg)](https://github.com/vansyson1308/groceryclaw/actions/workflows/security-baseline.yml)
+
 GroceryClaw is an invoice and operations platform with two runtime options: a **Legacy MVP** (n8n-first, low-code) and a **V2 SaaS runtime** (Gateway + Worker + Admin + Postgres + Redis). This README is written for non-coders and operators so you can run V2 locally with copy/paste commands and understand what is safe to expose.
+
+
+## Current Release
+
+- **Version:** `v0.1.0-rc.1`
+- **Status:** Release candidate (RC) pending final CI-equivalent gate reruns from RC2 audit.
+- **Changelog:** `CHANGELOG.md`
+- **Release notes:** `docs/saas_v2/RELEASE_NOTES_v0.1.0-rc.1.md`
+- **Audit evidence:**
+  - `docs/saas_v2/RELEASE_AUDIT_REPORT_RC2.md`
+  - `docs/saas_v2/RELEASE_AUDIT_CHECKLIST_RC2.md`
 
 ## What GroceryClaw does
 
@@ -33,6 +47,8 @@ Main docs:
 - `docs/saas_v2/SECURITY_CHECKLIST.md`
 - `docs/saas_v2/SLO_GATES.md`
 - `docs/saas_v2/TROUBLESHOOTING.md`
+- `docs/saas_v2/TROUBLESHOOTING_K8S.md`
+- `docs/saas_v2/VERIFY_BEFORE_CUSTOMERS.md`
 - `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
 - `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
 
@@ -95,9 +111,11 @@ Open `infra/compose/v2/.env` and set at minimum:
 - `POSTGRES_SUPERUSER` / `POSTGRES_SUPERUSER_PASSWORD` (local bootstrap DB admin for container init).
 - `POSTGRES_DB` (local DB name).
 - `APP_DB_USER` / `APP_DB_PASSWORD` (runtime least-privilege DB role used by app services).
-- `REDIS_PASSWORD` (local Redis auth password).
+- `REDIS_URL` (canonical Redis connection, e.g. `redis://:password@redis:6379/0`).
+- Legacy fallback (`REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`) is supported temporarily for one release cycle with deprecation warning.
 - `WEBHOOK_SIGNATURE_SECRET` (local test secret, not real production secret).
-- `ADMIN_INVITE_PEPPER` (random string for dev).
+- `READYZ_STRICT` (`true` by default) and optional `READYZ_TIMEOUT_MS` (default `300`).
+- `INVITE_PEPPER_B64` (base64-encoded 32-byte pepper).
 - `ADMIN_MEK_B64` / `WORKER_MEK_B64` (keep placeholder for local only).
 
 ### 3) One-command up
@@ -209,21 +227,54 @@ Expected: HTTP `200` and JSON containing `"status":"accepted"`.
 
 ---
 
-## Deploy to Kubernetes (No-code friendly)
+## Deploy to Kubernetes (No-code friendly) — Production Template
 
-If you can copy/paste commands, you can deploy this template.
+This section is for operators who want copy/paste commands with minimal guessing.
 
-### A) Prerequisites (one time)
+> Safety defaults:
+> - **Gateway is public** (`api.<your-domain>`).
+> - **Admin is private by default** (ClusterIP + port-forward when needed).
+> - **Postgres and Redis must stay private** (no public LoadBalancer/NodePort).
 
-1. Create a managed Kubernetes cluster (EKS/GKE/AKS/DO).
-2. Install local tools:
+### What you need before starting
+
+- A managed Kubernetes cluster (EKS/GKE/AKS/DigitalOcean Kubernetes, etc.).
+- A domain you control (for example `example.com`).
+- Local tools on your laptop:
+  - `kubectl`
+  - `helm`
+  - `dig` or `nslookup`
+  - `curl`
+- Access to create DNS records for `api.<your-domain>`.
+
+Verify tools:
 
 ```bash
 kubectl version --client
 helm version
+dig -v || nslookup -version
+curl --version
 ```
 
-3. Install cluster addons:
+Expected: each command prints version information and exits 0.
+
+### Step 1) Create or connect to a Kubernetes cluster
+
+Provider-agnostic flow:
+
+1. Create a cluster in your cloud console.
+2. Download/merge kubeconfig.
+3. Select context.
+
+```bash
+kubectl config get-contexts
+kubectl config use-context <your-cluster-context>
+kubectl get nodes
+```
+
+Expected: `kubectl get nodes` returns one or more `Ready` nodes.
+
+### Step 2) Install cluster prerequisites (ingress + cert-manager + external-secrets)
 
 ```bash
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
@@ -232,120 +283,164 @@ helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
 
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx   --namespace ingress-nginx --create-namespace
-helm upgrade --install cert-manager jetstack/cert-manager   --namespace cert-manager --create-namespace --set crds.enabled=true
+
+helm upgrade --install cert-manager jetstack/cert-manager   --namespace cert-manager --create-namespace   --set crds.enabled=true
+
 helm upgrade --install external-secrets external-secrets/external-secrets   --namespace external-secrets --create-namespace
 ```
 
-Expected output hint: each `helm upgrade --install` ends with `STATUS: deployed`.
+Expected: each Helm command ends with `STATUS: deployed`.
 
-4. Create TLS issuers:
+Apply issuer templates from this repo:
 
 ```bash
 kubectl apply -k infra/k8s/prereqs
 kubectl get clusterissuer
 ```
 
-Expected output hint: `letsencrypt-staging` and `letsencrypt-prod` show `READY=True`.
+Expected: `letsencrypt-staging` and `letsencrypt-prod` appear.
 
-### B) DNS + secrets
+### Step 3) Configure DNS for public Gateway
 
-1. Point DNS `api.<your-domain>` to ingress-nginx external IP.
-2. Create app secrets (recommended: External Secrets):
+Get ingress external address:
 
 ```bash
+kubectl -n ingress-nginx get svc
+```
+
+Create DNS record:
+
+- `api.<your-domain>` -> ingress external IP/hostname.
+
+Validate DNS:
+
+```bash
+dig +short api.<your-domain>
+# or
+nslookup api.<your-domain>
+```
+
+Expected: resolves to your ingress public address.
+
+### Step 4) TLS verification (cert-manager)
+
+After deploy (Step 6), verify cert issuance:
+
+```bash
+kubectl get certificate -n groceryclaw-v2
+kubectl describe certificate gateway-tls -n groceryclaw-v2
+```
+
+Expected: certificate eventually shows `Ready=True`.
+
+### Step 5) Create application secrets
+
+#### Recommended: External Secrets
+
+1. Configure your cloud secret manager and ClusterSecretStore named `cloud-secret-store`.
+2. Edit remote key names in `infra/k8s/overlays/prod/external-secrets.example.yaml`.
+3. Apply:
+
+```bash
+kubectl create namespace groceryclaw-v2 --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n groceryclaw-v2 -f infra/k8s/overlays/prod/external-secrets.example.yaml
 ```
 
-Dev-only fallback (do not commit values):
+#### Fallback (manual secret; dev/small teams)
 
 ```bash
-kubectl create namespace groceryclaw-v2
-kubectl -n groceryclaw-v2 create secret generic app-secrets   --from-literal=POSTGRES_URL='postgres://...'   --from-literal=REDIS_URL='redis://...'   --from-literal=WEBHOOK_SIGNATURE_SECRET='replace-me'   --from-literal=ADMIN_INVITE_PEPPER='replace-me'   --from-literal=ADMIN_MEK_B64='replace-me-b64'   --from-literal=WORKER_MEK_B64='replace-me-b64'
+kubectl create namespace groceryclaw-v2 --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n groceryclaw-v2 create secret generic app-secrets   --from-literal=DB_APP_URL='postgresql://app_user:password@postgres.internal:5432/groceryclaw_v2'   --from-literal=DB_ADMIN_URL='postgresql://admin_user:password@postgres.internal:5432/groceryclaw_v2'   --from-literal=REDIS_URL='redis://:password@redis.internal:6379/0'   --from-literal=WEBHOOK_SIGNATURE_SECRET='replace-me'   --from-literal=INVITE_PEPPER_B64='replace-me-base64'   --from-literal=ADMIN_MEK_B64='replace-me-base64'   --from-literal=WORKER_MEK_B64='replace-me-base64'
 ```
 
-### C) Deploy app and run migrations
+Never commit real secret values.
+
+### Step 6) Apply GroceryClaw manifests
 
 ```bash
+npm run k8s:audit
 kubectl apply -k infra/k8s/overlays/prod
 kubectl get deploy,svc,ingress -n groceryclaw-v2
+```
 
+Expected:
+
+- Deployments `gateway`, `worker`, `admin` exist.
+- Ingress exists for **gateway only**.
+- `admin`, `gateway-metrics`, `admin-metrics`, `worker-metrics` are ClusterIP services.
+
+### Step 7) Run migration job
+
+```bash
 kubectl create job --from=job/db-v2-migrate db-v2-migrate-$(date +%s) -n groceryclaw-v2
 kubectl get jobs -n groceryclaw-v2
+kubectl logs -n groceryclaw-v2 job/<migration-job-name>
 ```
 
-Expected output hint:
-- `gateway`, `worker`, `admin` deployments show `AVAILABLE` replicas.
-- Ingress exists for `gateway` only.
+Expected: migration job reaches `Complete` and logs show successful migration steps.
 
-### D) Verify production health
+### Step 8) Verify health and run smoke test
+
+Public checks:
 
 ```bash
-kubectl -n groceryclaw-v2 get pods
-kubectl -n groceryclaw-v2 logs deploy/gateway --tail=100
 curl -i https://api.<your-domain>/healthz
+curl -i https://api.<your-domain>/readyz
 ```
 
-Expected output hint: `/healthz` returns HTTP `200`.
+Expected: both return HTTP `200` once dependencies are healthy.
 
-Run smoke after each deploy:
+In-cluster smoke job (recommended):
 
 ```bash
-export WEBHOOK_SIGNATURE_SECRET='<same-secret-used-in-cluster>'
-npm run k8s:smoke
+kubectl apply -f infra/k8s/overlays/prod/smoke-job.yaml
+kubectl wait --for=condition=complete -n groceryclaw-v2 job/v2-smoke --timeout=180s
+kubectl logs -n groceryclaw-v2 job/v2-smoke
 ```
 
-Smoke validates: gateway health, migration job presence, signed fixture webhook accepted, enqueue evidence (Redis queue length or worker log evidence).
+Expected log contains `smoke passed`.
 
-### E) Set live webhook endpoint
+### Step 9) Configure Zalo webhook URL
 
-Set provider webhook URL to:
+Set webhook URL in provider console to:
 
 ```text
 https://api.<your-domain>/webhooks/zalo
 ```
 
-### F) Canary rollout and rollback
+Ensure provider uses the same signature secret as `WEBHOOK_SIGNATURE_SECRET`.
 
-Canary rollout by tenant:
+### Step 10) Canary rollout and rollback by tenant
+
+Canary one or more tenants to V2:
 
 ```bash
 npm run canary:set-mode -- --tenants <tenant-uuid> --mode v2 --apply
 npm run canary:status -- --tenants <tenant-uuid>
 ```
 
-Immediate rollback:
+Rollback tenant immediately:
 
 ```bash
 npm run canary:set-mode -- --tenants <tenant-uuid> --mode legacy --apply
+```
+
+Infrastructure rollback if needed:
+
+```bash
 kubectl rollout undo deployment/gateway -n groceryclaw-v2
 kubectl rollout undo deployment/worker -n groceryclaw-v2
 kubectl rollout undo deployment/admin -n groceryclaw-v2
 ```
 
-### G) Kubernetes troubleshooting quick list (top 10)
+### Where to go next
 
-1. **Certificate stuck in Pending**: verify DNS points to ingress LB; run `kubectl describe certificate -n groceryclaw-v2`.
-2. **Ingress has no external IP**: check ingress controller service (`kubectl -n ingress-nginx get svc`).
-3. **Pods CrashLoopBackOff**: check `kubectl logs deploy/<service> -n groceryclaw-v2` for missing secret/env keys.
-4. **Image pull errors**: verify image tag and registry credentials (`kubectl describe pod <pod> -n groceryclaw-v2`).
-5. **DB connection failures**: verify `POSTGRES_URL` in `app-secrets` and network policies.
-6. **Redis auth/connection failures**: verify `REDIS_URL` and that worker can reach Redis.
-7. **Webhook 401/403**: verify `WEBHOOK_SIGNATURE_SECRET` and provider signature header configuration.
-8. **Migration job fails**: inspect logs from created migration job and DB permissions.
-9. **No worker metrics in Prometheus**: ensure `worker-metrics` service exists and `ServiceMonitor` is applied.
-10. **Smoke test fails immediately**: verify local tools are installed (`kubectl`, `curl`, `openssl` for k8s smoke; `docker` for compose smoke).
-
-Before applying to cluster, run static manifest sanity:
-
-```bash
-npm run k8s:audit
-```
-
-Read the full guides:
-- `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
-- `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
-- `docs/saas_v2/DEPLOY_K8S_MONITORING.md`
-- `docs/saas_v2/DEPLOY_K8S_BACKUP.md`
+- Deployment prerequisites: `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
+- K8s architecture and overlays: `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
+- Smoke procedure details: `docs/saas_v2/DEPLOY_K8S_SMOKE.md`
+- Monitoring and alerts: `docs/saas_v2/DEPLOY_K8S_MONITORING.md`
+- Kubernetes troubleshooting: `docs/saas_v2/TROUBLESHOOTING_K8S.md`
+- Verification before customers: `docs/saas_v2/VERIFY_BEFORE_CUSTOMERS.md`
 
 ---
 
@@ -401,6 +496,8 @@ If a release is unhealthy:
 
 Use the dedicated troubleshooting guide:
 - `docs/saas_v2/TROUBLESHOOTING.md`
+- `docs/saas_v2/TROUBLESHOOTING_K8S.md`
+- `docs/saas_v2/VERIFY_BEFORE_CUSTOMERS.md`
 - `docs/saas_v2/DEPLOY_K8S_OVERVIEW.md`
 - `docs/saas_v2/DEPLOY_K8S_PREREQS.md`
 
@@ -429,6 +526,16 @@ npm run typecheck
 npm run test
 ```
 
+Real Postgres DB integration tests (tenant scoping + rollback):
+
+```bash
+# Full local flow: start compose postgres, migrate, run real DB tests, teardown
+npm run test:v2:db:real:compose
+
+# If you already have DATABASE_URL pointing to a migrated DB:
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/groceryclaw_v2_ci npm run test:v2:db:real
+```
+
 Security gates:
 
 ```bash
@@ -436,3 +543,74 @@ npm audit --omit=dev --audit-level=high
 ```
 
 CI also runs security/perf/reliability gates defined in `.github/workflows/`.
+
+
+### Redis configuration (canonical)
+
+Use **`REDIS_URL`** everywhere (Gateway/Worker/Admin, Compose, Kubernetes secrets).
+
+Example:
+
+```bash
+REDIS_URL=redis://:change_me@redis:6379/0
+```
+
+Compatibility shim: if `REDIS_URL` is missing, runtime falls back to `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` and logs a deprecation warning.
+
+
+### Readiness semantics
+
+- `/healthz`: lightweight process-up signal.
+- `/readyz`: dependency readiness (DB `SELECT 1` + Redis `PING`) when `READYZ_STRICT=true` (default).
+- Temporary rollback switch: set `READYZ_STRICT=false` to use shallow readiness during incident mitigation.
+
+
+Invite pepper generation (32-byte base64):
+
+```bash
+openssl rand -base64 32
+```
+
+Use this value for `INVITE_PEPPER_B64` in Admin and Gateway.
+
+
+### Worker health endpoints
+
+- Worker internal health server listens on `WORKER_HEALTH_PORT` (default `3002`) when `WORKER_HEALTH_SERVER_ENABLED=true` (default).
+- Endpoints:
+  - `GET /healthz` (process alive)
+  - `GET /readyz` (DB + Redis dependency checks)
+- Compose does **not** publish worker ports to host; health checks run container-local only.
+
+### Run mandatory V2 E2E wiring test locally
+
+This test boots a real Docker stack (Postgres + Redis + Gateway + Admin + Worker + stubs), runs migrations, and verifies full end-to-end wiring:
+
+```bash
+npm run e2e
+```
+
+What it validates:
+- Admin invite flow works end-to-end (`POST /tenants` -> `POST /tenants/:id/invites`).
+- Gateway consumes invite webhook and creates `tenant_users` membership (onboarding roundtrip).
+- Tenant processing mode is switched to `v2` and invoice routing is verified.
+- Redis enqueue/dequeue works between gateway and worker.
+- Worker processes inbound XML and writes canonical invoice + item rows.
+- Duplicate webhook is idempotent (no duplicate canonical invoice / inbound event).
+- Notifier deferral and flush basic path works (pending notification transitions to flushed and stub send is observed).
+
+The runner always tears down with `docker compose down -v --remove-orphans` in `finally`.
+
+
+### Run load + perf gate locally
+
+```bash
+npm run load:light
+npm run perf:gate
+```
+
+By default, perf gate is blocking. Temporary warn-only mode is available only via:
+
+```bash
+PERF_GATE_WARN_ONLY=true npm run perf:gate
+```
