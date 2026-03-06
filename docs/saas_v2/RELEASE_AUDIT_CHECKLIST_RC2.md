@@ -1,7 +1,7 @@
 # Release Audit Checklist RC2 (Gate B7)
 
-Date: 2026-03-06  
-Branch: `work`  
+Date: 2026-03-06
+Branch: `work`
 Scope: Final release audit for V2 public repo usability.
 
 ## Gate Status

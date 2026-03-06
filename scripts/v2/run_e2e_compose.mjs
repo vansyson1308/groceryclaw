@@ -101,6 +101,11 @@ function parseFetchResult(raw) {
   return JSON.parse(raw || '{}');
 }
 
+function failWithStatus(action, response) {
+  const status = response?.status ?? 'unknown';
+  throw new Error(`${action} failed with status ${status}`);
+}
+
 function webhookHeaders(secret, body) {
   return {
     'content-type': 'application/json',
@@ -161,7 +166,7 @@ async function main() {
       headers: adminHeaders,
       body: JSON.stringify({ name: tenantName, code: tenantCode, metadata: { source: 'e2e' } })
     }));
-    if (createTenantResp.status !== 201) throw new Error(`tenant create failed: ${createTenantResp.status} ${createTenantResp.body}`);
+    if (createTenantResp.status !== 201) failWithStatus('tenant create', createTenantResp);
     tenantId = JSON.parse(createTenantResp.body).id;
 
     const inviteResp = parseFetchResult(serviceFetch('admin', {
@@ -170,7 +175,7 @@ async function main() {
       headers: adminHeaders,
       body: '{}'
     }));
-    if (inviteResp.status !== 201) throw new Error(`invite create failed: ${inviteResp.status} ${inviteResp.body}`);
+    if (inviteResp.status !== 201) failWithStatus('invite create', inviteResp);
     const inviteCode = JSON.parse(inviteResp.body).code;
 
     const invitePayload = JSON.stringify({
@@ -186,7 +191,7 @@ async function main() {
       headers: webhookHeaders(webhookSecret, invitePayload),
       body: invitePayload
     }));
-    if (inviteWebhookResp.status !== 200) throw new Error(`invite webhook failed: ${inviteWebhookResp.status} ${inviteWebhookResp.body}`);
+    if (inviteWebhookResp.status !== 200) failWithStatus('invite webhook', inviteWebhookResp);
 
     await waitFor('invite membership created', async () => {
       try {
@@ -203,7 +208,7 @@ async function main() {
       headers: adminHeaders,
       body: JSON.stringify({ processing_mode: 'v2', enabled: true })
     }));
-    if (patchTenantResp.status !== 200) throw new Error(`tenant patch failed: ${patchTenantResp.status} ${patchTenantResp.body}`);
+    if (patchTenantResp.status !== 200) failWithStatus('tenant patch', patchTenantResp);
 
     sql(`INSERT INTO zalo_users (id, platform_user_id, display_name, last_interaction_at) VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '${linkedUser}', 'Linked User', now() - interval '25 hour') ON CONFLICT (platform_user_id) DO UPDATE SET last_interaction_at = now() - interval '25 hour';`);
     sql(`INSERT INTO tenant_users (tenant_id, zalo_user_id, role, status) VALUES ('${tenantId}'::uuid, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'owner', 'active') ON CONFLICT (tenant_id, zalo_user_id) DO NOTHING;`);
@@ -246,7 +251,7 @@ async function main() {
         headers: webhookHeaders(webhookSecret, invoicePayload),
         body: invoicePayload
       }));
-      if (r.status !== 200) throw new Error(`invoice webhook attempt ${i + 1} failed: ${r.status} ${r.body}`);
+      if (r.status !== 200) failWithStatus(`invoice webhook attempt ${i + 1}`, r);
     }
 
     await waitFor('canonical invoice + items + idempotency', async () => {
