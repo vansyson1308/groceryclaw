@@ -17,6 +17,22 @@ export interface CreatePgPoolOptions {
   readonly statementTimeoutMs?: number;
 }
 
+type PgPoolConstructorConfig = {
+  connectionString: string;
+  application_name: string;
+  statement_timeout: number;
+  query_timeout: number;
+};
+
+type PgPoolConstructor = new (config: PgPoolConstructorConfig) => PgPoolLike;
+
+type PgModuleShape = {
+  Pool?: PgPoolConstructor;
+  default?: {
+    Pool?: PgPoolConstructor;
+  };
+};
+
 const CONNECTION_SEGMENT_PATTERN = /(postgres(?:ql)?:\/\/)([^\s@/]+)@/gi;
 
 function redactText(value: string): string {
@@ -40,10 +56,10 @@ export function sanitizeDbError(error: unknown): Error {
 
 export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPoolLike> {
   const statementTimeoutMs = options.statementTimeoutMs ?? 5000;
-  const pgModule = await import('pg');
+  const pgModule = (await import('pg')) as PgModuleShape;
 
   // Handle both direct ESM access and CommonJS default-export interop.
-  const Pool = (pgModule as any)?.Pool ?? (pgModule as any)?.default?.Pool;
+  const Pool = pgModule.Pool ?? pgModule.default?.Pool;
   if (!Pool) {
     throw new Error('pg_pool_constructor_unavailable');
   }
@@ -55,7 +71,7 @@ export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPool
     query_timeout: statementTimeoutMs
   });
 
-  return pool as unknown as PgPoolLike;
+  return pool;
 }
 
 export async function query(
