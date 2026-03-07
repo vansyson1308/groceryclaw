@@ -22,36 +22,42 @@ async function scalar(sql, params = []) {
 }
 
 async function setupFixture() {
-  await query(pool, 'BEGIN');
+  // Use postgres superuser for setup to bypass RLS
+  const adminPool = await createPgPool({
+    connectionString: dbUrl.replace('app_user', 'postgres').replace('app_password', 'postgres'),
+    applicationName: 'db-real-tests-admin',
+    statementTimeoutMs: 5000
+  });
+  await query(adminPool, 'BEGIN');
   try {
-    await query(pool, `
-      DELETE FROM sync_results;
-      DELETE FROM resolved_invoice_items;
-      DELETE FROM unit_conversions;
-      DELETE FROM product_cache;
-      DELETE FROM mapping_dictionary;
-      DELETE FROM canonical_invoice_items;
-      DELETE FROM canonical_invoices;
-      DELETE FROM admin_audit_logs;
-      DELETE FROM audit_logs;
-      DELETE FROM pending_notifications;
-      DELETE FROM idempotency_keys;
-      DELETE FROM jobs;
-      DELETE FROM inbound_events;
-      DELETE FROM secret_versions;
-      DELETE FROM invite_codes;
-      DELETE FROM tenant_users;
-      DELETE FROM zalo_users;
-      DELETE FROM tenants;
+    // Delete in correct order to respect foreign key constraints
+    await query(adminPool, 'DELETE FROM sync_results');
+    await query(adminPool, 'DELETE FROM resolved_invoice_items');
+    await query(adminPool, 'DELETE FROM unit_conversions');
+    await query(adminPool, 'DELETE FROM product_cache');
+    await query(adminPool, 'DELETE FROM mapping_dictionary');
+    await query(adminPool, 'DELETE FROM canonical_invoice_items');
+    await query(adminPool, 'DELETE FROM canonical_invoices');
+    await query(adminPool, 'DELETE FROM admin_audit_logs');
+    await query(adminPool, 'DELETE FROM audit_logs');
+    await query(adminPool, 'DELETE FROM pending_notifications');
+    await query(adminPool, 'DELETE FROM idempotency_keys');
+    await query(adminPool, 'DELETE FROM jobs');
+    await query(adminPool, 'DELETE FROM inbound_events');
+    await query(adminPool, 'DELETE FROM secret_versions');
+    await query(adminPool, 'DELETE FROM invite_codes');
+    await query(adminPool, 'DELETE FROM tenant_users');
+    await query(adminPool, 'DELETE FROM zalo_users');
+    await query(adminPool, 'DELETE FROM tenants');
 
-      INSERT INTO tenants (id, name, status, processing_mode)
-      VALUES
-        ($1::uuid, 'Tenant A', 'active', 'v2'),
-        ($2::uuid, 'Tenant B', 'active', 'v2');
-    `, [TENANT_A, TENANT_B]);
-    await query(pool, 'COMMIT');
+    // Insert tenants - use explicit casting
+    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)', [TENANT_A, 'Tenant A', 'active', 'v2']);
+    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)', [TENANT_B, 'Tenant B', 'active', 'v2']);
+    await query(adminPool, 'COMMIT');
+    await closePool(adminPool);
   } catch (error) {
-    await query(pool, 'ROLLBACK');
+    await query(adminPool, 'ROLLBACK');
+    await closePool(adminPool);
     throw error;
   }
 }
@@ -93,14 +99,19 @@ test('tenant scoping enforces RLS isolation inside transaction helper', { skip }
 });
 
 test('missing tenant context fails safe for app role', { skip }, async () => {
-  const count = await scalar(`
-    BEGIN;
-      SET LOCAL ROLE groceryclaw_app_user;
-      RESET app.current_tenant;
-      SELECT count(*)::int FROM tenants;
-    COMMIT;
-  `);
-  assert.equal(count, '0');
+  // Use a transaction with proper statement handling
+  const result = await runTenantScopedTransaction({
+    pool,
+    tenantId: TENANT_A, // any tenant, but we'll reset it
+    applicationName: 'test:missing_context',
+    work: async (client) => {
+      await query(client, 'SET LOCAL ROLE groceryclaw_app_user');
+      await query(client, "RESET app.current_tenant");
+      const out = await query(client, 'SELECT count(*)::int AS c FROM tenants');
+      return String(out.rows[0]?.c ?? '0');
+    }
+  });
+  assert.equal(result, '0');
 });
 
 test('rollback removes inserted rows on thrown error', { skip }, async () => {

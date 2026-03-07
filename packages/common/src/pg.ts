@@ -40,13 +40,13 @@ export function sanitizeDbError(error: unknown): Error {
 
 export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPoolLike> {
   const statementTimeoutMs = options.statementTimeoutMs ?? 5000;
-  const PoolConstructor = pg.Pool || (pg as { default?: { Pool?: new (config: Record<string, unknown>) => unknown } }).default?.Pool;
-
-  if (!PoolConstructor) {
-    throw new Error('pg_pool_constructor_unavailable');
+  const pgModule = await import('pg');
+  // ESM/CommonJS interop: pg is a CommonJS module, need to handle both .Pool and .default?.Pool
+  const Pool = pgModule.Pool || pgModule.default?.Pool;
+  if (!Pool) {
+    throw new Error('pg.Pool is not available - possible ESM/CommonJS interop issue');
   }
-
-  const pool = new PoolConstructor({
+  const pool = new Pool({
     connectionString: options.connectionString,
     application_name: options.applicationName,
     statement_timeout: statementTimeoutMs,
@@ -61,6 +61,12 @@ export async function query(
   text: string,
   params: readonly unknown[] = []
 ): Promise<{ rows: Record<string, unknown>[] }> {
+  if (!pool) {
+    throw new Error('Database pool is not initialized. Cannot execute query.');
+  }
+  if (!pool.query) {
+    throw new Error('Database pool is invalid. Missing query method.');
+  }
   try {
     return await pool.query(text, params);
   } catch (error) {
@@ -90,7 +96,9 @@ export async function runTenantScopedTransaction<T>(opts: {
   readonly applicationName?: string;
   readonly work: (client: Pick<PgClientLike, 'query'>) => Promise<T>;
 }): Promise<T> {
-  assertPgPoolInitialized(opts.pool);
+  if (!opts.pool) {
+    throw new Error('Database pool is not initialized. Cannot run tenant-scoped transaction.');
+  }
   const client = await opts.pool.connect();
   try {
     await query(client, 'BEGIN');
