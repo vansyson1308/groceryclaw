@@ -14,24 +14,19 @@ const TENANT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 let pool;
+let setupPromise;
 
 async function scalar(sql, params) {
-  // When params is undefined, call query without it to avoid the extended
-  // query protocol, which rejects multi-statement strings. When params IS
-  // provided (even []), the extended protocol is used — single statement only.
   const result = params !== undefined
     ? await query(pool, sql, params)
     : await query(pool, sql);
 
-  // Guard against multi-statement results (pg returns an array) and empty
-  // result sets so callers get null instead of a cryptic TypeError.
   const rows = Array.isArray(result) ? (result.at(-1)?.rows ?? []) : (result.rows ?? []);
   if (rows.length === 0) return null;
   return String(Object.values(rows[0])[0] ?? '');
 }
 
 async function setupFixture() {
-  // Use postgres superuser for setup to bypass RLS
   const adminPool = await createPgPool({
     connectionString: dbUrl.replace('app_user', 'postgres').replace('app_password', 'postgres'),
     applicationName: 'db-real-tests-admin',
@@ -40,7 +35,6 @@ async function setupFixture() {
 
   await query(adminPool, 'BEGIN');
   try {
-    // Delete in correct order to respect foreign key constraints
     await query(adminPool, 'DELETE FROM sync_results');
     await query(adminPool, 'DELETE FROM resolved_invoice_items');
     await query(adminPool, 'DELETE FROM unit_conversions');
@@ -74,22 +68,30 @@ async function setupFixture() {
     await query(adminPool, 'COMMIT');
     await closePool(adminPool);
   } catch (error) {
-    await query(adminPool, 'ROLLBACK');
+    await query(adminPool, 'ROLLBACK').catch(() => {});
     await closePool(adminPool);
     throw error;
   }
 }
 
-test('db integration setup', { skip }, async () => {
-  pool = await createPgPool({
-    connectionString: dbUrl,
-    applicationName: 'db-real-tests',
-    statementTimeoutMs: 5000
-  });
-  await setupFixture();
-});
+async function ensureSetup() {
+  if (skip) return;
+  if (!setupPromise) {
+    setupPromise = (async () => {
+      pool = await createPgPool({
+        connectionString: dbUrl,
+        applicationName: 'db-real-tests',
+        statementTimeoutMs: 5000
+      });
+      await setupFixture();
+    })();
+  }
+  await setupPromise;
+}
 
 test('tenant scoping enforces RLS isolation inside transaction helper', { skip }, async () => {
+  await ensureSetup();
+
   const visibleA = await runTenantScopedTransaction({
     pool,
     tenantId: TENANT_A,
@@ -117,9 +119,8 @@ test('tenant scoping enforces RLS isolation inside transaction helper', { skip }
 });
 
 test('missing tenant context fails safe for app role', { skip }, async () => {
-  // Verify RLS hides all rows when no tenant context is set.
-  // Use a dedicated client so SET LOCAL ROLE scopes correctly,
-  // and execute statements individually.
+  await ensureSetup();
+
   const client = await pool.connect();
   try {
     await query(client, 'BEGIN');
@@ -137,6 +138,8 @@ test('missing tenant context fails safe for app role', { skip }, async () => {
 });
 
 test('rollback removes inserted rows on thrown error', { skip }, async () => {
+  await ensureSetup();
+
   await assert.rejects(async () => {
     await runTenantScopedTransaction({
       pool,
@@ -162,14 +165,16 @@ test('rollback removes inserted rows on thrown error', { skip }, async () => {
 });
 
 test('no tenant bleed between sequential transactions', { skip }, async () => {
+  await ensureSetup();
+
   const outA = await runTenantScopedTransaction({
     pool,
     tenantId: TENANT_A,
     applicationName: 'worker:BLEED_A',
     work: async (client) => {
       await query(client, 'SET LOCAL ROLE groceryclaw_app_user');
-      const out = await query(client, 'SELECT id::text FROM tenants LIMIT 1');
-      return String(out.rows[0]?.id ?? '');
+      const out = await query(client, 'SELECT id::text AS tenant_id FROM tenants ORDER BY id LIMIT 1');
+      return String(out.rows[0]?.tenant_id ?? '');
     }
   });
 
@@ -179,8 +184,8 @@ test('no tenant bleed between sequential transactions', { skip }, async () => {
     applicationName: 'worker:BLEED_B',
     work: async (client) => {
       await query(client, 'SET LOCAL ROLE groceryclaw_app_user');
-      const out = await query(client, 'SELECT id::text FROM tenants LIMIT 1');
-      return String(out.rows[0]?.id ?? '');
+      const out = await query(client, 'SELECT id::text AS tenant_id FROM tenants ORDER BY id LIMIT 1');
+      return String(out.rows[0]?.tenant_id ?? '');
     }
   });
 
@@ -189,7 +194,11 @@ test('no tenant bleed between sequential transactions', { skip }, async () => {
 });
 
 test('db integration teardown', { skip }, async () => {
+  if (setupPromise) {
+    await setupPromise;
+  }
   if (pool) {
     await closePool(pool);
+    pool = undefined;
   }
 });
