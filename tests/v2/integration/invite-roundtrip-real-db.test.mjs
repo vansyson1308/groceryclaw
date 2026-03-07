@@ -1,21 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHmac } from 'node:crypto';
-import { computeInviteCodeHashHex, normalizeInviteCode } from '../../../packages/common/dist/index.js';
+import { computeInviteCodeHashHex, normalizeInviteCode, createPgPool, query, closePool } from '../../../packages/common/dist/index.js';
 
 const dbUrl = process.env.DATABASE_URL;
 const skip = !dbUrl;
 
-function runSql(sql) {
-  const r = spawnSync('psql', [dbUrl, '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A', '-c', sql], { encoding: 'utf8' });
-  if (r.status !== 0) {
-    throw new Error(r.stderr || 'psql failed');
+let adminPool;
+
+async function setupDb() {
+  adminPool = await createPgPool({
+    connectionString: dbUrl.replace('app_user', 'postgres').replace('app_password', 'postgres'),
+    applicationName: 'invite-test-admin',
+    statementTimeoutMs: 5000
+  });
+  await query(adminPool, 'BEGIN');
+  try {
+    // Delete in correct order to respect foreign key constraints
+    await query(adminPool, 'DELETE FROM sync_results');
+    await query(adminPool, 'DELETE FROM resolved_invoice_items');
+    await query(adminPool, 'DELETE FROM unit_conversions');
+    await query(adminPool, 'DELETE FROM product_cache');
+    await query(adminPool, 'DELETE FROM mapping_dictionary');
+    await query(adminPool, 'DELETE FROM canonical_invoice_items');
+    await query(adminPool, 'DELETE FROM canonical_invoices');
+    await query(adminPool, 'DELETE FROM admin_audit_logs');
+    await query(adminPool, 'DELETE FROM audit_logs');
+    await query(adminPool, 'DELETE FROM pending_notifications');
+    await query(adminPool, 'DELETE FROM idempotency_keys');
+    await query(adminPool, 'DELETE FROM jobs');
+    await query(adminPool, 'DELETE FROM inbound_events');
+    await query(adminPool, 'DELETE FROM secret_versions');
+    await query(adminPool, 'DELETE FROM invite_codes');
+    await query(adminPool, 'DELETE FROM tenant_users');
+    await query(adminPool, 'DELETE FROM zalo_users');
+    await query(adminPool, 'DELETE FROM tenants');
+
+    // Insert tenant - use ON CONFLICT to handle duplicate
+    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, processing_mode = EXCLUDED.processing_mode', ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2']);
+    await query(adminPool, 'COMMIT');
+  } catch (error) {
+    await query(adminPool, 'ROLLBACK');
+    throw error;
   }
-  return r.stdout.trim();
+}
+
+async function runSqlAdmin(sql) {
+  const result = await query(adminPool, sql);
+  return result.rows;
 }
 
 function signBody(body, secret) {
@@ -55,31 +91,7 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
   skip,
   timeout: 60_000
 }, async () => {
-  runSql(`
-    BEGIN;
-      DELETE FROM sync_results;
-      DELETE FROM resolved_invoice_items;
-      DELETE FROM unit_conversions;
-      DELETE FROM product_cache;
-      DELETE FROM mapping_dictionary;
-      DELETE FROM canonical_invoice_items;
-      DELETE FROM canonical_invoices;
-      DELETE FROM admin_audit_logs;
-      DELETE FROM audit_logs;
-      DELETE FROM pending_notifications;
-      DELETE FROM idempotency_keys;
-      DELETE FROM jobs;
-      DELETE FROM inbound_events;
-      DELETE FROM secret_versions;
-      DELETE FROM invite_codes;
-      DELETE FROM tenant_users;
-      DELETE FROM zalo_users;
-      DELETE FROM tenants;
-
-      INSERT INTO tenants (id, name, status, processing_mode)
-      VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2');
-    COMMIT;
-  `);
+  await setupDb();
 
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-invite-'));
   const queueFile = path.join(dir, 'queue.log');
@@ -143,9 +155,12 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
 
     const normalized = normalizeInviteCode(code);
     const nodeHash = computeInviteCodeHashHex(normalized, pepperB64);
-    const dbHash = runSql(`
-      SELECT encode(digest(decode('${pepperB64}', 'base64') || convert_to('${normalized}', 'UTF8'), 'sha256'), 'hex');
-    `).trim();
+
+    // Verify hash in database using node-postgres
+    const hashResult = await runSqlAdmin(`
+      SELECT encode(digest(decode('${pepperB64}', 'base64') || convert_to('${normalized}', 'UTF8'), 'sha256'), 'hex') as hash
+    `);
+    const dbHash = hashResult[0]?.hash?.trim() ?? '';
     assert.equal(nodeHash, dbHash);
 
     const bodyObj = {
@@ -172,21 +187,25 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
     });
     assert.equal(webhook.status, 200);
 
-    const membershipCount = runSql(`
-      SELECT count(*)::int
+    // Check membership count using node-postgres
+    const membershipResult = await runSqlAdmin(`
+      SELECT count(*)::int as count
       FROM tenant_users tu
       JOIN zalo_users zu ON zu.id = tu.zalo_user_id
       WHERE zu.platform_user_id = 'zalo_roundtrip_user'
         AND tu.tenant_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid
-        AND tu.status = 'active';
+        AND tu.status = 'active'
     `);
+    const membershipCount = String(membershipResult[0]?.count ?? '0');
     assert.equal(membershipCount, '1');
 
-    const plainStored = runSql(`
-      SELECT count(*)::int
+    // Check invite codes using node-postgres
+    const plainStoredResult = await runSqlAdmin(`
+      SELECT count(*)::int as count
       FROM invite_codes
-      WHERE code_hint = '${code.replace(/'/g, "''")}';
+      WHERE code_hint = '${code.replace(/'/g, "''")}'
     `);
+    const plainStored = String(plainStoredResult[0]?.count ?? '0');
     assert.equal(plainStored, '0');
 
     const queueLines = readFileSync(queueFile, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
@@ -194,5 +213,8 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
   } finally {
     admin.kill('SIGTERM');
     gateway.kill('SIGTERM');
+    if (adminPool) {
+      await closePool(adminPool);
+    }
   }
 });
