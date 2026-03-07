@@ -1,3 +1,5 @@
+import pg from 'pg';
+
 export interface PgClientLike {
   query: (text: string, params?: readonly unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
   release: () => void;
@@ -21,6 +23,12 @@ function redactText(value: string): string {
   return value.replace(CONNECTION_SEGMENT_PATTERN, '$1[REDACTED]@');
 }
 
+function assertPgPoolInitialized(pool: PgPoolLike | null | undefined): asserts pool is PgPoolLike {
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+    throw new Error('db_pool_not_initialized');
+  }
+}
+
 export function redactDbErrorMessage(message: string): string {
   return redactText(message);
 }
@@ -32,8 +40,13 @@ export function sanitizeDbError(error: unknown): Error {
 
 export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPoolLike> {
   const statementTimeoutMs = options.statementTimeoutMs ?? 5000;
-  const pgModule = await import('pg');
-  const pool = new pgModule.Pool({
+  const PoolConstructor = pg.Pool || (pg as { default?: { Pool?: new (config: Record<string, unknown>) => unknown } }).default?.Pool;
+
+  if (!PoolConstructor) {
+    throw new Error('pg_pool_constructor_unavailable');
+  }
+
+  const pool = new PoolConstructor({
     connectionString: options.connectionString,
     application_name: options.applicationName,
     statement_timeout: statementTimeoutMs,
@@ -77,6 +90,7 @@ export async function runTenantScopedTransaction<T>(opts: {
   readonly applicationName?: string;
   readonly work: (client: Pick<PgClientLike, 'query'>) => Promise<T>;
 }): Promise<T> {
+  assertPgPoolInitialized(opts.pool);
   const client = await opts.pool.connect();
   try {
     await query(client, 'BEGIN');
