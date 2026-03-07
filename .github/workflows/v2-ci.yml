@@ -67,6 +67,9 @@ jobs:
         run: npm run test
 
 
+      - name: Install Redis CLI
+        run: sudo apt-get update && sudo apt-get install -y redis-tools
+
       - name: Start Redis (auth enabled)
         run: docker run -d --name groceryclaw-ci-redis -p 6379:6379 redis:7-alpine redis-server --requirepass "$E2E_REDIS_PASSWORD" --save '' --appendonly no
 
