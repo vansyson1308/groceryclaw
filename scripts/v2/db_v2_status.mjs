@@ -1,6 +1,6 @@
 import { appliedMigrations, ensureMigrationsTable, migrationFiles } from './db_v2_lib.mjs';
 
-ensureMigrationsTable();
+await ensureMigrationsTable();
 
 const applied = new Set(appliedMigrations().map((m) => m.name));
 const files = migrationFiles();

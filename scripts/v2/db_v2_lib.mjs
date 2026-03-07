@@ -2,15 +2,31 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 export const MIGRATIONS_DIR = 'db/v2/migrations';
 
 function hasCommand(cmd) {
-  const result = spawnSync('bash', ['-lc', `command -v ${cmd}`], { encoding: 'utf8' });
+  const check = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(check, [cmd], {
+    encoding: 'utf8',
+    shell: true,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
   return result.status === 0;
 }
 
-function shell(sql) {
+const FALLBACK_DB = 'groceryclaw_v2';
+
+function targetDb() {
+  if (process.env.DATABASE_URL) {
+    const match = process.env.DATABASE_URL.match(/\/([^/?]+)(\?|$)/);
+    if (match) return match[1];
+  }
+  return FALLBACK_DB;
+}
+
+function shell(dbName = targetDb()) {
   if (process.env.DB_V2_PSQL_CMD) {
     return process.env.DB_V2_PSQL_CMD;
   }
@@ -19,16 +35,22 @@ function shell(sql) {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required when using psql directly.');
     }
-    return `psql "${process.env.DATABASE_URL}" -v ON_ERROR_STOP=1 -q -t -A -f -`;
+    // Replace the database name in the connection URL when targeting a different DB.
+    let url = process.env.DATABASE_URL;
+    if (dbName !== targetDb()) {
+      url = url.replace(/\/[^/?]+(\?|$)/, `/${dbName}$1`);
+    }
+    return `psql "${url}" -v ON_ERROR_STOP=1 -q -t -A -f -`;
   }
 
   if (hasCommand('docker')) {
+    const envFile = process.env.DB_V2_COMPOSE_ENV_FILE || 'infra/compose/v2/.env';
     return [
       'docker compose',
-      '--env-file infra/compose/v2/.env',
+      `--env-file ${envFile}`,
       '-f infra/compose/v2/docker-compose.yml',
       'exec -T postgres',
-      "psql -U postgres -d groceryclaw_v2 -v ON_ERROR_STOP=1 -q -t -A -f -"
+      `psql -U postgres -d ${dbName} -v ON_ERROR_STOP=1 -q -t -A -f -`
     ].join(' ');
   }
 
@@ -65,22 +87,122 @@ export function migrationChecksum(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
-export function runSql(sql) {
-  const cmd = shell(sql);
-  const result = spawnSync('bash', ['-lc', cmd], {
+const TRANSIENT_PATTERNS = [
+  'shutting down',
+  'starting up',
+  'connection refused',
+  'Connection refused',
+  'ECONNREFUSED',
+  'No such file or directory',
+  'the database system is not yet accepting connections',
+  'server closed the connection unexpectedly',
+  'could not connect to server',
+  'timeout expired'
+];
+
+function isTransientError(stderr) {
+  return TRANSIENT_PATTERNS.some((p) => stderr.includes(p));
+}
+
+export function runSql(sql, dbName) {
+  const cmd = shell(dbName);
+  const result = spawnSync(cmd, {
     input: sql,
     encoding: 'utf8',
+    shell: true,
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
   if (result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || 'SQL execution failed');
+    const msg = result.stderr || result.stdout || 'SQL execution failed';
+    const err = new Error(msg);
+    err.transient = isTransientError(msg);
+    throw err;
   }
 
   return result.stdout.trim();
 }
 
-export function ensureMigrationsTable() {
+/**
+ * Waits for Postgres to be fully ready by requiring CONSECUTIVE_REQUIRED
+ * successful probes. This survives the Docker entrypoint init-restart cycle
+ * where Postgres starts temporarily, runs initdb scripts, shuts down, then
+ * restarts for real. A single SELECT 1 success can land in the temporary
+ * phase; requiring consecutive successes ensures the final restart is stable.
+ */
+export async function waitForDatabase(maxRetries = 30, delayMs = 1000) {
+  const CONSECUTIVE_REQUIRED = 2;
+  let consecutive = 0;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const cmd = shell('postgres');
+    const result = spawnSync(cmd, {
+      input: 'SELECT 1;',
+      encoding: 'utf8',
+      shell: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    if (result.status === 0) {
+      consecutive++;
+      if (consecutive >= CONSECUTIVE_REQUIRED) {
+        return;
+      }
+      console.error(
+        `Database responded (${consecutive}/${CONSECUTIVE_REQUIRED} consecutive checks)...`
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    // Reset consecutive counter on any failure.
+    consecutive = 0;
+    const msg = result.stderr || result.stdout || 'unknown error';
+
+    if (attempt === maxRetries) {
+      throw new Error(
+        `Database not ready after ${maxRetries} attempts (${maxRetries * delayMs / 1000}s). ` +
+        `Last error: ${msg}`
+      );
+    }
+
+    console.error(
+      `Waiting for database to be ready... (attempt ${attempt}/${maxRetries}: ${msg.split('\n')[0].trim()})`
+    );
+    await sleep(delayMs);
+  }
+}
+
+export async function ensureDatabaseExists(dbName = targetDb(), maxRetries = 10, delayMs = 1000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const check = runSql(
+        `SELECT 1 FROM pg_database WHERE datname = '${dbName}';`,
+        'postgres'
+      );
+
+      if (check) {
+        return;
+      }
+
+      console.error(`Creating database "${dbName}"...`);
+      runSql(`CREATE DATABASE "${dbName}";`, 'postgres');
+      return;
+    } catch (err) {
+      if (!err.transient || attempt === maxRetries) {
+        throw err;
+      }
+      console.error(
+        `Transient error during ensureDatabaseExists (attempt ${attempt}/${maxRetries}): ${err.message.split('\n')[0].trim()}`
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
+export async function ensureMigrationsTable() {
+  await waitForDatabase();
+  await ensureDatabaseExists();
   runSql(`
     CREATE TABLE IF NOT EXISTS schema_migrations_v2 (
       id BIGSERIAL PRIMARY KEY,

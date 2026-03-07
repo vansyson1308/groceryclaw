@@ -41,11 +41,13 @@ export function sanitizeDbError(error: unknown): Error {
 export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPoolLike> {
   const statementTimeoutMs = options.statementTimeoutMs ?? 5000;
   const pgModule = await import('pg');
-  // ESM/CommonJS interop: pg is a CommonJS module, need to handle both .Pool and .default?.Pool
-  const Pool = pgModule.Pool || pgModule.default?.Pool;
+
+  // Handle both direct ESM access and CommonJS default-export interop.
+  const Pool = (pgModule as any)?.Pool ?? (pgModule as any)?.default?.Pool;
   if (!Pool) {
-    throw new Error('pg.Pool is not available - possible ESM/CommonJS interop issue');
+    throw new Error('pg_pool_constructor_unavailable');
   }
+
   const pool = new Pool({
     connectionString: options.connectionString,
     application_name: options.applicationName,
@@ -61,12 +63,10 @@ export async function query(
   text: string,
   params: readonly unknown[] = []
 ): Promise<{ rows: Record<string, unknown>[] }> {
-  if (!pool) {
-    throw new Error('Database pool is not initialized. Cannot execute query.');
+  if (!pool || typeof pool.query !== 'function') {
+    throw new Error('db_pool_not_initialized');
   }
-  if (!pool.query) {
-    throw new Error('Database pool is invalid. Missing query method.');
-  }
+
   try {
     return await pool.query(text, params);
   } catch (error) {
@@ -75,6 +75,9 @@ export async function query(
 }
 
 export async function closePool(pool: Pick<PgPoolLike, 'end'>): Promise<void> {
+  if (!pool || typeof pool.end !== 'function') {
+    throw new Error('db_pool_not_initialized');
+  }
   await pool.end();
 }
 
@@ -96,16 +99,17 @@ export async function runTenantScopedTransaction<T>(opts: {
   readonly applicationName?: string;
   readonly work: (client: Pick<PgClientLike, 'query'>) => Promise<T>;
 }): Promise<T> {
-  if (!opts.pool) {
-    throw new Error('Database pool is not initialized. Cannot run tenant-scoped transaction.');
-  }
+  assertPgPoolInitialized(opts.pool);
+
   const client = await opts.pool.connect();
   try {
     await query(client, 'BEGIN');
     await query(client, "SELECT set_config('app.current_tenant', $1, true)", [opts.tenantId]);
+
     if (opts.applicationName) {
       await query(client, "SELECT set_config('application_name', $1, true)", [opts.applicationName]);
     }
+
     const result = await opts.work(client);
     await query(client, 'COMMIT');
     return result;
@@ -113,7 +117,7 @@ export async function runTenantScopedTransaction<T>(opts: {
     try {
       await query(client, 'ROLLBACK');
     } catch {
-      // ignore rollback failure and keep original error
+      // keep original error
     }
     throw sanitizeDbError(error);
   } finally {

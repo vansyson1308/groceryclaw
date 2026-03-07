@@ -15,10 +15,19 @@ const TENANT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 let pool;
 
-async function scalar(sql, params = []) {
-  const result = await query(pool, sql, params);
-  const row = result.rows[0] ?? {};
-  return String(Object.values(row)[0] ?? '');
+async function scalar(sql, params) {
+  // When params is undefined, call query without it to avoid the extended
+  // query protocol, which rejects multi-statement strings. When params IS
+  // provided (even []), the extended protocol is used — single statement only.
+  const result = params !== undefined
+    ? await query(pool, sql, params)
+    : await query(pool, sql);
+
+  // Guard against multi-statement results (pg returns an array) and empty
+  // result sets so callers get null instead of a cryptic TypeError.
+  const rows = Array.isArray(result) ? (result.at(-1)?.rows ?? []) : (result.rows ?? []);
+  if (rows.length === 0) return null;
+  return String(Object.values(rows[0])[0] ?? '');
 }
 
 async function setupFixture() {
@@ -28,6 +37,7 @@ async function setupFixture() {
     applicationName: 'db-real-tests-admin',
     statementTimeoutMs: 5000
   });
+
   await query(adminPool, 'BEGIN');
   try {
     // Delete in correct order to respect foreign key constraints
@@ -50,9 +60,17 @@ async function setupFixture() {
     await query(adminPool, 'DELETE FROM zalo_users');
     await query(adminPool, 'DELETE FROM tenants');
 
-    // Insert tenants - use explicit casting
-    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)', [TENANT_A, 'Tenant A', 'active', 'v2']);
-    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)', [TENANT_B, 'Tenant B', 'active', 'v2']);
+    await query(
+      adminPool,
+      'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)',
+      [TENANT_A, 'Tenant A', 'active', 'v2']
+    );
+    await query(
+      adminPool,
+      'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4)',
+      [TENANT_B, 'Tenant B', 'active', 'v2']
+    );
+
     await query(adminPool, 'COMMIT');
     await closePool(adminPool);
   } catch (error) {
@@ -99,19 +117,23 @@ test('tenant scoping enforces RLS isolation inside transaction helper', { skip }
 });
 
 test('missing tenant context fails safe for app role', { skip }, async () => {
-  // Use a transaction with proper statement handling
-  const result = await runTenantScopedTransaction({
-    pool,
-    tenantId: TENANT_A, // any tenant, but we'll reset it
-    applicationName: 'test:missing_context',
-    work: async (client) => {
-      await query(client, 'SET LOCAL ROLE groceryclaw_app_user');
-      await query(client, "RESET app.current_tenant");
-      const out = await query(client, 'SELECT count(*)::int AS c FROM tenants');
-      return String(out.rows[0]?.c ?? '0');
-    }
-  });
-  assert.equal(result, '0');
+  // Verify RLS hides all rows when no tenant context is set.
+  // Use a dedicated client so SET LOCAL ROLE scopes correctly,
+  // and execute statements individually.
+  const client = await pool.connect();
+  try {
+    await query(client, 'BEGIN');
+    await query(client, 'SET LOCAL ROLE groceryclaw_app_user');
+    await query(client, 'RESET app.current_tenant');
+
+    const out = await query(client, 'SELECT count(*)::int AS c FROM tenants');
+
+    await query(client, 'COMMIT');
+    assert.equal(Number(out.rows[0]?.c ?? -1), 0);
+  } finally {
+    await query(client, 'ROLLBACK').catch(() => {});
+    client.release();
+  }
 });
 
 test('rollback removes inserted rows on thrown error', { skip }, async () => {
@@ -132,7 +154,10 @@ test('rollback removes inserted rows on thrown error', { skip }, async () => {
     });
   }, /force_rollback/);
 
-  const persisted = await scalar("SELECT count(*)::int FROM jobs WHERE tenant_id = $1::uuid AND type = 'rollback_probe'", [TENANT_A]);
+  const persisted = await scalar(
+    "SELECT count(*)::int FROM jobs WHERE tenant_id = $1::uuid AND type = 'rollback_probe'",
+    [TENANT_A]
+  );
   assert.equal(persisted, '0');
 });
 

@@ -5,7 +5,13 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHmac } from 'node:crypto';
-import { computeInviteCodeHashHex, normalizeInviteCode, createPgPool, query, closePool } from '../../../packages/common/dist/index.js';
+import {
+  computeInviteCodeHashHex,
+  normalizeInviteCode,
+  createPgPool,
+  query,
+  closePool
+} from '../../../packages/common/dist/index.js';
 
 const dbUrl = process.env.DATABASE_URL;
 const skip = !dbUrl;
@@ -18,9 +24,9 @@ async function setupDb() {
     applicationName: 'invite-test-admin',
     statementTimeoutMs: 5000
   });
+
   await query(adminPool, 'BEGIN');
   try {
-    // Delete in correct order to respect foreign key constraints
     await query(adminPool, 'DELETE FROM sync_results');
     await query(adminPool, 'DELETE FROM resolved_invoice_items');
     await query(adminPool, 'DELETE FROM unit_conversions');
@@ -40,17 +46,26 @@ async function setupDb() {
     await query(adminPool, 'DELETE FROM zalo_users');
     await query(adminPool, 'DELETE FROM tenants');
 
-    // Insert tenant - use ON CONFLICT to handle duplicate
-    await query(adminPool, 'INSERT INTO tenants (id, name, status, processing_mode) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, processing_mode = EXCLUDED.processing_mode', ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2']);
+    await query(
+      adminPool,
+      `INSERT INTO tenants (id, name, status, processing_mode)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE
+       SET name = EXCLUDED.name,
+           status = EXCLUDED.status,
+           processing_mode = EXCLUDED.processing_mode`,
+      ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2']
+    );
+
     await query(adminPool, 'COMMIT');
   } catch (error) {
-    await query(adminPool, 'ROLLBACK');
+    await query(adminPool, 'ROLLBACK').catch(() => {});
     throw error;
   }
 }
 
-async function runSqlAdmin(sql) {
-  const result = await query(adminPool, sql);
+async function runSqlAdmin(sql, params = []) {
+  const result = await query(adminPool, sql, params);
   return result.rows;
 }
 
@@ -140,15 +155,20 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
     await waitServer(admin, 'http://127.0.0.1:3431/healthz');
     await waitServer(gateway, 'http://127.0.0.1:3430/healthz');
 
-    const createInvite = await fetch('http://127.0.0.1:3431/tenants/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/invites', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-admin-api-key': 'breakglass-key'
-      },
-      body: JSON.stringify({})
-    });
+    const createInvite = await fetch(
+      'http://127.0.0.1:3431/tenants/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/invites',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-admin-api-key': 'breakglass-key'
+        },
+        body: JSON.stringify({})
+      }
+    );
+
     assert.equal(createInvite.status, 201);
+
     const inviteBody = await createInvite.json();
     const code = String(inviteBody.code ?? '');
     assert.ok(code.length >= 6);
@@ -156,11 +176,14 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
     const normalized = normalizeInviteCode(code);
     const nodeHash = computeInviteCodeHashHex(normalized, pepperB64);
 
-    // Verify hash in database using node-postgres
-    const hashResult = await runSqlAdmin(`
-      SELECT encode(digest(decode('${pepperB64}', 'base64') || convert_to('${normalized}', 'UTF8'), 'sha256'), 'hex') as hash
-    `);
-    const dbHash = hashResult[0]?.hash?.trim() ?? '';
+    const hashResult = await runSqlAdmin(
+      `SELECT encode(
+         digest(decode($1, 'base64') || convert_to($2, 'UTF8'), 'sha256'),
+         'hex'
+       ) AS hash`,
+      [pepperB64, normalized]
+    );
+    const dbHash = String(hashResult[0]?.hash ?? '').trim();
     assert.equal(nodeHash, dbHash);
 
     const bodyObj = {
@@ -187,34 +210,42 @@ test('admin create invite -> gateway consume invite roundtrip works with canonic
     });
     assert.equal(webhook.status, 200);
 
-    // Check membership count using node-postgres
-    const membershipResult = await runSqlAdmin(`
-      SELECT count(*)::int as count
-      FROM tenant_users tu
-      JOIN zalo_users zu ON zu.id = tu.zalo_user_id
-      WHERE zu.platform_user_id = 'zalo_roundtrip_user'
-        AND tu.tenant_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid
-        AND tu.status = 'active'
-    `);
+    const membershipResult = await runSqlAdmin(
+      `SELECT count(*)::int AS count
+       FROM tenant_users tu
+       JOIN zalo_users zu ON zu.id = tu.zalo_user_id
+       WHERE zu.platform_user_id = $1
+         AND tu.tenant_id = $2::uuid
+         AND tu.status = 'active'`,
+      ['zalo_roundtrip_user', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']
+    );
     const membershipCount = String(membershipResult[0]?.count ?? '0');
     assert.equal(membershipCount, '1');
 
-    // Check invite codes using node-postgres
-    const plainStoredResult = await runSqlAdmin(`
-      SELECT count(*)::int as count
-      FROM invite_codes
-      WHERE code_hint = '${code.replace(/'/g, "''")}'
-    `);
+    const plainStoredResult = await runSqlAdmin(
+      `SELECT count(*)::int AS count
+       FROM invite_codes
+       WHERE code_hint = $1`,
+      [code]
+    );
     const plainStored = String(plainStoredResult[0]?.count ?? '0');
     assert.equal(plainStored, '0');
 
-    const queueLines = readFileSync(queueFile, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-    assert.ok(queueLines.some((job) => job.job_type === 'NOTIFY_USER' && job.template === 'invite_success'));
+    const queueLines = readFileSync(queueFile, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    assert.ok(
+      queueLines.some((job) => job.job_type === 'NOTIFY_USER' && job.template === 'invite_success')
+    );
   } finally {
     admin.kill('SIGTERM');
     gateway.kill('SIGTERM');
     if (adminPool) {
       await closePool(adminPool);
+      adminPool = undefined;
     }
   }
 });

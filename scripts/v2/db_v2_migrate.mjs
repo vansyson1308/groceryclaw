@@ -6,7 +6,7 @@ import {
   runSql
 } from './db_v2_lib.mjs';
 
-ensureMigrationsTable();
+await ensureMigrationsTable();
 
 const applied = new Map(appliedMigrations().map((m) => [m.name, m.checksum]));
 

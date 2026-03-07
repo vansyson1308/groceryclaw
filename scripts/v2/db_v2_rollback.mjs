@@ -1,6 +1,6 @@
 import { ensureMigrationsTable, readMigration, runSql } from './db_v2_lib.mjs';
 
-ensureMigrationsTable();
+await ensureMigrationsTable();
 
 const latest = runSql(`
   SELECT name

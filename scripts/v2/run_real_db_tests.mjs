@@ -7,7 +7,7 @@ const envFile = 'infra/compose/v2/.env.real-db-test';
 const useExistingDb = process.env.REAL_DB_TESTS_USE_EXISTING_DB === 'true';
 
 function run(cmd, env = process.env) {
-  const result = spawnSync('bash', ['-lc', cmd], { stdio: 'inherit', env });
+  const result = spawnSync(cmd, { stdio: 'inherit', env, shell: true });
   if (result.status !== 0) {
     throw new Error(`command failed: ${cmd}`);
   }
@@ -50,15 +50,23 @@ async function main() {
   const generated = makeEnv();
 
   try {
-    compose('up -d postgres');
-    run('npm run db:v2:migrate', {
+    // Always tear down first to remove stale volumes. Postgres only applies
+    // POSTGRES_PASSWORD during initdb (first run on an empty data directory).
+    // If a previous run left v2_v2_postgres_data behind (e.g. Ctrl+C before
+    // cleanup), the old password is baked into pg_authid and the new random
+    // password would be silently ignored. Migrations still succeed (docker exec
+    // uses local-socket trust auth) but TCP connections from tests fail with
+    // 28P01 "password authentication failed". Removing volumes guarantees a
+    // fresh initdb with the current password.
+    compose('down -v --remove-orphans');
+    compose('up -d --wait postgres');
+    const testEnv = {
       ...process.env,
-      DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/${generated.dbName}`
-    });
-    run('npm run test:v2:db:real', {
-      ...process.env,
-      DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/${generated.dbName}`
-    });
+      DATABASE_URL: `postgresql://postgres:${generated.pgPassword}@127.0.0.1:5432/${generated.dbName}`,
+      DB_V2_COMPOSE_ENV_FILE: envFile
+    };
+    run('npm run db:v2:migrate', testEnv);
+    run('npm run test:v2:db:real', testEnv);
   } finally {
     try {
       compose('down -v --remove-orphans');
