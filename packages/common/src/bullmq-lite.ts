@@ -23,9 +23,14 @@ export class Queue {
     // Use spawnSync (array args) instead of execSync (shell string) to avoid shell mangling JSON quotes
     const args = [...redisArgs(this.opts.connection), 'RPUSH', `bull-${this.queueName}-wait`, payload];
     const result = spawnSync('redis-cli', args, { encoding: 'utf8', stdio: 'pipe' });
+    // Check both exit code AND stdout/stderr for errors — redis-cli may return
+    // exit code 0 even on auth failures, putting the error message in stdout.
+    const combinedOutput = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
+    if (combinedOutput.includes('NOAUTH') || combinedOutput.includes('WRONGPASS')) {
+      throw new Error('queue_auth_error');
+    }
     if (result.status !== 0) {
-      const errText = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
-      if (errText.includes('NOAUTH') || errText.includes('WRONGPASS') || errText.includes('AUTH')) {
+      if (combinedOutput.includes('AUTH')) {
         throw new Error('queue_auth_error');
       }
       throw new Error('queue_error');
@@ -52,6 +57,10 @@ export class Worker {
 
   async waitUntilReady(): Promise<void> {
     const ping = spawnSync('redis-cli', [...redisArgs(this.opts.connection), 'PING'], { encoding: 'utf8' });
+    const combinedOutput = `${ping.stderr || ''} ${ping.stdout || ''}`.toUpperCase();
+    if (combinedOutput.includes('NOAUTH') || combinedOutput.includes('WRONGPASS')) {
+      throw new Error('redis_auth_error');
+    }
     if (ping.status !== 0) throw new Error('redis_unavailable');
   }
 
@@ -66,6 +75,11 @@ export class Worker {
       try {
         // Use dash instead of colon to avoid Redis bug with colon keys + password auth + RPUSH
         const result = spawnSync('redis-cli', [...redisArgs(this.opts.connection), 'BRPOP', `bull-${this.queueName}-wait`, '1'], { encoding: 'utf8' });
+        const loopOutput = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
+        if (loopOutput.includes('NOAUTH') || loopOutput.includes('WRONGPASS')) {
+          this.emit('error', new Error('worker_queue_auth_error'));
+          continue;
+        }
         if (result.status !== 0) {
           this.emit('error', new Error('worker_queue_error'));
           continue;

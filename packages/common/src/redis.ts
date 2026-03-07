@@ -78,5 +78,11 @@ export async function redisPing(config: RedisConfig, timeoutMs = 500): Promise<b
   args.push('PING');
 
   const result = spawnSync('redis-cli', args, { encoding: 'utf8', timeout: timeoutMs });
+  // redis-cli may return exit code 0 even on auth failures, so check output for
+  // both PONG (success) and absence of auth errors before returning true.
+  const combinedOutput = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
+  if (combinedOutput.includes('NOAUTH') || combinedOutput.includes('WRONGPASS')) {
+    return false;
+  }
   return result.status === 0 && result.stdout.trim().toUpperCase().includes('PONG');
 }
