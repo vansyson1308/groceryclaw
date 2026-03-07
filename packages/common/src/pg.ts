@@ -33,7 +33,15 @@ export function sanitizeDbError(error: unknown): Error {
 export async function createPgPool(options: CreatePgPoolOptions): Promise<PgPoolLike> {
   const statementTimeoutMs = options.statementTimeoutMs ?? 5000;
   const pgModule = await import('pg');
-  const pool = new pgModule.Pool({
+  const PoolConstructor =
+    (pgModule as { Pool?: new (config: Record<string, unknown>) => unknown }).Pool ??
+    (pgModule as { default?: { Pool?: new (config: Record<string, unknown>) => unknown } }).default?.Pool;
+
+  if (!PoolConstructor) {
+    throw new Error('pg_pool_constructor_unavailable');
+  }
+
+  const pool = new PoolConstructor({
     connectionString: options.connectionString,
     application_name: options.applicationName,
     statement_timeout: statementTimeoutMs,
