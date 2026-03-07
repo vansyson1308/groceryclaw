@@ -1,3 +1,5 @@
+import pg from 'pg';
+
 export interface PgClientLike {
   query: (text: string, params?: readonly unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
   release: () => void;
@@ -19,6 +21,12 @@ const CONNECTION_SEGMENT_PATTERN = /(postgres(?:ql)?:\/\/)([^\s@/]+)@/gi;
 
 function redactText(value: string): string {
   return value.replace(CONNECTION_SEGMENT_PATTERN, '$1[REDACTED]@');
+}
+
+function assertPgPoolInitialized(pool: PgPoolLike | null | undefined): asserts pool is PgPoolLike {
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+    throw new Error('db_pool_not_initialized');
+  }
 }
 
 export function redactDbErrorMessage(message: string): string {

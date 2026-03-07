@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { computeInviteCodeHashHex, createLogger, createPgPool, dbPing, encryptPayload, getSecurityHeaders, InMemoryTokenBucketRateLimiter, loadBaseConfig, loadRedisConfig, loadSecurityHeadersConfig, normalizeInviteCode, query, redisPing } from '../../../packages/common/dist/index.js';
+import { computeInviteCodeHashHex, createLogger, createPgPool, dbPing, encryptPayload, getSecurityHeaders, InMemoryTokenBucketRateLimiter, loadBaseConfig, loadRedisConfig, loadSecurityHeadersConfig, normalizeInviteCode, query, redisPing, type PgPoolLike } from '../../../packages/common/dist/index.js';
 import { authenticateRequest, loadAdminAuthConfig, type AdminRole, type AuthenticatedPrincipal } from './auth.js';
 import { isAllowedByRole } from './rbac.js';
 
@@ -32,13 +32,29 @@ const inviteRateLimitPerMinute = Number(process.env.ADMIN_INVITE_RATE_PER_TENANT
 const inviteLimiter = new InMemoryTokenBucketRateLimiter(inviteRateLimitPerMinute, inviteRateLimitPerMinute);
 const secretsEnabled = (process.env.ADMIN_SECRETS_ENABLED ?? 'true') === 'true';
 const adminMekB64 = process.env.ADMIN_MEK_B64 ?? '';
-const pgPool = postgresUrl
-  ? await createPgPool({
-      connectionString: postgresUrl,
-      applicationName: 'admin',
-      statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
-    })
-  : null;
+
+function assertAdminPgPoolInitialized(pool: PgPoolLike | null | undefined): asserts pool is PgPoolLike {
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+    throw new Error('Database pool has not been initialized. Please check your DB connection setup.');
+  }
+}
+
+async function initializeAdminPool(): Promise<PgPoolLike | null> {
+  if (!postgresUrl) {
+    return null;
+  }
+
+  const pool = await createPgPool({
+    connectionString: postgresUrl,
+    applicationName: 'admin',
+    statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
+  });
+
+  assertAdminPgPoolInitialized(pool);
+  return pool;
+}
+
+const pgPool = await initializeAdminPool();
 const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
 const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
 const metricsHost = process.env.ADMIN_METRICS_HOST ?? '0.0.0.0';
@@ -88,6 +104,7 @@ function renderSqlForAdapter(sql: string, params: readonly unknown[]): string {
 
 async function runSql(sql: string, params: readonly unknown[] = []): Promise<string> {
   if (pgPool) {
+    assertAdminPgPoolInitialized(pgPool);
     const result = await query(pgPool, sql, params);
     if (result.rows.length === 0) return '';
     return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
