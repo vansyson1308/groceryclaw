@@ -45,7 +45,7 @@ services:
       GATEWAY_HOST: ${GATEWAY_HOST:-0.0.0.0}
       GATEWAY_PORT: ${GATEWAY_PORT:-8080}
       READYZ_STRICT: ${READYZ_STRICT:-false}
-      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
       WEBHOOK_VERIFY_MODE: ${WEBHOOK_VERIFY_MODE:-mode1}
@@ -83,7 +83,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ADMIN_HOST: ${ADMIN_HOST:-127.0.0.1}
       ADMIN_PORT: ${ADMIN_PORT:-3001}
-      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
       INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
@@ -132,7 +132,7 @@ services:
       WORKER_PORT: ${WORKER_PORT:-3002}
       WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-3002}
       WORKER_HEALTH_SERVER_ENABLED: ${WORKER_HEALTH_SERVER_ENABLED:-true}
-      POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       WORKER_METRICS_HOST: 127.0.0.1
       WORKER_METRICS_PORT: 9090
