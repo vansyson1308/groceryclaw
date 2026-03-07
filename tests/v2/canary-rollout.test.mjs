@@ -100,6 +100,8 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
 
   const adminPort = 3600 + Math.floor(Math.random() * 200);
   const gatewayPort = 3800 + Math.floor(Math.random() * 200);
+  const adminMetricsPort = 19600 + Math.floor(Math.random() * 200);
+  const gatewayMetricsPort = 19800 + Math.floor(Math.random() * 200);
 
   const adminProc = spawn('node', ['apps/admin/dist/server.js'], {
     env: {
@@ -107,6 +109,7 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
       NODE_ENV: 'test',
       ADMIN_HOST: '127.0.0.1',
       ADMIN_PORT: String(adminPort),
+      ADMIN_METRICS_PORT: String(adminMetricsPort),
       ADMIN_ENABLED: 'true',
       ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
       ADMIN_SECRETS_ENABLED: 'true',
@@ -127,6 +130,7 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
       NODE_ENV: 'test',
       GATEWAY_HOST: '127.0.0.1',
       GATEWAY_PORT: String(gatewayPort),
+      GATEWAY_METRICS_PORT: String(gatewayMetricsPort),
       V2_GATEWAY_WEBHOOK_ENABLED: 'true',
       V2_ONBOARDING_ENABLED: 'true',
       WEBHOOK_VERIFY_MODE: 'mode2',

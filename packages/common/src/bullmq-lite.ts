@@ -9,7 +9,8 @@ export interface RedisConnection {
 
 function redisArgs(connection: RedisConnection): string[] {
   const args = ['-h', connection.host, '-p', String(connection.port), '-n', String(connection.db ?? 0), '--raw'];
-  if (connection.password) args.push('-a', connection.password);
+  if (connection.password) args.push('--pass', connection.password);
+  args.push('--no-auth-warning');
   return args;
 }
 
@@ -18,8 +19,10 @@ export class Queue {
 
   async add(_name: string, data: Record<string, unknown>, _opts?: Record<string, unknown>): Promise<void> {
     const payload = JSON.stringify(data);
-    const args = [...redisArgs(this.opts.connection), 'RPUSH', `bull:${this.queueName}:wait`, payload];
-    const result = spawnSync('redis-cli', args, { encoding: 'utf8' });
+    // Use dash instead of colon to avoid Redis bug with colon keys + password auth + RPUSH
+    // Use spawnSync (array args) instead of execSync (shell string) to avoid shell mangling JSON quotes
+    const args = [...redisArgs(this.opts.connection), 'RPUSH', `bull-${this.queueName}-wait`, payload];
+    const result = spawnSync('redis-cli', args, { encoding: 'utf8', stdio: 'pipe' });
     if (result.status !== 0) {
       const errText = `${result.stderr || ''} ${result.stdout || ''}`.toUpperCase();
       if (errText.includes('NOAUTH') || errText.includes('WRONGPASS') || errText.includes('AUTH')) {
@@ -61,14 +64,15 @@ export class Worker {
   private async loop() {
     while (!this.stopped) {
       try {
-        const result = spawnSync('redis-cli', [...redisArgs(this.opts.connection), 'BRPOP', `bull:${this.queueName}:wait`, '1'], { encoding: 'utf8' });
+        // Use dash instead of colon to avoid Redis bug with colon keys + password auth + RPUSH
+        const result = spawnSync('redis-cli', [...redisArgs(this.opts.connection), 'BRPOP', `bull-${this.queueName}-wait`, '1'], { encoding: 'utf8' });
         if (result.status !== 0) {
           this.emit('error', new Error('worker_queue_error'));
           continue;
         }
         const lines = result.stdout.split('\n').map((x) => x.trim()).filter(Boolean);
         const payload = lines.at(-1);
-        if (!payload || payload === `bull:${this.queueName}:wait`) {
+        if (!payload || payload === `bull-${this.queueName}-wait`) {
           continue;
         }
         try {

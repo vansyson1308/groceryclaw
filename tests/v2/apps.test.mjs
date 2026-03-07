@@ -45,7 +45,7 @@ function startServer(file, env, url) {
 test('gateway health endpoint responds 200', async () => {
   const { proc, status, body } = await startServer(
     'apps/gateway/dist/server.js',
-    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3200', NODE_ENV: 'test' },
+    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3200', GATEWAY_METRICS_PORT: '19200', NODE_ENV: 'test' },
     'http://127.0.0.1:3200/healthz'
   );
 
@@ -57,7 +57,7 @@ test('gateway health endpoint responds 200', async () => {
 test('gateway ready endpoint is strict by default and returns 503 when dependencies are missing', async () => {
   const { proc, status, body } = await startServer(
     'apps/gateway/dist/server.js',
-    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3202', NODE_ENV: 'test', READYZ_STRICT: 'true' },
+    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3202', GATEWAY_METRICS_PORT: '19202', NODE_ENV: 'test', READYZ_STRICT: 'true' },
     'http://127.0.0.1:3202/readyz'
   );
 
@@ -69,7 +69,7 @@ test('gateway ready endpoint is strict by default and returns 503 when dependenc
 test('admin ready endpoint responds 200 when strict readiness is disabled', async () => {
   const { proc, status, body } = await startServer(
     'apps/admin/dist/server.js',
-    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3201', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'false' },
+    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3201', ADMIN_METRICS_PORT: '19201', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'false' },
     'http://127.0.0.1:3201/readyz'
   );
 
@@ -81,7 +81,7 @@ test('admin ready endpoint responds 200 when strict readiness is disabled', asyn
 test('admin ready endpoint returns 503 by default when dependencies are unavailable', async () => {
   const { proc, status, body } = await startServer(
     'apps/admin/dist/server.js',
-    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3203', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'true' },
+    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3203', ADMIN_METRICS_PORT: '19203', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'true' },
     'http://127.0.0.1:3203/readyz'
   );
 
@@ -104,7 +104,7 @@ test('admin service remains private in V2 compose (no host ports)', () => {
 test('gateway sets baseline security headers and no CORS by default', async () => {
   const { proc, headers } = await startServer(
     'apps/gateway/dist/server.js',
-    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3204', NODE_ENV: 'test' },
+    { GATEWAY_HOST: '127.0.0.1', GATEWAY_PORT: '3204', GATEWAY_METRICS_PORT: '19204', NODE_ENV: 'test' },
     'http://127.0.0.1:3204/healthz'
   );
 
@@ -119,7 +119,7 @@ test('gateway sets baseline security headers and no CORS by default', async () =
 test('admin sets baseline security headers on readyz', async () => {
   const { proc, headers } = await startServer(
     'apps/admin/dist/server.js',
-    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3205', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'false' },
+    { ADMIN_HOST: '127.0.0.1', ADMIN_PORT: '3205', ADMIN_METRICS_PORT: '19205', NODE_ENV: 'test', ADMIN_ENABLED: 'false', READYZ_STRICT: 'false' },
     'http://127.0.0.1:3205/readyz'
   );
 

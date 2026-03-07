@@ -51,7 +51,7 @@ function signBody(body) {
 }
 
 test('mode1 valid signature passes and invalid signature fails with generic body', async () => {
-  const proc = await startGateway(3310);
+  const proc = await startGateway(3310, { GATEWAY_METRICS_PORT: '19110' });
   const body = JSON.stringify(validPayload);
 
   const okResponse = await fetch('http://127.0.0.1:3310/webhooks/zalo', {
@@ -82,6 +82,7 @@ test('mode1 valid signature passes and invalid signature fails with generic body
 
 test('mode2 valid token passes and missing token fails', async () => {
   const proc = await startGateway(3311, {
+    GATEWAY_METRICS_PORT: '19111',
     WEBHOOK_VERIFY_MODE: 'mode2',
     WEBHOOK_MODE2_TOKEN: 'mode2-secret',
     WEBHOOK_MODE2_TOKEN_HEADER: 'x-webhook-token'
@@ -116,6 +117,7 @@ test('mode2 valid token passes and missing token fails', async () => {
 
 test('mode2 is blocked in production by default', async () => {
   const proc = await startGateway(3312, {
+    GATEWAY_METRICS_PORT: '19112',
     NODE_ENV: 'production',
     WEBHOOK_VERIFY_MODE: 'mode2',
     WEBHOOK_MODE2_TOKEN: 'mode2-secret'
@@ -138,7 +140,7 @@ test('mode2 is blocked in production by default', async () => {
 });
 
 test('gateway webhook rejects invalid schema payload after auth', async () => {
-  const proc = await startGateway(3313);
+  const proc = await startGateway(3313, { GATEWAY_METRICS_PORT: '19113' });
   const body = JSON.stringify(invalidPayload);
 
   const r = await fetch('http://127.0.0.1:3313/webhooks/zalo', {
@@ -163,6 +165,7 @@ test('onboarding invite success enqueues notify and linked flow obeys processing
   writeFileSync(dbState, JSON.stringify({ linked: false, tenant_id: '11111111-1111-1111-1111-111111111111', processing_mode: 'legacy', db_calls: 0 }), 'utf8');
 
   const proc = await startGateway(3314, {
+    GATEWAY_METRICS_PORT: '19114',
     GATEWAY_DB_CMD: 'node tests/v2/integration/fake-db.mjs',
     GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
     FAKE_DB_STATE_FILE: dbState,
@@ -204,6 +207,7 @@ test('onboarding invalid code and rate-limited paths are generic', async () => {
   writeFileSync(dbState, JSON.stringify({ linked: false, tenant_id: '11111111-1111-1111-1111-111111111111', processing_mode: 'v2', db_calls: 0 }), 'utf8');
 
   const proc = await startGateway(3315, {
+    GATEWAY_METRICS_PORT: '19115',
     GATEWAY_DB_CMD: 'node tests/v2/integration/fake-db.mjs',
     GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
     FAKE_DB_STATE_FILE: dbState,
@@ -245,6 +249,7 @@ test('platform_user_id with quotes/semicolons is treated as data on linked flow'
   writeFileSync(dbState, JSON.stringify({ linked: true, tenant_id: '11111111-1111-1111-1111-111111111111', processing_mode: 'v2', db_calls: 0 }), 'utf8');
 
   const proc = await startGateway(3316, {
+    GATEWAY_METRICS_PORT: '19116',
     GATEWAY_DB_CMD: 'node tests/v2/integration/fake-db.mjs',
     GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
     FAKE_DB_STATE_FILE: dbState,

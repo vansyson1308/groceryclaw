@@ -89,6 +89,7 @@ test('admin tenant + invite endpoints enforce auth/rbac and avoid plaintext stor
   writeFileSync(stateFile, JSON.stringify({ tenants: {}, invites: {} }), 'utf8');
 
   const proc = await startAdmin(3321, {
+    ADMIN_METRICS_PORT: '19321',
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
     ADMIN_OIDC_AUDIENCE: 'groceryclaw-admin',

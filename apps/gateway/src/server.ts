@@ -195,6 +195,30 @@ async function runSql(sql: string, params: readonly unknown[] = []): Promise<str
   return '';
 }
 
+async function runTenantScopedSql(tenantId: string, sql: string, params: readonly unknown[] = []): Promise<string> {
+  if (pgPool) {
+    const client = await pgPool.connect();
+    try {
+      await query(client, 'BEGIN');
+      await query(client, `SET LOCAL app.current_tenant = ${sqlQuote(tenantId)}`);
+      const result = await query(client, sql, params);
+      await query(client, 'COMMIT');
+      if (result.rows.length === 0) return '';
+      return result.rows.map((row) => Object.values(row).join('|')).join('\n').trim();
+    } catch (err) {
+      try { await query(client, 'ROLLBACK'); } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  if (process.env.NODE_ENV === 'test' && dbCmd) {
+    const scopedSql = `BEGIN;\nSET LOCAL app.current_tenant = ${sqlQuote(tenantId)};\n${renderSqlForAdapter(sql, params)}\nCOMMIT;`;
+    return runCmdAdapter(dbCmd, scopedSql);
+  }
+  return '';
+}
+
 async function resolveMembership(platformUserId: string): Promise<{ tenantId?: string }> {
   if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return {};
 
@@ -263,7 +287,7 @@ async function consumeInviteCode(platformUserId: string, inviteCode: string): Pr
 
 async function getTenantProcessingMode(tenantId: string): Promise<'legacy' | 'v2'> {
   if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) return 'v2';
-  const out = await runSql(`
+  const out = await runTenantScopedSql(tenantId, `
     SELECT processing_mode
     FROM tenants
     WHERE id = $1::uuid
@@ -275,16 +299,19 @@ async function getTenantProcessingMode(tenantId: string): Promise<'legacy' | 'v2
 }
 
 
-async function resolveZaloUserId(platformUserId: string): Promise<string | undefined> {
+async function resolveZaloUserId(platformUserId: string, tenantId?: string): Promise<string | undefined> {
   if (!pgPool && !(process.env.NODE_ENV === 'test' && dbCmd)) {
     return undefined;
   }
-  const out = await runSql(`
+  const sql = `
     SELECT id::text
     FROM zalo_users
     WHERE platform_user_id = $1
     LIMIT 1;
-  `, [platformUserId]);
+  `;
+  const out = tenantId
+    ? await runTenantScopedSql(tenantId, sql, [platformUserId])
+    : await runSql(sql, [platformUserId]);
   const value = out.split('\n').map((line) => line.trim()).find((line) => /^[0-9a-f-]{36}$/i.test(line));
   return value;
 }
@@ -294,13 +321,13 @@ async function recordInboundInteraction(tenantId: string, platformUserId: string
     return undefined;
   }
 
-  await runSql(`
+  await runTenantScopedSql(tenantId, `
     UPDATE zalo_users
     SET last_interaction_at = now()
     WHERE platform_user_id = $1;
   `, [platformUserId]);
 
-  const out = await runSql(`
+  const out = await runTenantScopedSql(tenantId, `
     SELECT id::text
     FROM zalo_users
     WHERE platform_user_id = $1
@@ -334,7 +361,7 @@ async function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): P
   }
 
   const resolvedTenant = tenantId ?? '00000000-0000-0000-0000-000000000000';
-  const out = await runSql(`
+  const sql = `
     INSERT INTO inbound_events (tenant_id, zalo_user_id, zalo_msg_id, event_type, payload, status)
     VALUES (
       $1::uuid,
@@ -346,7 +373,11 @@ async function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): P
     )
     ON CONFLICT (tenant_id, zalo_msg_id) DO NOTHING
     RETURNING id::text;
-  `, [resolvedTenant, event.platform_user_id, event.zalo_msg_id, event.message_type, JSON.stringify(event.raw)]);
+  `;
+  const sqlParams = [resolvedTenant, event.platform_user_id, event.zalo_msg_id, event.message_type, JSON.stringify(event.raw)];
+  const out = tenantId
+    ? await runTenantScopedSql(tenantId, sql, sqlParams)
+    : await runSql(sql, sqlParams);
   const id = out.split('\n').map((x) => x.trim()).find((x) => /^[0-9a-f-]{36}$/i.test(x));
   if (!id) {
     return { inserted: false, inboundEventId: `${resolvedTenant}:${event.zalo_msg_id}` };
@@ -373,12 +404,23 @@ async function enqueue(payload: Record<string, unknown>) {
   }
 }
 
-async function enqueueNotify(platformUserId: string, template: 'invite_success' | 'invite_generic_failure' | 'invite_wait_retry' | 'onboarding_prompt', tenantId?: string) {
+async function enqueueNotify(platformUserId: string, template: 'invite_success' | 'invite_generic_failure' | 'invite_wait_retry' | 'onboarding_prompt', tenantId: string | null | undefined, zaloMsgId?: string, correlationId?: string) {
+  // Map gateway template to worker notification_type
+  const templateToNotificationType: Record<string, string> = {
+    'invite_success': 'WELCOME_LINKED',
+    'invite_generic_failure': 'GENERIC_INFO',
+    'invite_wait_retry': 'RATE_LIMITED',
+    'onboarding_prompt': 'WELCOME_LINKED'
+  };
+  const notificationType = templateToNotificationType[template] || 'GENERIC_INFO';
   await enqueue({
     job_type: 'NOTIFY_USER',
     template,
+    notification_type: notificationType,
     platform_user_id: platformUserId,
-    tenant_id: tenantId ?? null
+    tenant_id: tenantId ?? null,
+    zalo_msg_id: zaloMsgId ?? '',
+    correlation_id: correlationId ?? ''
   });
 }
 
@@ -393,7 +435,7 @@ function getSourceIp(headers: Record<string, string | string[] | undefined>): st
 async function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, tenantId: string) {
   const inserted = await insertInboundEvent(event, tenantId);
   const processingMode = await getTenantProcessingMode(tenantId);
-  const zaloUserId = (await recordInboundInteraction(tenantId, event.platform_user_id)) ?? await resolveZaloUserId(event.platform_user_id);
+  const zaloUserId = (await recordInboundInteraction(tenantId, event.platform_user_id)) ?? await resolveZaloUserId(event.platform_user_id, tenantId);
 
   if (zaloUserId) {
     await enqueue({
@@ -529,23 +571,23 @@ const server = createServer(async (req, res) => {
             const byIp = inviteByIpLimiter.consume(`invite:ip:${sourceIp}`);
 
             if (!byUser.allowed || !byIp.allowed) {
-              await enqueueNotify(event.platform_user_id, 'invite_wait_retry');
+              await enqueueNotify(event.platform_user_id, 'invite_wait_retry', null, event.zalo_msg_id, requestId);
               respondAccepted(res, requestId, startedAtMs, { stage: 'invite_rate_limited' });
               return;
             }
 
             const consumeResult = await consumeInviteCode(event.platform_user_id, inviteIntent.inviteCode);
             if (consumeResult.ok && consumeResult.tenantId) {
-              await enqueueNotify(event.platform_user_id, 'invite_success', consumeResult.tenantId);
+              await enqueueNotify(event.platform_user_id, 'invite_success', consumeResult.tenantId, event.zalo_msg_id, requestId);
             } else {
-              await enqueueNotify(event.platform_user_id, 'invite_generic_failure');
+              await enqueueNotify(event.platform_user_id, 'invite_generic_failure', null, event.zalo_msg_id, requestId);
             }
             respondAccepted(res, requestId, startedAtMs, { stage: 'invite_processed' });
             return;
           }
         }
 
-        await enqueueNotify(event.platform_user_id, 'onboarding_prompt');
+        await enqueueNotify(event.platform_user_id, 'onboarding_prompt', null, event.zalo_msg_id, requestId);
         respondAccepted(res, requestId, startedAtMs, { stage: 'onboarding_prompt' });
         return;
       }

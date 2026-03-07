@@ -65,13 +65,22 @@ declare module 'node:crypto' {
 }
 
 declare module 'node:child_process' {
+  export function execSync(
+    command: string,
+    options?: {
+      encoding?: string;
+      stdio?: string | [string, string, string];
+      timeout?: number;
+    }
+  ): string;
+
   export function spawnSync(
     command: string,
     args: string[],
     options?: {
       input?: string;
       encoding?: string;
-      stdio?: [string, string, string];
+      stdio?: string | [string, string, string];
       timeout?: number;
     }
   ): { status: number | null; stdout: string; stderr: string };

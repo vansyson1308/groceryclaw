@@ -338,6 +338,7 @@ async function startBullMqWorker() {
       logger.error('worker_job_failed', {
         reason: error instanceof Error ? error.message : 'unknown_error'
       });
+      throw error;
     }
   }, {
     connection,

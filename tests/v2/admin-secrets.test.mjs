@@ -90,7 +90,9 @@ test('admin secret rotate/revoke/list hides plaintext and audits', async () => {
   writeFileSync(stateFile, JSON.stringify({ tenants: { '11111111-1111-1111-1111-111111111111': { id: '11111111-1111-1111-1111-111111111111', name: 'T', processing_mode: 'legacy', status: 'active', config: {} } }, invites: {}, secrets: {} }), 'utf8');
 
   const port = 3500 + Math.floor(Math.random() * 500);
+  const metricsPort = 19500 + Math.floor(Math.random() * 500);
   const proc = await startAdmin(port, {
+    ADMIN_METRICS_PORT: String(metricsPort),
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
     ADMIN_OIDC_AUDIENCE: 'groceryclaw-admin',

@@ -28,7 +28,7 @@ function shell(sql) {
       '--env-file infra/compose/v2/.env',
       '-f infra/compose/v2/docker-compose.yml',
       'exec -T postgres',
-      'psql -U "${POSTGRES_USER:-groceryclaw}" -d "${POSTGRES_DB:-groceryclaw_v2}" -v ON_ERROR_STOP=1 -q -t -A -f -'
+      "psql -U postgres -d groceryclaw_v2 -v ON_ERROR_STOP=1 -q -t -A -f -"
     ].join(' ');
   }
 

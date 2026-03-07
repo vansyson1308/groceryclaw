@@ -130,6 +130,7 @@ test('admin protected endpoint returns 401 without auth, 200 with token, 403 mis
   const auditFile = path.join(dir, 'audit.sql.log');
 
   const proc = await startAdmin(3320, {
+    ADMIN_METRICS_PORT: '19320',
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
     ADMIN_OIDC_AUDIENCE: 'groceryclaw-admin',

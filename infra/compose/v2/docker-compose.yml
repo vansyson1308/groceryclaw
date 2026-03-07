@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-groceryclaw_v2}
       POSTGRES_USER: ${POSTGRES_SUPERUSER:?set POSTGRES_SUPERUSER in infra/compose/v2/.env}
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in infra/compose/v2/.env}
+      APP_DB_USER: ${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}
     volumes:
       - v2_postgres_data:/var/lib/postgresql/data
       - ./postgres-init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
@@ -40,9 +42,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_HOST: ${GATEWAY_HOST:-0.0.0.0}
       GATEWAY_PORT: ${GATEWAY_PORT:-8080}
+      READYZ_STRICT: ${READYZ_STRICT:-false}
       POSTGRES_URL: postgresql://${APP_DB_USER:?set APP_DB_USER in infra/compose/v2/.env}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in infra/compose/v2/.env}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
       V2_GATEWAY_WEBHOOK_ENABLED: ${V2_GATEWAY_WEBHOOK_ENABLED:-true}
+      WEBHOOK_VERIFY_MODE: ${WEBHOOK_VERIFY_MODE:-mode1}
+      WEBHOOK_SIGNATURE_SECRET: ${WEBHOOK_SIGNATURE_SECRET:-}
       INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
       BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
     depends_on:
@@ -51,7 +56,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${GATEWAY_HOST_PORT:-8081}:8080"
     networks:
       - v2_private
     healthcheck:
@@ -60,7 +65,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          "fetch('http://127.0.0.1:' + process.env.GATEWAY_PORT + '/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 10s
       timeout: 5s
@@ -90,7 +95,6 @@ services:
       ADMIN_BREAKGLASS_API_KEY: ${ADMIN_BREAKGLASS_API_KEY:-}
       ADMIN_BREAKGLASS_SCOPE: ${ADMIN_BREAKGLASS_SCOPE:-read_only}
       ADMIN_TENANT_ENDPOINTS_ENABLED: ${ADMIN_TENANT_ENDPOINTS_ENABLED:-true}
-      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-cmVwbGFjZS1tZS1iYXNlNjQ=}
       ADMIN_INVITE_TTL_HOURS: ${ADMIN_INVITE_TTL_HOURS:-72}
       ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE: ${ADMIN_INVITE_RATE_PER_TENANT_PER_MINUTE:-10}
       ADMIN_SECRETS_ENABLED: ${ADMIN_SECRETS_ENABLED:-true}
