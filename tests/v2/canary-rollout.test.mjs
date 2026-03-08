@@ -41,23 +41,51 @@ function startJwksServer(jwk) {
   });
 }
 
-function waitForReady(proc, timeoutMs = 4000) {
+function waitForReady(proc, url, timeoutMs = 6000) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      proc.removeListener('exit', onExit);
+      fn(value);
+    };
+
+    const onExit = (code, signal) => {
+      finish(reject, new Error(`process exited before ready (code=${code ?? 'null'} signal=${signal ?? 'null'})`));
+    };
+
     const timeout = setTimeout(() => {
       proc.kill('SIGTERM');
-      reject(new Error('process start timeout'));
+      finish(reject, new Error(`process start timeout waiting for ${url}`));
     }, timeoutMs);
 
-    proc.stdout.on('data', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
+    proc.on('exit', onExit);
+
+    const startedAt = Date.now();
+    const poll = async () => {
+      if (settled) return;
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          finish(resolve);
+          return;
+        }
+      } catch {
+        // Keep polling until timeout/exit.
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) return;
+      setTimeout(poll, 75);
+    };
+
+    void poll();
 
     proc.stderr.on('data', (chunk) => {
       const text = String(chunk);
       if (/error/i.test(text)) {
-        clearTimeout(timeout);
-        reject(new Error(text));
+        finish(reject, new Error(text));
       }
     });
   });
@@ -122,7 +150,7 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  await waitForReady(adminProc);
+  await waitForReady(adminProc, `http://127.0.0.1:${adminPort}/healthz`);
 
   const gatewayProc = spawn('node', ['apps/gateway/dist/server.js'], {
     env: {
@@ -143,7 +171,7 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  await waitForReady(gatewayProc);
+  await waitForReady(gatewayProc, `http://127.0.0.1:${gatewayPort}/healthz`);
 
   const now = Math.floor(Date.now() / 1000);
   const opsToken = signJwt(privateKey, {

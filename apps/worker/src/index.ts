@@ -42,6 +42,7 @@ const redisConfig = loadRedisConfig({
   onWarning: (message) => logger.warn('worker_redis_config_deprecated', { message })
 });
 const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+const enableQueueInTest = (process.env.ENABLE_QUEUE_IN_TEST ?? 'false') === 'true';
 const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
 const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
 const workerHealthServerEnabled = (process.env.WORKER_HEALTH_SERVER_ENABLED ?? 'true') === 'true';
@@ -56,7 +57,7 @@ const pgPool = (postgresUrl && workerUsePg)
     })
   : null;
 const queue = (() => {
-  if (process.env.NODE_ENV === 'test') return null;
+  if (process.env.NODE_ENV === 'test' && !enableQueueInTest) return null;
   return new Queue(queueName, {
     connection: {
       host: redisConfig.host,
@@ -372,7 +373,9 @@ logger.info('worker startup', {
   port: workerHealthPort,
   metrics_host: metricsHost,
   metrics_port: metricsPort,
-  health_server_enabled: workerHealthServerEnabled
+  health_server_enabled: workerHealthServerEnabled,
+  queue_enabled_in_test: enableQueueInTest,
+  queue_transport: queue ? 'redis' : (process.env.NODE_ENV === 'test' && queueCmd ? 'queue_cmd' : 'none')
 });
 
 startBullMqWorker().catch((error) => {
