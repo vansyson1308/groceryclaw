@@ -81,7 +81,7 @@ async function markJob(
       $1::uuid,
       'PROCESS_INBOUND_EVENT',
       $2,
-      jsonb_build_object('correlation_id', $3),
+      jsonb_build_object('correlation_id', $3::text),
       CASE WHEN $2 = 'processing' THEN now() ELSE NULL END,
       CASE WHEN $2 IN ('completed','failed') THEN now() ELSE NULL END,
       $4
