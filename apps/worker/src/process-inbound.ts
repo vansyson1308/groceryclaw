@@ -75,18 +75,28 @@ async function markJob(
   status: 'processing' | 'completed' | 'failed',
   errorMessage?: string
 ) {
-  await deps.exec(`
+  const sql = `
     INSERT INTO jobs (tenant_id, type, status, payload, started_at, completed_at, error_message)
     VALUES (
       $1::uuid,
       'PROCESS_INBOUND_EVENT',
       $2,
-      jsonb_build_object('correlation_id', $3),
+      jsonb_build_object('correlation_id', $3::text),
       CASE WHEN $2 = 'processing' THEN now() ELSE NULL END,
       CASE WHEN $2 IN ('completed','failed') THEN now() ELSE NULL END,
       $4
     );
-  `, [tenantId, status, correlationId, errorMessage ?? null]);
+  `;
+  const params = [tenantId, status, correlationId, errorMessage ?? null] as const;
+
+  if (deps.runInTenantTransaction) {
+    await deps.runInTenantTransaction(tenantId, 'PROCESS_INBOUND_EVENT', async (db) => {
+      await db.exec(sql, params);
+    });
+    return;
+  }
+
+  await deps.exec(sql, params);
 }
 
 async function withTenantTransaction<T>(
@@ -121,7 +131,7 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
     return;
   }
 
-  const rowText = await deps.queryOne(`
+  const rowText = await withTenantTransaction(deps, job.tenant_id, 'PROCESS_INBOUND_EVENT', async (db) => db.queryOne(`
     SELECT json_build_object(
       'id', id::text,
       'tenant_id', tenant_id::text,
@@ -131,7 +141,7 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
     FROM inbound_events
     WHERE id = $1::uuid
     LIMIT 1;
-  `, [job.inbound_event_id]);
+  `, [job.inbound_event_id]));
   const event = parseInboundEventJson(rowText);
   if (!event) {
     await markJob(deps, job.tenant_id, job.correlation_id, 'failed', 'inbound_event_not_found');
@@ -195,9 +205,24 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
         ]
       );
 
-      const invoiceId = invoiceIdRaw.trim();
+      let invoiceId = invoiceIdRaw.trim();
       if (!invoiceId) {
-        return;
+        const existingInvoiceId = (await db.queryOne(
+          `
+            SELECT id::text
+            FROM canonical_invoices
+            WHERE tenant_id = $1::uuid
+              AND invoice_fingerprint = $2
+            LIMIT 1;
+          `,
+          [event.tenant_id, fingerprint]
+        )).trim();
+
+        if (!existingInvoiceId) {
+          throw new Error('canonical_invoice_insert_skipped');
+        }
+
+        invoiceId = existingInvoiceId;
       }
 
       for (const item of parsed.items) {
@@ -241,5 +266,6 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
     await deps.exec('UPDATE inbound_events SET status = $1, error_message = $2, updated_at = now() WHERE id = $3::uuid;', ['failed', 'xml_parse_failed', event.id]);
     await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_invalid', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
     await markJob(deps, job.tenant_id, job.correlation_id, 'failed', error instanceof Error ? error.message : 'xml_parse_failed');
+    throw (error instanceof Error ? error : new Error('xml_parse_failed'));
   }
 }
