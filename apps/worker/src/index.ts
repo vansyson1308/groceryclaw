@@ -168,6 +168,7 @@ async function processInboundEvent(job: WorkerJobEnvelope): Promise<void> {
     enqueue,
     xmlParseEnabled: (process.env.WORKER_XML_PARSE_ENABLED ?? 'true') === 'true',
     allowedDomains: (process.env.WORKER_XML_ALLOWED_DOMAINS ?? 'zalo.me,zadn.vn').split(',').map((x) => x.trim()).filter(Boolean),
+    allowHttpDomains: (process.env.WORKER_XML_ALLOW_HTTP_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean),
     maxBytes: Number(process.env.WORKER_XML_MAX_BYTES ?? '1048576'),
     timeoutMs: Number(process.env.WORKER_XML_TIMEOUT_MS ?? '10000')
   }, job);

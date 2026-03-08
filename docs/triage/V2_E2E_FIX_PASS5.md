@@ -1,50 +1,52 @@
 # V2 E2E Fix Pass 5
 
 ## 1) Evidence received
-From the current conversation/context only:
-1. PASS 1 triage artifacts exist and identified likely queue dead-path under `NODE_ENV=test`.
-2. PASS 2 introduced:
-   - `ENABLE_QUEUE_IN_TEST`
-   - fail-loud gateway enqueue in expected queue mode
-   - timeout diagnostics in E2E harness.
-3. PASS 3 reported preflight wiring looked correct but runtime proof was blocked due to missing Docker CLI.
-4. PASS 4 reported no trustworthy CI evidence could be accessed from this environment (`gh` unavailable, no git remote), and local runtime remained blocked by missing Docker.
-5. No GitHub Actions log excerpts, screenshots, or PASS-2 diagnostic output blocks were provided directly in this conversation for bucket-level runtime classification.
+From user-provided CI/runtime output in this conversation:
+1. E2E timeout diagnostics show:
+   - `inbound_events` contains one row for `msg-invoice-001` with status `received`.
+   - `canonical_invoices count=0` and `canonical_invoice_items count=0`.
+   - Redis queue depth `bull-process-inbound-wait=0`.
+2. Filtered worker logs show no `worker_bullmq_started`, no job processing, no dequeue/queue lag lines.
+3. Gateway filtered logs show webhook accepted and acked (`gateway_webhook_accepted`, `stage":"linked_flow_enqueued`).
+4. Full gateway startup log shows:
+   - `queue_enabled_in_test":false`
+   - `queue_transport":"none"`.
+5. Full worker startup log shows:
+   - `queue_enabled_in_test":false`
+   - `queue_transport":"none"`.
+6. Final step failure: `timeout waiting for canonical invoice + items + idempotency`.
 
-## 2) Normalized stage map (known vs unknown)
-1. Gateway queue mode: **unknown at runtime in CI** (code-level intent known; no CI startup log excerpt provided).
-2. Worker queue mode: **unknown at runtime in CI** (code-level intent known; no CI startup log excerpt provided).
-3. Webhook intake accepted: **unknown** (no runtime log evidence provided).
-4. `inbound_events` inserted: **unknown** (no runtime DB/diagnostic evidence provided).
-5. Enqueue happened: **unknown** (no runtime enqueue/queue evidence provided).
-6. Queue depth: **unknown** (no runtime Redis depth output provided).
-7. Worker dequeue/process: **unknown** (no runtime filtered worker logs provided).
-8. Canonical invoice persistence: **unknown** (no runtime count/log evidence provided).
-9. Canonical item persistence: **unknown** (no runtime count/log evidence provided).
-10. Assertion/idempotency final state: **unknown in latest post-PASS-2/3 runtime** (only historical timeout symptom is known, without new run evidence).
+## 2) Normalized stage map
+1. Gateway queue mode: **disabled at runtime** (`queue_enabled_in_test=false`, `queue_transport=none`).
+2. Worker queue mode: **disabled at runtime** (`queue_enabled_in_test=false`, `queue_transport=none`).
+3. Intake: **succeeds** (gateway accepted webhook).
+4. `inbound_events` insert: **succeeds** (row exists, status `received`).
+5. Enqueue evidence: **missing** (queue transport none at gateway runtime).
+6. Queue depth: **0** (no queued work).
+7. Dequeue/process: **no evidence of worker dequeue/processing**.
+8. Canonical invoice persistence: **none** (`count=0`).
+9. Canonical item persistence: **none** (`count=0`).
+10. Assertion/idempotency: **fails by timeout**.
 
 ## 3) Chosen outcome
-- **Outcome G — EVIDENCE INSUFFICIENT**.
-- Rationale: there is no directly provided post-PASS-2/3 CI runtime evidence (logs/diagnostics) to prove either fix verification or the first failing bucket.
+- **Outcome C — Bucket 2: enqueue failed**.
+- First failing stage is enqueue/runtime queue activation: intake and inbound insert succeed, but both gateway and worker run with queue disabled in test mode, so no work reaches queue/worker.
 
 ## 4) Fix applied or no-code decision
-- **No runtime code change in PASS 5**.
-- This is an evidence-only pass to avoid speculative multi-bucket edits.
+- Applied one surgical fix for Bucket 2 only:
+  - propagate `ENABLE_QUEUE_IN_TEST` into gateway and worker container environments in compose.
+- No schema changes, no downstream pipeline refactor.
 
-## 5) Exact missing evidence request (minimum set)
-Please provide only the following artifacts from the newest post-PASS-2/3 `v2-ci` run, step `Mandatory V2 E2E integration gate`:
-1. Gateway startup log lines containing `queue_enabled_in_test` and `queue_transport`.
-2. Worker startup log lines containing `queue_enabled_in_test` and `queue_transport`.
-3. The PASS-2 timeout diagnostics block (if present), including:
-   - `[e2e-stage] inbound_events rows ...`
-   - `[e2e-stage] canonical_invoices ... canonical_invoice_items ...`
-   - `[e2e-stage] redis queue depth ...`
-   - filtered worker log section
-   - filtered gateway log section.
-4. Final failing assertion/timeout line for the gate.
+## 5) Why this bucket fix is minimal
+- Root cause is env propagation mismatch: E2E runner writes `ENABLE_QUEUE_IN_TEST=true`, but compose service env blocks did not pass that variable to gateway/worker.
+- Fix is two-line env passthrough in one compose file.
 
-With just those snippets, the first failing bucket can be classified deterministically.
+## 6) Validation result
+- No Docker E2E executed in this environment (by pass constraint).
+- Static-only confidence:
+  - compose now forwards `ENABLE_QUEUE_IN_TEST` to gateway + worker.
+- Runtime proof required from next CI run.
 
-## 6) Merge readiness / next branch
-- Current PASS 5 state: **READY FOR REVIEW BUT NEEDS USER-PROVIDED CI CONFIRMATION**.
-- Next branch: classify A/B/C/D/E/F immediately after receiving the minimum evidence above, then apply one surgical fix only if a bucket is proven.
+## 7) Merge readiness / next branch
+- Current state: **READY FOR REVIEW BUT NEEDS USER-PROVIDED CI CONFIRMATION**.
+- Next branch (single check): rerun `v2-ci` and confirm startup logs now show `queue_enabled_in_test=true` and `queue_transport=redis`; then verify either pass or next first failing bucket from diagnostics.
