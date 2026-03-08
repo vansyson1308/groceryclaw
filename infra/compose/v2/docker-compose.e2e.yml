@@ -10,6 +10,7 @@ services:
   worker:
     environment:
       WORKER_XML_ALLOWED_DOMAINS: ${WORKER_XML_ALLOWED_DOMAINS:-xml-stub}
+      WORKER_XML_ALLOW_HTTP_DOMAINS: ${WORKER_XML_ALLOW_HTTP_DOMAINS:-xml-stub}
       ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://zalo-stub:18081}
       ZALO_STUB_TOKEN: ${ZALO_STUB_TOKEN:-stub-zalo-token-set-at-runtime}
       KIOTVIET_STUB_BASE_URL: ${KIOTVIET_STUB_BASE_URL:-http://kiotviet-stub:18080}

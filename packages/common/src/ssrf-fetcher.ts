@@ -1,5 +1,6 @@
 export interface SafeFetchConfig {
   readonly allowedDomains: readonly string[];
+  readonly allowHttpDomains?: readonly string[];
   readonly maxBytes: number;
   readonly timeoutMs: number;
 }
@@ -26,7 +27,11 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
-export function validateSafeAttachmentUrl(input: string, allowedDomains: readonly string[]): { ok: true; url: URL } | { ok: false } {
+export function validateSafeAttachmentUrl(
+  input: string,
+  allowedDomains: readonly string[],
+  allowHttpDomains: readonly string[] = []
+): { ok: true; url: URL } | { ok: false } {
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -34,15 +39,21 @@ export function validateSafeAttachmentUrl(input: string, allowedDomains: readonl
     return { ok: false };
   }
 
-  if (parsed.protocol !== 'https:') return { ok: false };
-  if (parsed.port && parsed.port !== '443') return { ok: false };
-
   const host = parsed.hostname.toLowerCase();
   if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return { ok: false };
   if (isPrivateIPv4(host)) return { ok: false };
 
   const allowed = allowedDomains.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   if (!allowed) return { ok: false };
+
+  const allowHttp = allowHttpDomains.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  if (parsed.protocol === 'https:') {
+    if (parsed.port && parsed.port !== '443') return { ok: false };
+  } else if (parsed.protocol === 'http:') {
+    if (!allowHttp) return { ok: false };
+  } else {
+    return { ok: false };
+  }
 
   return { ok: true, url: parsed };
 }
@@ -52,7 +63,7 @@ export async function fetchUrlSafely(
   config: SafeFetchConfig,
   fetchImpl: typeof fetch = fetch
 ): Promise<SafeFetchResult> {
-  const validated = validateSafeAttachmentUrl(url, config.allowedDomains);
+  const validated = validateSafeAttachmentUrl(url, config.allowedDomains, config.allowHttpDomains ?? []);
   if (!validated.ok) {
     throw new Error('unsafe_url');
   }

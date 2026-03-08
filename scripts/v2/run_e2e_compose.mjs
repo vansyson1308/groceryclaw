@@ -22,6 +22,7 @@ function makeEphemeralEnv() {
 
   const lines = [
     'NODE_ENV=test',
+    'ENABLE_QUEUE_IN_TEST=true',
     'LOG_LEVEL=info',
     'POSTGRES_DB=groceryclaw_v2_e2e',
     'POSTGRES_SUPERUSER=postgres',
@@ -44,6 +45,7 @@ function makeEphemeralEnv() {
     'WORKER_CONCURRENCY=2',
     'WORKER_XML_PARSE_ENABLED=true',
     'WORKER_XML_ALLOWED_DOMAINS=xml-stub',
+    'WORKER_XML_ALLOW_HTTP_DOMAINS=xml-stub',
     'WORKER_KIOTVIET_SYNC_ENABLED=true',
     'WORKER_NOTIFIER_ENABLED=true',
     'WORKER_INTERACTION_WINDOW_ENFORCED=false',
@@ -199,6 +201,17 @@ function printServiceLogs(service) {
   }
 }
 
+function printFilteredServiceLogs(service, pattern) {
+  try {
+    const logs = dockerCompose(['logs', '--no-color', service]);
+    const regex = new RegExp(pattern, 'i');
+    const matches = logs.split('\n').filter((line) => regex.test(line)).slice(-30);
+    console.error(`\n===== ${service} filtered logs (${pattern}) =====\n${matches.join('\n') || '(no matching lines)'}\n===== end ${service} filtered logs =====\n`);
+  } catch (error) {
+    console.error(`failed to read filtered logs for ${service}:`, error instanceof Error ? error.message : String(error));
+  }
+}
+
 function printDiagnostics() {
   for (const service of ['postgres', 'redis', 'gateway', 'admin', 'worker', 'xml-stub', 'kiotviet-stub', 'zalo-stub']) {
     try {
@@ -214,6 +227,39 @@ function printDiagnostics() {
   }
 }
 
+function printInvoiceStageDiagnostics(tenantId, zaloMsgId, queueName, redisPassword) {
+  try {
+    const inboundRows = sql(
+      `SELECT id::text || '|' || status || '|' || COALESCE(error_message, '') || '|' || updated_at::text
+       FROM inbound_events
+       WHERE tenant_id='${tenantId}'::uuid AND zalo_msg_id=${sqlString(zaloMsgId)}
+       ORDER BY updated_at DESC
+       LIMIT 10;`
+    );
+    console.error(`\n[e2e-stage] inbound_events rows for ${zaloMsgId}:\n${inboundRows || '(none)'}`);
+  } catch (error) {
+    console.error('[e2e-stage] failed to query inbound_events:', error instanceof Error ? error.message : String(error));
+  }
+
+  try {
+    const invoiceCount = sql(`SELECT count(*) FROM canonical_invoices WHERE tenant_id='${tenantId}'::uuid;`);
+    const itemCount = sql(`SELECT count(*) FROM canonical_invoice_items WHERE tenant_id='${tenantId}'::uuid;`);
+    console.error(`[e2e-stage] canonical_invoices count=${invoiceCount || '0'} canonical_invoice_items count=${itemCount || '0'}`);
+  } catch (error) {
+    console.error('[e2e-stage] failed to query canonical tables:', error instanceof Error ? error.message : String(error));
+  }
+
+  try {
+    const waitDepth = dockerCompose(['exec', '-T', 'redis', 'redis-cli', '-a', redisPassword, '--no-auth-warning', 'LLEN', `bull-${queueName}-wait`]).trim();
+    console.error(`[e2e-stage] redis queue depth bull-${queueName}-wait=${waitDepth || '0'}`);
+  } catch (error) {
+    console.error('[e2e-stage] failed to query redis queue depth:', error instanceof Error ? error.message : String(error));
+  }
+
+  printFilteredServiceLogs('worker', 'worker_bullmq_started|job_duration_ms|worker_job_failed|PROCESS_INBOUND_EVENT|worker_bullmq_job_failed|worker_bullmq_error|queue_lag_ms');
+  printFilteredServiceLogs('gateway', 'gateway_webhook_accepted|gateway_webhook_failed|linked_flow_enqueued|queue_error|gateway_ack_ms');
+}
+
 async function main() {
   const generated = makeEphemeralEnv();
   const webhookSecret = generated.webhookSecret;
@@ -221,6 +267,8 @@ async function main() {
   const linkedUser = 'zalo_user_linked_001';
   const tenantName = `E2E-${randomUUID().slice(0, 8)}`;
   const tenantCode = `E2E${Math.floor(Math.random() * 100000)}`;
+  const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+  const invoiceMsgId = 'msg-invoice-001';
   let tenantId = '';
 
   try {
@@ -328,7 +376,7 @@ async function main() {
 
     const invoicePayload = JSON.stringify({
       platform_user_id: linkedUser,
-      zalo_msg_id: 'msg-invoice-001',
+      zalo_msg_id: invoiceMsgId,
       message_type: 'file',
       attachments: [{ type: 'file', url: 'http://xml-stub:18082/invoice.xml', name: 'invoice.xml' }],
       text: 'invoice attached'
@@ -344,12 +392,19 @@ async function main() {
       if (r.status !== 200) failWithStatus(`invoice webhook attempt ${i + 1}`, r);
     }
 
-    await waitFor('canonical invoice + items + idempotency', async () => {
-      const invoiceCount = Number(sql(`SELECT count(*) FROM canonical_invoices WHERE tenant_id='${tenantId}'::uuid;`) || '0');
-      const itemCount = Number(sql(`SELECT count(*) FROM canonical_invoice_items WHERE tenant_id='${tenantId}'::uuid;`) || '0');
-      const inboundCount = Number(sql(`SELECT count(*) FROM inbound_events WHERE tenant_id='${tenantId}'::uuid AND zalo_msg_id='msg-invoice-001';`) || '0');
-      return invoiceCount === 1 && itemCount >= 1 && inboundCount === 1;
-    }, 120_000);
+    try {
+      await waitFor('canonical invoice + items + idempotency', async () => {
+        const invoiceCount = Number(sql(`SELECT count(*) FROM canonical_invoices WHERE tenant_id='${tenantId}'::uuid;`) || '0');
+        const itemCount = Number(sql(`SELECT count(*) FROM canonical_invoice_items WHERE tenant_id='${tenantId}'::uuid;`) || '0');
+        const inboundCount = Number(sql(`SELECT count(*) FROM inbound_events WHERE tenant_id='${tenantId}'::uuid AND zalo_msg_id=${sqlString(invoiceMsgId)};`) || '0');
+        return invoiceCount === 1 && itemCount >= 1 && inboundCount === 1;
+      }, 120_000);
+    } catch (error) {
+      if (tenantId) {
+        printInvoiceStageDiagnostics(tenantId, invoiceMsgId, queueName, generated.redisPassword);
+      }
+      throw error;
+    }
 
     // Note: Worker notification flush test skipped - requires BullMQ job enqueue from E2E
     // Worker is verified to be running and processing jobs via gateway webhooks
