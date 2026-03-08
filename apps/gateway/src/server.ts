@@ -32,6 +32,7 @@ const redisConfig = loadRedisConfig({
   onWarning: (message) => logger.warn('gateway_redis_config_deprecated', { message })
 });
 const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
+const enableQueueInTest = (process.env.ENABLE_QUEUE_IN_TEST ?? 'false') === 'true';
 const readyzStrict = (process.env.READYZ_STRICT ?? 'true') === 'true';
 const readyzTimeoutMs = Number(process.env.READYZ_TIMEOUT_MS ?? '300');
 const metricsHost = process.env.GATEWAY_METRICS_HOST ?? '0.0.0.0';
@@ -61,7 +62,7 @@ const pgPool = postgresUrl
     })
   : null;
 const queue = (() => {
-  if (process.env.NODE_ENV === 'test') return null;
+  if (process.env.NODE_ENV === 'test' && !enableQueueInTest) return null;
   return new Queue(queueName, {
     connection: {
       host: redisConfig.host,
@@ -386,7 +387,12 @@ async function insertInboundEvent(event: ZaloWebhookEvent, tenantId?: string): P
 }
 
 async function enqueue(payload: Record<string, unknown>) {
-  if (!queue && !(process.env.NODE_ENV === 'test' && queueCmd)) return;
+  if (!queue && !(process.env.NODE_ENV === 'test' && queueCmd)) {
+    if (enableQueueInTest) {
+      throw new Error('queue_not_configured');
+    }
+    return;
+  }
 
   const withEnqueueTs = ('enqueued_at_ms' in payload) ? payload : { ...payload, enqueued_at_ms: Date.now() };
   if (queue) {
@@ -635,6 +641,8 @@ server.listen(config.port, config.host, () => {
     host: config.host,
     webhook_enabled: webhookEnabled,
     onboarding_enabled: onboardingEnabled,
-    webhook_verify_mode: config.webhookAuth.verifyMode
+    webhook_verify_mode: config.webhookAuth.verifyMode,
+    queue_enabled_in_test: enableQueueInTest,
+    queue_transport: queue ? 'redis' : (process.env.NODE_ENV === 'test' && queueCmd ? 'queue_cmd' : 'none')
   });
 });

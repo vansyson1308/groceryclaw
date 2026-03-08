@@ -14,6 +14,12 @@ test('ssrf validator blocks private ip and non-https and custom port', () => {
 });
 
 
+
+test('ssrf validator allows explicit http stub domains only when configured', () => {
+  assert.equal(validateSafeAttachmentUrl('http://xml-stub:18082/invoice.xml', ['xml-stub']).ok, false);
+  assert.equal(validateSafeAttachmentUrl('http://xml-stub:18082/invoice.xml', ['xml-stub'], ['xml-stub']).ok, true);
+});
+
 test('ssrf validator blocks loopback hostname forms', () => {
   assert.equal(validateSafeAttachmentUrl('https://localhost/a.xml', ['zalo.me']).ok, false);
   assert.equal(validateSafeAttachmentUrl('https://api.local/a.xml', ['zalo.me']).ok, false);
