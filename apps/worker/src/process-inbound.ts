@@ -75,18 +75,28 @@ async function markJob(
   status: 'processing' | 'completed' | 'failed',
   errorMessage?: string
 ) {
-  await deps.exec(`
+  const sql = `
     INSERT INTO jobs (tenant_id, type, status, payload, started_at, completed_at, error_message)
     VALUES (
       $1::uuid,
       'PROCESS_INBOUND_EVENT',
       $2,
-      jsonb_build_object('correlation_id', $3),
+      jsonb_build_object('correlation_id', $3::text),
       CASE WHEN $2 = 'processing' THEN now() ELSE NULL END,
       CASE WHEN $2 IN ('completed','failed') THEN now() ELSE NULL END,
       $4
     );
-  `, [tenantId, status, correlationId, errorMessage ?? null]);
+  `;
+  const params = [tenantId, status, correlationId, errorMessage ?? null] as const;
+
+  if (deps.runInTenantTransaction) {
+    await deps.runInTenantTransaction(tenantId, 'PROCESS_INBOUND_EVENT', async (db) => {
+      await db.exec(sql, params);
+    });
+    return;
+  }
+
+  await deps.exec(sql, params);
 }
 
 async function withTenantTransaction<T>(
