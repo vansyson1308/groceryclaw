@@ -1,0 +1,13 @@
+{
+  "platform_user_id": "zalo_user_valid_001",
+  "zalo_msg_id": "msg_valid_001",
+  "message_type": "file",
+  "attachments": [
+    {
+      "type": "file",
+      "url": "https://example.zalo.me/invoice.xml",
+      "name": "invoice.xml"
+    }
+  ],
+  "text": "invoice attached"
+}

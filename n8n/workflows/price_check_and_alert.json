@@ -1,0 +1,346 @@
+{
+  "name": "Price Check and Alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst mapped_items = Array.isArray(input.mapped_items) ? input.mapped_items : [];\nconst zalo_user_id = String(input.zalo_user_id || '').trim();\nif (!zalo_user_id) throw new Error('zalo_user_id required');\nif (!mapped_items.length) return [{ json: { status: 'no_items', alerts: [] } }];\nreturn [{ json: { mapped_items, zalo_user_id, invoice_meta: input.invoice_meta || {}, supplier_code: input.invoice_meta?.supplier_code || input.supplier_code || 'UNKNOWN_SUPPLIER' } }];"
+      },
+      "id": "2",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM pricing_rules WHERE is_active = TRUE ORDER BY priority DESC;"
+      },
+      "id": "3",
+      "name": "Load pricing_rules",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT kiotviet_product_id, product_code, product_name, category_name, base_price, cost FROM kiotviet_product_cache;"
+      },
+      "id": "4",
+      "name": "Load product cache snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine"
+      },
+      "id": "5",
+      "name": "Merge Rule + Cache",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        940,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Validate Input').item.json;\nconst rules = $('Load pricing_rules').all().map(i => i.json);\nconst cacheRows = $('Load product cache snapshot').all().map(i => i.json);\nconst cache = new Map(cacheRows.map(r => [Number(r.kiotviet_product_id), r]));\n\nconst selectRule = (productCode, supplierCode, categoryName) => {\n  const active = rules.filter(r => r.is_active !== false);\n  const pick = (type, key) => active\n    .filter(r => r.rule_type === type && String(r.rule_key) === String(key))\n    .sort((a,b)=>Number(b.priority||0)-Number(a.priority||0))[0];\n  return pick('product', productCode)\n    || pick('supplier', supplierCode)\n    || pick('category', categoryName)\n    || pick('category', 'DEFAULT')\n    || { margin_percent: 15, rounding_rule: 'none', rule_key: 'DEFAULT', rule_type: 'category' };\n};\n\nconst round = (v, rule) => {\n  const n = Number(v || 0);\n  if (rule === 'round_100') return Math.ceil(n/100)*100;\n  if (rule === 'round_500') return Math.ceil(n/500)*500;\n  if (rule === 'round_1000') return Math.ceil(n/1000)*1000;\n  return Math.ceil(n);\n};\n\nconst alerts = [];\nfor (const item of ctx.mapped_items) {\n  const pid = Number(item.kiotviet_product_id || 0);\n  if (!pid) continue;\n  const cacheItem = cache.get(pid) || {};\n  const new_cost = Number(item.converted_unit_price || item.unit_price || 0);\n  const old_cost = Number(cacheItem.cost || 0);\n  const current_price = Number(cacheItem.base_price || 0);\n  const category = cacheItem.category_name || item.category_name || 'DEFAULT';\n  const pcode = item.kiotviet_product_code || cacheItem.product_code || '';\n\n  const rule = selectRule(pcode, ctx.supplier_code, category);\n  const expected_min = round(new_cost * (1 + Number(rule.margin_percent || 0)/100), rule.rounding_rule || 'none');\n\n  if (current_price < expected_min && new_cost > 0) {\n    alerts.push({\n      product_id: pid,\n      product_code: pcode,\n      product_name: cacheItem.product_name || item.item_name || pcode,\n      old_cost,\n      new_cost,\n      current_price,\n      expected_min,\n      margin_percent: Number(rule.margin_percent || 0),\n      rounding_rule: rule.rounding_rule || 'none'\n    });\n  }\n}\n\nreturn [{ json: { ...ctx, alerts } }];"
+      },
+      "id": "6",
+      "name": "Compute Price Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1170,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-alert",
+              "leftValue": "={{$json.alerts.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Has Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1390,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_sessions (zalo_user_id, session_state, context_data, expires_at, updated_at)\nVALUES (\n  '{{$json.zalo_user_id}}',\n  'waiting_for_price_confirm',\n  jsonb_build_object('alerts', {{$json.alerts ? JSON.stringify($json.alerts).replace(/'/g, \"''\") : '[]'}}::jsonb, 'invoice_meta', {{$json.invoice_meta ? JSON.stringify($json.invoice_meta).replace(/'/g, \"''\") : '{}'}}::jsonb),\n  NOW() + INTERVAL '30 minutes',\n  NOW()\n)\nON CONFLICT (zalo_user_id)\nDO UPDATE SET session_state='waiting_for_price_confirm', context_data=EXCLUDED.context_data, expires_at=EXCLUDED.expires_at, updated_at=NOW();"
+      },
+      "id": "8",
+      "name": "Save waiting_for_price_confirm",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1620,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const first = $json.alerts[0];\nconst text = `⚠️ Giá vốn tăng: ${first.product_name}\nGiá vốn mới: ${first.new_cost.toLocaleString('vi-VN')}đ\nGiá bán hiện tại: ${first.current_price.toLocaleString('vi-VN')}đ\nGiá bán tối thiểu đề xuất: ${first.expected_min.toLocaleString('vi-VN')}đ`;\nconst payloadBase = `${first.product_id}|${first.expected_min}`;\nreturn [{ json: { ...$json, zalo_message: {\n  recipient: { user_id: $json.zalo_user_id },\n  message: { text },\n  buttons: [\n    { title: '✅ Update suggested', payload: `PRICE_CONFIRM|${payloadBase}` },\n    { title: '🔒 Keep', payload: `PRICE_KEEP|${payloadBase}` },\n    { title: '✏️ Custom', payload: `PRICE_CUSTOM|${payloadBase}` }\n  ]\n} } }];"
+      },
+      "id": "9",
+      "name": "Build Pricing Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.zalo_message}}"
+      },
+      "id": "10",
+      "name": "Send Pricing Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'alert_sent', alerts_count: $json.alerts.length } }];"
+      },
+      "id": "11",
+      "name": "Return Alert Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'no_alert_needed', alerts_count: 0 } }];"
+      },
+      "id": "12",
+      "name": "Return No Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Load pricing_rules",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load product cache snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load pricing_rules": {
+      "main": [
+        [
+          {
+            "node": "Merge Rule + Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load product cache snapshot": {
+      "main": [
+        [
+          {
+            "node": "Merge Rule + Cache",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Rule + Cache": {
+      "main": [
+        [
+          {
+            "node": "Compute Price Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Price Alerts": {
+      "main": [
+        [
+          {
+            "node": "Has Alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Alerts?": {
+      "main": [
+        [
+          {
+            "node": "Save waiting_for_price_confirm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return No Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save waiting_for_price_confirm": {
+      "main": [
+        [
+          {
+            "node": "Build Pricing Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pricing Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Pricing Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Pricing Alert": {
+      "main": [
+        [
+          {
+            "node": "Return Alert Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

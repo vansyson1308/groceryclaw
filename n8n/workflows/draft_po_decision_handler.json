@@ -1,0 +1,759 @@
+{
+  "name": "Draft PO Decision Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = $json || {};\nconst payload = String(i.payload || i.button_payload || '').trim();\nlet action = String(i.action || '').trim();\nlet zalo_user_id = String(i.zalo_user_id || '').trim();\nlet zalo_msg_id = String(i.zalo_msg_id || '').trim();\nlet draft_po_id = i.draft_po_id != null ? Number(i.draft_po_id) : null;\n\nif (payload) {\n  const [a, user, msg, po] = payload.split('|');\n  if (!action) action = String(a || '').trim();\n  if (!zalo_user_id) zalo_user_id = String(user || '').trim();\n  if (!zalo_msg_id) zalo_msg_id = String(msg || '').trim();\n  if (draft_po_id == null && po) draft_po_id = Number(po);\n}\n\nconst allowed = new Set(['DRAFT_APPROVE', 'DRAFT_REJECT', 'DRAFT_EDIT', 'DRAFT_CUSTOM_PRICE']);\nif (!allowed.has(action)) throw new Error('Unsupported action');\nif (!zalo_user_id || !zalo_msg_id || !Number.isFinite(draft_po_id)) throw new Error('Missing required IDs (zalo_user_id, zalo_msg_id, draft_po_id)');\n\nconst text_input = String(i.text_input || i.message_text || '').trim();\nif (action === 'DRAFT_CUSTOM_PRICE') {\n  const v = Number(text_input.replace(',', '.'));\n  if (!text_input || !Number.isFinite(v) || v <= 0) throw new Error('Custom price must be a positive number');\n}\n\nreturn [{ json: { action, zalo_user_id, zalo_msg_id, draft_po_id, text_input } }];"
+      },
+      "id": "2",
+      "name": "Parse and Validate Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT session_state, context_data, expires_at FROM user_sessions WHERE zalo_user_id='{{$json.zalo_user_id}}' ORDER BY updated_at DESC LIMIT 1;"
+      },
+      "id": "3",
+      "name": "Load User Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 320],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Parse and Validate Decision').item.json;\nconst row = $json || {};\nconst ctx = typeof row.context_data === 'string' ? JSON.parse(row.context_data) : (row.context_data || {});\nif (!row.session_state) throw new Error('No active session for this user');\nif (row.session_state !== 'waiting_for_draft_confirm') throw new Error(`Invalid session_state ${row.session_state}`);\nif (ctx.zalo_msg_id !== req.zalo_msg_id) throw new Error('Session zalo_msg_id mismatch');\nif (Number(ctx.draft_po_id) !== Number(req.draft_po_id)) throw new Error('Session draft_po_id mismatch');\nif (row.expires_at && new Date(row.expires_at) < new Date()) throw new Error('Session expired');\nreturn [{ json: { ...req, session_context: ctx } }];"
+      },
+      "id": "4",
+      "name": "Validate Session Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 320]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, status, decision_status, decision_payload, kiotviet_po_id, kiotviet_po_code FROM invoice_log WHERE zalo_user_id='{{$json.zalo_user_id}}' AND zalo_msg_id='{{$json.zalo_msg_id}}' ORDER BY created_at DESC LIMIT 1;"
+      },
+      "id": "5",
+      "name": "Load invoice_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1180, 320],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Validate Session Context').item.json;\nconst inv = $json || {};\nif (!inv.id) throw new Error('invoice_log row not found');\nconst decision = inv.decision_status || 'pending';\nconst payload = typeof inv.decision_payload === 'string' ? JSON.parse(inv.decision_payload) : (inv.decision_payload || {});\nif (Number(payload.draft_po_id || req.draft_po_id) !== Number(req.draft_po_id)) throw new Error('invoice_log draft_po_id mismatch');\nconst alreadyProcessed = decision !== 'pending';\nreturn [{ json: { ...req, invoice_id: Number(inv.id), current_decision_status: decision, already_processed: alreadyProcessed, draft_po_code: payload.draft_po_code || req.session_context.draft_po_code || '', total_amount: Number(payload.total || 0) } }];"
+      },
+      "id": "6",
+      "name": "Decision Replay Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "a",
+              "leftValue": "={{$json.already_processed}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Already Processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1660, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'already_processed', decision_status: $json.current_decision_status, invoice_id: $json.invoice_id } }];"
+      },
+      "id": "8",
+      "name": "Return Already Processed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1880, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "approve",
+              "leftValue": "={{$json.action}}",
+              "rightValue": "DRAFT_APPROVE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "9",
+      "name": "Action is Approve?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1880, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{$env.KIOTVIET_CLIENT_ID}}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{$env.KIOTVIET_CLIENT_SECRET}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scopes",
+              "value": "PublicApi.Access"
+            }
+          ]
+        }
+      },
+      "id": "10",
+      "name": "Get KiotViet Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2120, 420]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://public.kiotviet.vn/api/purchaseorders/{{$('Decision Replay Guard').item.json.draft_po_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "Retailer",
+              "value": "={{$env.KIOTVIET_RETAILER}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { status: 2, description: 'Approved from Draft PO flow', totalPayment: $('Decision Replay Guard').item.json.total_amount || 0, payments: [{ method: 'cash', amount: $('Decision Replay Guard').item.json.total_amount || 0 }] } }}"
+      },
+      "id": "11",
+      "name": "Finalize Draft PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2360, 420]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE invoice_log SET status='completed', decision_status='approved', decision_at=NOW(), decision_payload=COALESCE(decision_payload, '{}'::jsonb) || jsonb_build_object('action','DRAFT_APPROVE','approved_by','{{$json.zalo_user_id}}','approved_at',NOW()::text) WHERE id={{$json.invoice_id}} AND decision_status='pending' RETURNING id;"
+      },
+      "id": "12",
+      "name": "Mark Approved Once",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2600, 420],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "if (!$json.id) { return [{ json: { status: 'already_processed', reason: 'decision already applied' } }]; }\nreturn [{ json: $('Decision Replay Guard').item.json }];"
+      },
+      "id": "13",
+      "name": "Approved Update Applied?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2820, 420]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions SET session_state='idle', context_data='{}'::jsonb, expires_at=NULL, updated_at=NOW() WHERE zalo_user_id='{{$json.zalo_user_id}}';"
+      },
+      "id": "14",
+      "name": "Set Session Idle (Approve)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3040, 420],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Decision Replay Guard').item.json;\nreturn [{ json: { recipient: { user_id: ctx.zalo_user_id }, message: { text: `✅ Đã duyệt PO nháp ${ctx.draft_po_code || ctx.draft_po_id}. Hệ thống đã chốt phiếu nhập.` } } }];"
+      },
+      "id": "15",
+      "name": "Build Approve Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3260, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}"
+      },
+      "id": "16",
+      "name": "Send Approve Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3480, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'approved', invoice_id: $('Decision Replay Guard').item.json.invoice_id, draft_po_id: $('Decision Replay Guard').item.json.draft_po_id } }];"
+      },
+      "id": "17",
+      "name": "Return Approved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3700, 420]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "reject",
+              "leftValue": "={{$json.action}}",
+              "rightValue": "DRAFT_REJECT",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "18",
+      "name": "Action is Reject?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2120, 640]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE invoice_log SET status='rejected', decision_status='rejected', decision_at=NOW(), decision_payload=COALESCE(decision_payload, '{}'::jsonb) || jsonb_build_object('action','DRAFT_REJECT','rejected_by','{{$json.zalo_user_id}}','rejected_at',NOW()::text,'note','Draft left unfinalized; cancel manually in KiotViet if needed') WHERE id={{$json.invoice_id}} AND decision_status='pending' RETURNING id;"
+      },
+      "id": "19",
+      "name": "Mark Rejected Once",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2360, 640],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions SET session_state='idle', context_data='{}'::jsonb, expires_at=NULL, updated_at=NOW() WHERE zalo_user_id='{{$json.zalo_user_id}}';"
+      },
+      "id": "20",
+      "name": "Set Session Idle (Reject)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2600, 640],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Decision Replay Guard').item.json;\nreturn [{ json: { recipient: { user_id: ctx.zalo_user_id }, message: { text: `❌ Đã từ chối PO nháp ${ctx.draft_po_code || ctx.draft_po_id}. Vui lòng gửi lại ảnh rõ hơn hoặc XML để xử lý an toàn.` } } }];"
+      },
+      "id": "21",
+      "name": "Build Reject Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2820, 640]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}"
+      },
+      "id": "22",
+      "name": "Send Reject Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3040, 640]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'rejected', invoice_id: $('Decision Replay Guard').item.json.invoice_id, draft_po_id: $('Decision Replay Guard').item.json.draft_po_id } }];"
+      },
+      "id": "23",
+      "name": "Return Rejected",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3260, 640]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions SET session_state='waiting_for_mapping_fix', context_data=jsonb_build_object('zalo_msg_id','{{$json.zalo_msg_id}}','draft_po_id',{{$json.draft_po_id}},'next_step','manual_edit'), expires_at=NOW() + INTERVAL '30 minutes', updated_at=NOW() WHERE zalo_user_id='{{$json.zalo_user_id}}';"
+      },
+      "id": "24",
+      "name": "Set Session Edit Path",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2360, 860],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Decision Replay Guard').item.json;\nreturn [{ json: { recipient: { user_id: ctx.zalo_user_id }, message: { text: '✏️ Đã chuyển sang chế độ chỉnh sửa. Vui lòng cập nhật mapping/giá rồi gửi lại để duyệt PO.' } } }];"
+      },
+      "id": "25",
+      "name": "Build Edit Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 860]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}"
+      },
+      "id": "26",
+      "name": "Send Edit Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2820, 860]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'edit_requested', invoice_id: $('Decision Replay Guard').item.json.invoice_id, draft_po_id: $('Decision Replay Guard').item.json.draft_po_id } }];"
+      },
+      "id": "27",
+      "name": "Return Edit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3040, 860]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse and Validate Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Validate Decision": {
+      "main": [
+        [
+          {
+            "node": "Load User Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load User Session": {
+      "main": [
+        [
+          {
+            "node": "Validate Session Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Session Context": {
+      "main": [
+        [
+          {
+            "node": "Load invoice_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load invoice_log": {
+      "main": [
+        [
+          {
+            "node": "Decision Replay Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision Replay Guard": {
+      "main": [
+        [
+          {
+            "node": "Already Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Processed?": {
+      "main": [
+        [
+          {
+            "node": "Return Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Action is Approve?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action is Approve?": {
+      "main": [
+        [
+          {
+            "node": "Get KiotViet Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Action is Reject?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get KiotViet Token": {
+      "main": [
+        [
+          {
+            "node": "Finalize Draft PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Draft PO": {
+      "main": [
+        [
+          {
+            "node": "Mark Approved Once",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Approved Once": {
+      "main": [
+        [
+          {
+            "node": "Approved Update Applied?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved Update Applied?": {
+      "main": [
+        [
+          {
+            "node": "Set Session Idle (Approve)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Session Idle (Approve)": {
+      "main": [
+        [
+          {
+            "node": "Build Approve Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Approve Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Approve Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approve Reply": {
+      "main": [
+        [
+          {
+            "node": "Return Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action is Reject?": {
+      "main": [
+        [
+          {
+            "node": "Mark Rejected Once",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Session Edit Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rejected Once": {
+      "main": [
+        [
+          {
+            "node": "Set Session Idle (Reject)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Session Idle (Reject)": {
+      "main": [
+        [
+          {
+            "node": "Build Reject Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reject Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Reject Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reject Reply": {
+      "main": [
+        [
+          {
+            "node": "Return Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Session Edit Path": {
+      "main": [
+        [
+          {
+            "node": "Build Edit Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Edit Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Edit Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Edit Reply": {
+      "main": [
+        [
+          {
+            "node": "Return Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

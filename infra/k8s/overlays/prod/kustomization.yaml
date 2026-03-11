@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: groceryclaw-v2
+resources:
+  - ../../base
+  - ingress.yaml
+patches:
+  - path: patches/gateway-deployment.yaml
+  - path: patches/worker-deployment.yaml
+  - path: patches/admin-deployment.yaml
+  - path: patches/hpa.yaml
+  - path: patches/migrate-job.yaml
+images:
+  - name: ghcr.io/example/groceryclaw-gateway
+    newName: ghcr.io/groceryclaw/gateway
+    newTag: v2.0.0
+  - name: ghcr.io/example/groceryclaw-worker
+    newName: ghcr.io/groceryclaw/worker
+    newTag: v2.0.0
+  - name: ghcr.io/example/groceryclaw-admin
+    newName: ghcr.io/groceryclaw/admin
+    newTag: v2.0.0

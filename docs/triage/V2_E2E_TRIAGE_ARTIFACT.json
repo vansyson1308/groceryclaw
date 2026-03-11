@@ -1,0 +1,81 @@
+{
+  "triage_pass": "first-pass-diagnostic",
+  "target_gate": {
+    "workflow": "V2 CI",
+    "job": "v2-ci",
+    "step": "Mandatory V2 E2E integration gate",
+    "command": "npm run e2e",
+    "visible_symptom": "timeout waiting for canonical invoice + items + idempotency"
+  },
+  "system_flow": [
+    "webhook intake (/webhooks/zalo)",
+    "membership resolution",
+    "inbound_events insert with (tenant_id,zalo_msg_id) dedupe",
+    "enqueue PROCESS_INBOUND_EVENT",
+    "worker dequeue",
+    "xml fetch + parse",
+    "canonical_invoices insert (invoice_fingerprint dedupe)",
+    "canonical_invoice_items insert",
+    "poll assertion: canonical invoice + items + inbound idempotency"
+  ],
+  "timeouts": [
+    { "name": "service healthy checks", "timeout_ms": 120000 },
+    { "name": "worker running", "timeout_ms": 120000 },
+    { "name": "gateway readyz", "timeout_ms": 120000 },
+    { "name": "admin healthz", "timeout_ms": 120000 },
+    { "name": "invite membership created", "timeout_ms": 60000 },
+    { "name": "canonical invoice + items + idempotency", "timeout_ms": 120000 }
+  ],
+  "hypotheses_ranked": [
+    {
+      "id": "H1",
+      "title": "NODE_ENV=test disables gateway queue producer in e2e",
+      "probability": "high",
+      "supporting": [
+        "e2e env sets NODE_ENV=test",
+        "gateway queue object null when NODE_ENV==='test'",
+        "enqueue() no-ops when queue missing and no queueCmd"
+      ],
+      "cheapest_verification": "log redis queue length and worker dequeue evidence right after invoice webhook"
+    },
+    {
+      "id": "H2",
+      "title": "worker running check is weaker than processing-ready",
+      "probability": "medium",
+      "supporting": [
+        "e2e waits for running worker, not healthy/processing-ready"
+      ],
+      "cheapest_verification": "canary job roundtrip or explicit worker-ready marker"
+    },
+    {
+      "id": "H3",
+      "title": "tenant/RLS runtime mismatch in worker writes",
+      "probability": "medium_low",
+      "supporting": [
+        "RLS-heavy schema and scoped transaction path"
+      ],
+      "cheapest_verification": "inspect worker db errors only after proving jobs are dequeued"
+    }
+  ],
+  "fix_plan": [
+    "Use non-test NODE_ENV for compose e2e or force-enable queue path in e2e",
+    "Add queue/inbound/worker diagnostics on timeout",
+    "Upgrade worker readiness check from running->processing ready",
+    "Add intermediate assertions before final canonical poll"
+  ],
+  "commands_run": [
+    "sed -n '1,260p' .github/workflows/v2-ci.yml && sed -n '1,260p' .github/workflows/ci.yml",
+    "cat package.json",
+    "sed -n '1,320p' scripts/v2/run_e2e_compose.mjs",
+    "cat infra/compose/v2/docker-compose.e2e.yml",
+    "sed -n '1,320p' infra/compose/v2/docker-compose.yml",
+    "cat apps/worker/src/index.ts",
+    "sed -n '480,700p' apps/gateway/src/server.ts",
+    "sed -n '100,300p' apps/worker/src/process-inbound.ts",
+    "cat packages/common/src/bullmq-lite.ts",
+    "npm run e2e"
+  ],
+  "environment_limitations": [
+    "docker CLI unavailable in this execution environment (spawnSync docker ENOENT)"
+  ]
+}

@@ -1,0 +1,6 @@
+# Example ingress metadata annotations for cert-manager + nginx.
+# Copy into your ingress manifest as needed.
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"

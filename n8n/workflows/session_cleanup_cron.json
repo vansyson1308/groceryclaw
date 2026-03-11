@@ -1,0 +1,89 @@
+{
+  "name": "Session Cleanup Cron",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Schedule Every 15m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions\nSET session_state='idle',\n    context_data='{}'::jsonb,\n    expires_at=NULL,\n    updated_at=NOW()\nWHERE expires_at IS NOT NULL\n  AND expires_at < NOW()\n  AND session_state <> 'idle';"
+      },
+      "id": "2",
+      "name": "Expire Stale Sessions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [520, 280],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id, supplier_code, source_type, source_url, parsed_data, status, created_at) VALUES ('system', 'session_cleanup', 'xml', 'workflow://session_cleanup_cron', jsonb_build_object('event','cleanup_run'), 'completed', NOW());"
+      },
+      "id": "3",
+      "name": "Log Cleanup Run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [780, 280],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Every 15m": {
+      "main": [
+        [
+          {
+            "node": "Expire Stale Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expire Stale Sessions": {
+      "main": [
+        [
+          {
+            "node": "Log Cleanup Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

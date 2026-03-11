@@ -1,0 +1,177 @@
+name: V2 Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Deployment target label (e.g. staging/prod)
+        required: true
+        default: staging
+      services_override:
+        description: Optional comma-separated services override (gateway,admin,worker)
+        required: false
+        default: ""
+      push_images:
+        description: Push built images to GHCR
+        required: true
+        type: boolean
+        default: false
+      run_migrations:
+        description: Force migration stage (overrides detector)
+        required: false
+        type: boolean
+        default: false
+      run_k8s_helpers:
+        description: Run repo k8s helper scripts in CI (requires kube context)
+        required: true
+        type: boolean
+        default: false
+      dry_run:
+        description: Dry-run mode for deploy helpers
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      services_json: ${{ steps.resolve.outputs.services_json }}
+      run_migrations: ${{ steps.resolve.outputs.run_migrations }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - id: resolve
+        run: |
+          set -euo pipefail
+          TAG="sha-${GITHUB_SHA::12}"
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "${{ inputs.services_override }}" ]]; then
+            RAW="${{ inputs.services_override }}"
+            RAW_NO_SPACE="$(echo "$RAW" | tr -d ' ')"
+            IFS=',' read -r -a SVC_ARR <<< "$RAW_NO_SPACE"
+            VALID='["gateway","admin","worker"]'
+            JSON='[]'
+            for s in "${SVC_ARR[@]}"; do
+              if [[ "$s" != "gateway" && "$s" != "admin" && "$s" != "worker" ]]; then
+                echo "Invalid service in override: $s" >&2
+                exit 1
+              fi
+              JSON=$(jq -c --arg s "$s" '. + [$s] | unique' <<< "$JSON")
+            done
+            echo "services_json=${JSON}" >> "$GITHUB_OUTPUT"
+            if [[ "${{ inputs.run_migrations }}" == "true" ]]; then
+              echo "run_migrations=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_migrations=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            node scripts/release/detect_changed_services.mjs --base origin/main --head HEAD > detect.json
+            cat detect.json
+            DETECTED_SERVICES=$(jq -c '.services' detect.json)
+            DETECTED_MIGRATIONS=$(jq -r '.run_migrations' detect.json)
+            echo "services_json=${DETECTED_SERVICES}" >> "$GITHUB_OUTPUT"
+            if [[ "${{ inputs.run_migrations }}" == "true" ]]; then
+              echo "run_migrations=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_migrations=${DETECTED_MIGRATIONS}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  build:
+    needs: detect
+    if: ${{ needs.detect.outputs.services_json != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect.outputs.services_json) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image coordinates
+        id: meta
+        run: |
+          set -euo pipefail
+          case "${{ matrix.service }}" in
+            gateway) echo "dockerfile=apps/gateway/Dockerfile" >> "$GITHUB_OUTPUT"; echo "image=ghcr.io/groceryclaw/gateway" >> "$GITHUB_OUTPUT" ;;
+            admin)   echo "dockerfile=apps/admin/Dockerfile" >> "$GITHUB_OUTPUT";   echo "image=ghcr.io/groceryclaw/admin" >> "$GITHUB_OUTPUT" ;;
+            worker)  echo "dockerfile=apps/worker/Dockerfile" >> "$GITHUB_OUTPUT";  echo "image=ghcr.io/groceryclaw/worker" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          docker build -f "${{ steps.meta.outputs.dockerfile }}" -t "${{ steps.meta.outputs.image }}:${{ needs.detect.outputs.release_tag }}" .
+
+      - name: Login GHCR
+        if: ${{ inputs.push_images }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: ${{ inputs.push_images }}
+        run: |
+          set -euo pipefail
+          docker push "${{ steps.meta.outputs.image }}:${{ needs.detect.outputs.release_tag }}"
+
+  release-plan:
+    needs: [detect, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render k8s manifests (artifact)
+        run: |
+          set -euo pipefail
+          OVERLAY_PATH=infra/k8s/overlays/prod OUT_FILE=artifacts/release/k8s-rendered.yaml DRY_RUN=true bash scripts/release/render_k8s_manifests.sh
+
+      - name: Emit release plan
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          cat > artifacts/release/release-plan.json <<PLAN
+          {
+            "target_environment": "${{ inputs.target_environment }}",
+            "services": ${{ needs.detect.outputs.services_json }},
+            "release_tag": "${{ needs.detect.outputs.release_tag }}",
+            "run_migrations": "${{ needs.detect.outputs.run_migrations }}",
+            "deploy_order": ["migrate(if required)", "worker", "admin", "gateway"],
+            "auto_deploy_executed": ${{ inputs.run_k8s_helpers && !inputs.dry_run }}
+          }
+          PLAN
+          cat artifacts/release/release-plan.json
+
+      - name: Optional deploy helper execution
+        if: ${{ inputs.run_k8s_helpers }}
+        run: |
+          set -euo pipefail
+          SERVICES=$(jq -r 'join(",")' <<< '${{ needs.detect.outputs.services_json }}')
+          DRY="${{ inputs.dry_run }}"
+          RUN_MIGRATIONS="${{ needs.detect.outputs.run_migrations }}"
+          NAMESPACE="groceryclaw-v2" DRY_RUN="$DRY" RUN_MIGRATIONS="$RUN_MIGRATIONS" SERVICES="$SERVICES" bash scripts/release/deploy_k8s.sh
+          NAMESPACE="groceryclaw-v2" SERVICES="$SERVICES" RUN_GATEWAY_WEBHOOK_SMOKE=false bash scripts/release/smoke_check.sh
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-release-plan-${{ github.run_id }}
+          path: artifacts/release/*
+
+      - name: Print manual boundary
+        run: |
+          echo "Automation boundary: this workflow builds and can optionally push images; deploy helpers are dry-run by default."
+          echo "Manual/Platform step: apply image tag updates to target environment and execute rollout gates per docs/deployment/devops-execution-runbook.md"

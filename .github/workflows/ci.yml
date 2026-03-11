@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate n8n workflow exports
+        run: ./scripts/validate_workflows.sh
+
+      - name: Basic migration syntax checks
+        run: |
+          set -euo pipefail
+          for f in db/migrations/*.sql; do
+            echo "Checking $f"
+            grep -q "BEGIN;" "$f"
+            grep -q "COMMIT;" "$f"
+          done
+
+      - name: Run unit tests
+        run: node --test src/logic/*.test.js

@@ -1,0 +1,53 @@
+# Example only. Disabled by default (`suspend: true`).
+# Recommended path for production is provider-managed Postgres backups.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-logical-backup
+  namespace: groceryclaw-v2
+spec:
+  schedule: "0 2 * * *"
+  suspend: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pgdump
+              image: postgres:16
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  OUT="/backup/v2-${TS}.dump"
+                  pg_dump "$POSTGRES_URL" --format=custom --no-owner --no-privileges --file "$OUT"
+                  echo "backup completed: ${OUT}"
+              env:
+                - name: POSTGRES_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secrets
+                      key: POSTGRES_URL
+              volumeMounts:
+                - name: backup-pvc
+                  mountPath: /backup
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: backup-pvc
+              persistentVolumeClaim:
+                claimName: groceryclaw-backup-pvc

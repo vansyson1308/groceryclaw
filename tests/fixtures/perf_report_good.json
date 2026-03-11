@@ -1,0 +1,9 @@
+{
+  "generated_at": "2026-03-03T13:00:00.000Z",
+  "metrics": {
+    "ack_ms": { "p(95)": 150 },
+    "queue_lag_ms": { "p(95)": 1800 },
+    "http_req_failed": { "rate": 0.004 },
+    "duplicate_side_effect_rate": 0
+  }
+}

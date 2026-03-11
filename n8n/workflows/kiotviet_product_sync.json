@@ -1,0 +1,126 @@
+{
+  "name": "KiotViet Product Sync",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 220]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Schedule Trigger 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 380]
+    },
+    {
+      "parameters": {
+        "mode": "combine"
+      },
+      "id": "3",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{$env.KIOTVIET_CLIENT_ID}}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{$env.KIOTVIET_CLIENT_SECRET}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scopes",
+              "value": "PublicApi.Access"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Fetch Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const accessToken = $json.access_token;\nif (!accessToken) {\n  throw new Error('Missing KiotViet access_token from OAuth response');\n}\n\nconst retailer = $env.KIOTVIET_RETAILER;\nif (!retailer) {\n  throw new Error('Missing KIOTVIET_RETAILER env var');\n}\n\nconst pageSize = 100;\nlet currentItem = 0;\nconst allProducts = [];\n\nwhile (true) {\n  const url = `https://public.kiotviet.vn/api/products?pageSize=${pageSize}&currentItem=${currentItem}&orderBy=createdDate&orderDirection=Desc&includeInventory=true`;\n  const response = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    json: true,\n    headers: {\n      Authorization: `Bearer ${accessToken}`,\n      Retailer: retailer,\n      'Content-Type': 'application/json'\n    }\n  });\n\n  const pageData = Array.isArray(response?.data) ? response.data : [];\n  if (pageData.length === 0) break;\n\n  allProducts.push(...pageData);\n  currentItem += pageSize;\n}\n\nreturn allProducts.map((p) => ({\n  json: {\n    kiotviet_product_id: p.id,\n    product_code: p.code || null,\n    product_name: p.name || null,\n    barcode: p.barCode || null,\n    category_id: p.categoryId || null,\n    category_name: p.categoryName || null,\n    base_price: p.basePrice ?? null,\n    cost: p.cost ?? null,\n    inventory_quantity: Array.isArray(p.inventories) && p.inventories.length > 0 ? Number(p.inventories[0].onHand || 0) : 0,\n    is_active: p.isActive !== false\n  }\n}));"
+      },
+      "id": "5",
+      "name": "Fetch Products Paginated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO kiotviet_product_cache (\n  kiotviet_product_id,\n  product_code,\n  product_name,\n  barcode,\n  category_id,\n  category_name,\n  base_price,\n  cost,\n  inventory_quantity,\n  is_active,\n  last_synced_at\n) VALUES (\n  {{$json.kiotviet_product_id}},\n  {{$json.product_code ? \"'\" + $json.product_code.replace(/'/g, \"''\") + \"'\" : 'NULL'}},\n  {{$json.product_name ? \"'\" + $json.product_name.replace(/'/g, \"''\") + \"'\" : 'NULL'}},\n  {{$json.barcode ? \"'\" + $json.barcode.replace(/'/g, \"''\") + \"'\" : 'NULL'}},\n  {{$json.category_id ?? 'NULL'}},\n  {{$json.category_name ? \"'\" + $json.category_name.replace(/'/g, \"''\") + \"'\" : 'NULL'}},\n  {{$json.base_price ?? 'NULL'}},\n  {{$json.cost ?? 'NULL'}},\n  {{$json.inventory_quantity ?? 0}},\n  {{$json.is_active ? 'TRUE' : 'FALSE'}},\n  NOW()\n)\nON CONFLICT (kiotviet_product_id) DO UPDATE SET\n  product_code = EXCLUDED.product_code,\n  product_name = EXCLUDED.product_name,\n  barcode = EXCLUDED.barcode,\n  category_id = EXCLUDED.category_id,\n  category_name = EXCLUDED.category_name,\n  base_price = EXCLUDED.base_price,\n  cost = EXCLUDED.cost,\n  inventory_quantity = EXCLUDED.inventory_quantity,\n  is_active = EXCLUDED.is_active,\n  last_synced_at = NOW();"
+      },
+      "id": "6",
+      "name": "Upsert Product Cache",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1140, 300],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 0 }]]
+    },
+    "Schedule Trigger 6h": {
+      "main": [[{ "node": "Merge Triggers", "type": "main", "index": 1 }]]
+    },
+    "Merge Triggers": {
+      "main": [[{ "node": "Fetch Access Token", "type": "main", "index": 0 }]]
+    },
+    "Fetch Access Token": {
+      "main": [[{ "node": "Fetch Products Paginated", "type": "main", "index": 0 }]]
+    },
+    "Fetch Products Paginated": {
+      "main": [[{ "node": "Upsert Product Cache", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

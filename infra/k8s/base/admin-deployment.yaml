@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  labels:
+    app.kubernetes.io/component: admin
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: admin
+  template:
+    metadata:
+      labels:
+        app: admin
+        app.kubernetes.io/component: admin
+    spec:
+      serviceAccountName: admin
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin
+          image: ghcr.io/example/groceryclaw-admin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+            - containerPort: 9101
+              name: metrics
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_ADMIN_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DB_ADMIN_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: REDIS_URL
+            - name: ADMIN_MEK_B64
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: ADMIN_MEK_B64
+            - name: INVITE_PEPPER_B64
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: INVITE_PEPPER_B64
+            - name: ADMIN_METRICS_HOST
+              value: "0.0.0.0"
+            - name: ADMIN_METRICS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ADMIN_METRICS_PORT
+            - name: ADMIN_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: ADMIN_OIDC_ISSUER
+            - name: ADMIN_OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: ADMIN_OIDC_AUDIENCE
+            - name: ADMIN_OIDC_JWKS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: ADMIN_OIDC_JWKS_URI
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

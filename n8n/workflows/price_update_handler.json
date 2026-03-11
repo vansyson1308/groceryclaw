@@ -1,0 +1,679 @@
+{
+  "name": "Price Update Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = $json || {};\nconst zalo_user_id = String(i.zalo_user_id || '').trim();\nif (!zalo_user_id) throw new Error('zalo_user_id required');\nconst action = String(i.action || '').trim();\nconst text = String(i.text || '').trim();\nreturn [{ json: { zalo_user_id, action, text } }];"
+      },
+      "id": "2",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        450,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM user_sessions\nWHERE zalo_user_id='{{$json.zalo_user_id}}'\n  AND session_state IN ('waiting_for_price_confirm','waiting_for_custom_price')\n  AND expires_at > NOW()\nORDER BY updated_at DESC\nLIMIT 1;"
+      },
+      "id": "3",
+      "name": "Load Pricing Session",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $json;\nif (!s || !s.context_data) throw new Error('No active pricing session');\nconst ctx = typeof s.context_data === 'string' ? JSON.parse(s.context_data) : s.context_data;\nreturn [{ json: { session_id: s.id, zalo_user_id: s.zalo_user_id, session_state: s.session_state, context: ctx, action: $('Validate Input').item.json.action, text: $('Validate Input').item.json.text } }];"
+      },
+      "id": "4",
+      "name": "Extract Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "custom-text-mode",
+              "leftValue": "={{$json.session_state}}",
+              "rightValue": "waiting_for_custom_price",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "5",
+      "name": "Is waiting_for_custom_price?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1170,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shared validate_input pattern (type=price)\nconst raw = String($json.text || '').trim();\nconst price = Number(raw.replace(',', '.'));\nconst minPrice = Number($env.MIN_CUSTOM_PRICE || 100);\nconst maxPrice = Number($env.MAX_CUSTOM_PRICE || 1000000000);\nif (!Number.isFinite(price) || price < minPrice || price > maxPrice) {\n  return [{ json: { ...$json, invalid_custom_price: true, validation_reason: `Price must be between ${minPrice} and ${maxPrice}` } }];\n}\nconst pending = $json.context.pending_custom || {};\nif (!pending.product_id) {\n  throw new Error('Missing product_id in pending custom price context');\n}\nreturn [{ json: { ...$json, invalid_custom_price: false, update_target: { product_id: pending.product_id, new_price: price } } }];"
+      },
+      "id": "6",
+      "name": "Parse Custom Price",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1410,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "invalid-custom",
+              "leftValue": "={{$json.invalid_custom_price}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Custom Price Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: 'Giá không hợp lệ. Sếp nhập số dương (VD: 12500).' } } }}"
+      },
+      "id": "8",
+      "name": "Reply Invalid Custom Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $json.action;\nconst alerts = Array.isArray($json.context.alerts) ? $json.context.alerts : [];\nconst first = alerts[0] || {};\nif (!action) throw new Error('action required when waiting_for_price_confirm');\nif (action === 'PRICE_CONFIRM') return [{ json: { ...$json, decision: 'confirm', update_target: { product_id: first.product_id, new_price: first.expected_min } } }];\nif (action === 'PRICE_KEEP') return [{ json: { ...$json, decision: 'keep' } }];\nif (action === 'PRICE_CUSTOM') return [{ json: { ...$json, decision: 'custom', update_target: { product_id: first.product_id, suggested_price: first.expected_min } } }];\nthrow new Error('Unsupported action');"
+      },
+      "id": "9",
+      "name": "Resolve Button Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1410,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "keep",
+              "leftValue": "={{$json.decision}}",
+              "rightValue": "keep",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "10",
+      "name": "Is KEEP?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions SET session_state='idle', context_data='{}'::jsonb, expires_at=NULL, updated_at=NOW() WHERE id={{$json.session_id}};"
+      },
+      "id": "11",
+      "name": "Set Session Idle",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1860,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: 'Đã giữ nguyên giá bán hiện tại 🔒' } } }}"
+      },
+      "id": "12",
+      "name": "Reply Keep",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "custom",
+              "leftValue": "={{$json.decision}}",
+              "rightValue": "custom",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "13",
+      "name": "Is CUSTOM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1860,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE user_sessions\nSET session_state='waiting_for_custom_price',\n    context_data=jsonb_set(context_data, '{pending_custom}', jsonb_build_object('product_id', {{$json.update_target.product_id}}, 'suggested_price', {{$json.update_target.suggested_price}}), true),\n    expires_at=NOW() + INTERVAL '30 minutes',\n    updated_at=NOW()\nWHERE id={{$json.session_id}};"
+      },
+      "id": "14",
+      "name": "Set waiting_for_custom_price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2080,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: 'Sếp nhập giá bán mong muốn (số dương, đơn vị VND) nhé.' } } }}"
+      },
+      "id": "15",
+      "name": "Prompt Custom Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2310,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const target = $json.update_target;\nif (!target || !target.product_id) throw new Error('Missing update target');\nreturn [{ json: { ...$json, put_body: { basePrice: Number(target.new_price) } } }];"
+      },
+      "id": "16",
+      "name": "Build PUT Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{$env.KIOTVIET_CLIENT_ID}}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{$env.KIOTVIET_CLIENT_SECRET}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scopes",
+              "value": "PublicApi.Access"
+            }
+          ]
+        }
+      },
+      "id": "17",
+      "name": "Get KiotViet Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2310,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const token = $('Get KiotViet Token').item.json.access_token;\nconst target = $('Build PUT Body').item.json.update_target;\nconst putBody = $('Build PUT Body').item.json.put_body;\nif (!token) throw new Error('missing kiotviet token');\nconst url = `https://public.kiotviet.vn/api/products/${target.product_id}`;\nconst headers = {\n  Authorization: `Bearer ${token}`,\n  Retailer: $env.KIOTVIET_RETAILER,\n  'Content-Type': 'application/json'\n};\n\nlet lastErr = null;\nfor (let attempt = 0; attempt < 4; attempt++) {\n  try {\n    const res = await this.helpers.httpRequest({ method: 'PUT', url, json: true, body: putBody, headers });\n    return [{ json: { ...$('Build PUT Body').item.json, update_result: res, retries: attempt } }];\n  } catch (err) {\n    const code = Number(err?.statusCode || 0);\n    if (code === 429 || code >= 500) {\n      const backoffMs = Math.pow(2, attempt) * 1000;\n      await new Promise((r) => setTimeout(r, backoffMs));\n      lastErr = err;\n      continue;\n    }\n    throw err;\n  }\n}\nthrow lastErr || new Error('PUT update failed after retries');"
+      },
+      "id": "18",
+      "name": "PUT Product Price with Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2540,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id, supplier_code, source_type, source_url, parsed_data, status, error_details, created_at) VALUES ('{{$json.zalo_user_id}}', 'pricing_decision', 'xml', 'workflow://price_update_handler', jsonb_build_object('decision', 'price_update', 'product_id', {{$json.update_target.product_id}}, 'new_price', {{$json.update_target.new_price}}), 'completed', NULL, NOW());"
+      },
+      "id": "19",
+      "name": "Log Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2770,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { recipient: { user_id: $json.zalo_user_id }, message: { text: `Đã cập nhật giá bán ✅ (${Number($json.update_target.new_price).toLocaleString('vi-VN')}đ)` } } }}"
+      },
+      "id": "20",
+      "name": "Reply Updated",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3000,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'updated', product_id: $json.update_target.product_id, new_price: $json.update_target.new_price } }];"
+      },
+      "id": "21",
+      "name": "Return Updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3230,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Load Pricing Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Pricing Session": {
+      "main": [
+        [
+          {
+            "node": "Extract Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Session": {
+      "main": [
+        [
+          {
+            "node": "Is waiting_for_custom_price?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is waiting_for_custom_price?": {
+      "main": [
+        [
+          {
+            "node": "Parse Custom Price",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve Button Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Custom Price": {
+      "main": [
+        [
+          {
+            "node": "Custom Price Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Custom Price Valid?": {
+      "main": [
+        [
+          {
+            "node": "Reply Invalid Custom Price",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build PUT Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Button Action": {
+      "main": [
+        [
+          {
+            "node": "Is KEEP?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is KEEP?": {
+      "main": [
+        [
+          {
+            "node": "Set Session Idle",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reply Keep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is CUSTOM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is CUSTOM?": {
+      "main": [
+        [
+          {
+            "node": "Set waiting_for_custom_price",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prompt Custom Price",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build PUT Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build PUT Body": {
+      "main": [
+        [
+          {
+            "node": "Get KiotViet Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get KiotViet Token": {
+      "main": [
+        [
+          {
+            "node": "PUT Product Price with Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PUT Product Price with Retry": {
+      "main": [
+        [
+          {
+            "node": "Log Decision",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Set Session Idle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Decision": {
+      "main": [
+        [
+          {
+            "node": "Reply Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Updated": {
+      "main": [
+        [
+          {
+            "node": "Return Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

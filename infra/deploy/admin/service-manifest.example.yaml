@@ -1,0 +1,38 @@
+apiVersion: platform.groceryclaw.dev/v1alpha1
+kind: ServiceUnit
+metadata:
+  name: admin
+spec:
+  type: private-web
+  owner: platform
+  source:
+    repoPath: .
+    context: .
+  build:
+    dockerfile: apps/admin/Dockerfile
+    image: ghcr.io/groceryclaw/admin
+  runtime:
+    command: ["node", "apps/admin/dist/server.js"]
+    port: 3001
+    envFile: infra/deploy/admin/env.example
+  exposure:
+    policy: internal-default
+    ingress:
+      enabled: false
+      notes:
+        - If enabled, require TLS, IP allowlist, and OIDC auth.
+  dependencies:
+    postgres: required
+    redis: required
+  healthchecks:
+    liveness:
+      type: http
+      path: /healthz
+      port: 3001
+    readiness:
+      type: http
+      path: /readyz
+      port: 3001
+  notes:
+    - Keep admin private by default.
+    - Enable break-glass only under incident procedure.

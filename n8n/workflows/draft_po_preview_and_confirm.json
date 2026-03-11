@@ -1,0 +1,161 @@
+{
+  "name": "Draft PO Preview and Confirm",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = $json || {};\nconst zalo_user_id = String(i.zalo_user_id || '').trim();\nconst zalo_msg_id = String(i.zalo_msg_id || '').trim();\nconst mapped_items = Array.isArray(i.mapped_items) ? i.mapped_items : [];\nconst unmapped_items = Array.isArray(i.unmapped_items) ? i.unmapped_items : [];\nconst confidence_meta = i.confidence_meta || {};\nconst invoice_meta = i.invoice_meta || {};\nif (!zalo_user_id || !zalo_msg_id) throw new Error('zalo_user_id and zalo_msg_id are required');\nif (!mapped_items.length) throw new Error('mapped_items must contain at least one item for draft preview');\n\nconst supplier = String(invoice_meta.supplier_code || invoice_meta.supplier_name || 'UNKNOWN_SUPPLIER');\nconst total = mapped_items.reduce((s, it) => s + Number((it.converted_qty || it.quantity || 0) * (it.is_promotion ? 0 : (it.converted_unit_price || it.unit_price || 0))), 0);\nconst topItems = mapped_items.slice(0, 5).map((it) => `- ${it.item_name || it.kiotviet_product_name || it.kiotviet_product_code}: ${(it.converted_qty || it.quantity || 0)} x ${(it.is_promotion ? 0 : (it.converted_unit_price || it.unit_price || 0)).toLocaleString('vi-VN')}đ`).join('\\n');\nconst lowConfidence = Number(confidence_meta.overall_confidence || 0);\n\nconst summary = [\n  `⚠️ Phiếu nhập cần duyệt (DRAFT)`,\n  `Nhà cung cấp: ${supplier}`,\n  `Số dòng mapped: ${mapped_items.length}`,\n  `Số dòng chưa mapped: ${unmapped_items.length}`,\n  `Tổng tạm tính: ${total.toLocaleString('vi-VN')}đ`,\n  `Confidence: ${lowConfidence}`,\n  `---`,\n  topItems || '- (không có dòng hiển thị)'\n].join('\\n').slice(0, 1900);\n\nconst poPayload = {\n  branchId: Number($env.KIOTVIET_BRANCH_ID || 1),\n  supplierId: Number($env.KIOTVIET_SUPPLIER_ID || 0),\n  supplierCode: String($env.KIOTVIET_SUPPLIER_CODE || `NCC_${supplier}`),\n  purchaseOrderDetails: mapped_items.map((m) => ({\n    productId: m.kiotviet_product_id,\n    productCode: m.kiotviet_product_code,\n    quantity: Number(m.converted_qty || m.quantity || 0),\n    price: m.is_promotion ? 0 : Number(m.converted_unit_price || m.unit_price || 0),\n    discount: 0,\n    description: m.is_promotion ? 'KM - Hàng tặng (Promo)' : ''\n  })),\n  status: 1,\n  statusValue: 'Phiếu tạm',\n  description: `⚠️ DRAFT - Cần duyệt | Bill: ${zalo_msg_id} | Source: Image/Partial`\n};\n\nreturn [{ json: { zalo_user_id, zalo_msg_id, mapped_items, unmapped_items, confidence_meta, invoice_meta, summary, po_payload: poPayload, total_amount: total } }];"
+      },
+      "id": "2",
+      "name": "Build Draft Preview",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://id.kiotviet.vn/connect/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "client_id", "value": "={{$env.KIOTVIET_CLIENT_ID}}" },
+            { "name": "client_secret", "value": "={{$env.KIOTVIET_CLIENT_SECRET}}" },
+            { "name": "grant_type", "value": "client_credentials" },
+            { "name": "scopes", "value": "PublicApi.Access" }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Get KiotViet Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://public.kiotviet.vn/api/purchaseorders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$json.access_token}}" },
+            { "name": "Retailer", "value": "={{$env.KIOTVIET_RETAILER}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$('Build Draft Preview').item.json.po_payload}}"
+      },
+      "id": "4",
+      "name": "Create Draft PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Build Draft Preview').item.json;\nconst po = $json || {};\nconst poId = po.id || po.data?.id || null;\nconst poCode = po.code || po.data?.code || null;\nif (!poId) throw new Error('Draft PO creation failed: missing id');\n\nreturn [{ json: { ...ctx, draft_po_id: poId, draft_po_code: poCode } }];"
+      },
+      "id": "5",
+      "name": "Extract Draft PO IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id, zalo_msg_id, supplier_code, source_type, source_url, parsed_data, status, decision_status, decision_payload, created_at) VALUES ('{{$json.zalo_user_id}}', '{{$json.zalo_msg_id}}', '{{$json.invoice_meta.supplier_code || 'UNKNOWN_SUPPLIER'}}', 'image', 'draft://kiotviet/{{$json.draft_po_id}}', jsonb_build_object('mapped_count', {{$json.mapped_items.length}}, 'unmapped_count', {{$json.unmapped_items.length}}, 'overall_confidence', {{$json.confidence_meta.overall_confidence || 0}}), 'draft', 'pending', jsonb_build_object('draft_po_id', {{$json.draft_po_id}}, 'draft_po_code', '{{$json.draft_po_code || ''}}', 'total', {{$json.total_amount}}), NOW()) ON CONFLICT (zalo_user_id, zalo_msg_id) WHERE zalo_msg_id IS NOT NULL DO UPDATE SET status='draft', decision_status='pending', decision_payload=EXCLUDED.decision_payload, source_url=EXCLUDED.source_url, parsed_data=EXCLUDED.parsed_data;"
+      },
+      "id": "6",
+      "name": "Upsert invoice_log pending decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1360, 300],
+      "credentials": {
+        "postgres": { "id": "__SET_IN_N8N__", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_sessions (zalo_user_id, session_state, context_data, expires_at, updated_at) VALUES ('{{$json.zalo_user_id}}', 'waiting_for_draft_confirm', jsonb_build_object('zalo_msg_id', '{{$json.zalo_msg_id}}', 'draft_po_id', {{$json.draft_po_id}}, 'draft_po_code', '{{$json.draft_po_code || ''}}', 'invoice_ref', '{{$json.zalo_msg_id}}'), NOW() + INTERVAL '30 minutes', NOW()) ON CONFLICT (zalo_user_id) DO UPDATE SET session_state='waiting_for_draft_confirm', context_data=EXCLUDED.context_data, expires_at=EXCLUDED.expires_at, updated_at=NOW();"
+      },
+      "id": "7",
+      "name": "Save waiting_for_draft_confirm",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1580, 300],
+      "credentials": {
+        "postgres": { "id": "__SET_IN_N8N__", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = `${$json.zalo_user_id}|${$json.zalo_msg_id}|${$json.draft_po_id}`;\nreturn [{ json: { ...$json, zalo_message: { recipient: { user_id: $json.zalo_user_id }, message: { text: $json.summary }, buttons: [ { title: '✅ Approve PO', payload: `DRAFT_APPROVE|${base}` }, { title: '❌ Reject', payload: `DRAFT_REJECT|${base}` }, { title: '✏️ Edit', payload: `DRAFT_EDIT|${base}` } ] } } }];"
+      },
+      "id": "8",
+      "name": "Build Decision Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.ZALO_OA_ACCESS_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.zalo_message}}"
+      },
+      "id": "9",
+      "name": "Send Draft Decision Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2020, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'waiting_for_draft_confirm', draft_po_id: $json.draft_po_id, draft_po_code: $json.draft_po_code } }];"
+      },
+      "id": "10",
+      "name": "Return Draft Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2240, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Build Draft Preview", "type": "main", "index": 0 }]] },
+    "Build Draft Preview": { "main": [[{ "node": "Get KiotViet Token", "type": "main", "index": 0 }]] },
+    "Get KiotViet Token": { "main": [[{ "node": "Create Draft PO", "type": "main", "index": 0 }]] },
+    "Create Draft PO": { "main": [[{ "node": "Extract Draft PO IDs", "type": "main", "index": 0 }]] },
+    "Extract Draft PO IDs": { "main": [[{ "node": "Upsert invoice_log pending decision", "type": "main", "index": 0 }]] },
+    "Upsert invoice_log pending decision": { "main": [[{ "node": "Save waiting_for_draft_confirm", "type": "main", "index": 0 }]] },
+    "Save waiting_for_draft_confirm": { "main": [[{ "node": "Build Decision Message", "type": "main", "index": 0 }]] },
+    "Build Decision Message": { "main": [[{ "node": "Send Draft Decision Prompt", "type": "main", "index": 0 }]] },
+    "Send Draft Decision Prompt": { "main": [[{ "node": "Return Draft Context", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1",
+  "meta": { "templateCredsSetupCompleted": false },
+  "pinData": {}
+}

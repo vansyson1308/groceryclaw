@@ -1,0 +1,75 @@
+# EXAMPLE TEMPLATE ONLY (not active by default)
+# Copy/adapt into .github/workflows/ when ready.
+name: Release (Template)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: target environment (e.g. staging/prod)
+        required: true
+        default: staging
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.detect.outputs.services }}
+      run_migrations: ${{ steps.detect.outputs.run_migrations }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - id: detect
+        run: |
+          set -euo pipefail
+          node infra/deploy/ci/detect-changed-services.example.mjs origin/main HEAD > changed.json
+          cat changed.json
+          SERVICES=$(jq -c '.services' changed.json)
+          RUN_MIGRATIONS=$(jq -r '.run_migrations' changed.json)
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+          echo "run_migrations=${RUN_MIGRATIONS}" >> "$GITHUB_OUTPUT"
+
+  build-publish:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (example)
+        run: |
+          set -euo pipefail
+          case "${{ matrix.service }}" in
+            gateway) DOCKERFILE=apps/gateway/Dockerfile; IMAGE=ghcr.io/groceryclaw/gateway ;;
+            admin)   DOCKERFILE=apps/admin/Dockerfile;   IMAGE=ghcr.io/groceryclaw/admin ;;
+            worker)  DOCKERFILE=apps/worker/Dockerfile;  IMAGE=ghcr.io/groceryclaw/worker ;;
+          esac
+          TAG="sha-${GITHUB_SHA::12}"
+          echo "docker build -f ${DOCKERFILE} -t ${IMAGE}:${TAG} ."
+          echo "docker push ${IMAGE}:${TAG}"
+
+  migrate:
+    needs: [detect-changes, build-publish]
+    if: ${{ needs.detect-changes.outputs.run_migrations == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run migration job (example placeholder)
+        run: |
+          echo "Run db-v2-migrate in target environment before gateway rollout"
+
+  deploy-order:
+    needs: [detect-changes, build-publish, migrate]
+    if: ${{ always() && needs.build-publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy in safe order (example placeholder)
+        run: |
+          echo "Deploy worker -> admin -> gateway"
+          echo "Run smoke checks after each stage"

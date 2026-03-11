@@ -1,0 +1,428 @@
+{
+  "name": "Telegram Ingress Router",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ]
+      },
+      "id": "1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $json || {};\nconst message = u.message || u.callback_query?.message || {};\nconst callback = u.callback_query || null;\nconst sender = message.from || callback?.from || {};\nconst sender_id = String(sender.id || '').trim();\nconst msg_id = String(message.message_id || callback?.id || '').trim();\nif (!sender_id || !msg_id) throw new Error('sender_id/msg_id missing from Telegram update');\n\nconst text = message.text || callback?.data || '';\nconst photo = Array.isArray(message.photo) && message.photo.length ? message.photo[message.photo.length - 1] : null;\nconst document = message.document || null;\nlet type = 'text';\nlet file_id = null;\nlet mime_type = null;\nif (photo) { type = 'photo'; file_id = String(photo.file_id); mime_type = 'image/jpeg'; }\nif (document) {\n  file_id = String(document.file_id || '');\n  mime_type = String(document.mime_type || '');\n  if (mime_type.includes('xml') || String(document.file_name || '').toLowerCase().endsWith('.xml')) type = 'xml';\n  else type = 'document';\n}\n\nreturn [{ json: { channel: 'telegram', sender_id, msg_id, type, text: String(text || ''), file_id, mime_type } }];"
+      },
+      "id": "2",
+      "name": "Normalize Telegram Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ops_events (ts, level, workflow, event_type, message, context) VALUES (NOW(), 'info', 'telegram_ingress_router', 'ingress_received', 'Telegram update received', jsonb_build_object('sender_id', '{{$json.sender_id}}', 'msg_id', '{{$json.msg_id}}', 'type', '{{$json.type}}'));"
+      },
+      "id": "3",
+      "name": "Log Telegram Ingress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 300],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.type}}",
+                    "rightValue": "photo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "photo"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.type}}",
+                    "rightValue": "xml",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "xml"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "text"
+        }
+      },
+      "id": "4",
+      "name": "Branch by Telegram Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{$env.TELEGRAM_BOT_TOKEN}}/getFile",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "file_id",
+              "value": "={{$json.file_id}}"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Telegram Get File (Photo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1180, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/file/bot{{$env.TELEGRAM_BOT_TOKEN}}/{{$json.result.file_path}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "6",
+      "name": "Download Photo Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = $('Normalize Telegram Envelope').item.json;\nconst bin = $binary.data;\nif (!bin?.data) throw new Error('Telegram photo binary missing');\nconst dataUrl = `data:${bin.mimeType || 'image/jpeg'};base64,${bin.data}`;\nreturn [{ json: {\n  zalo_user_id: env.sender_id,\n  zalo_msg_id: env.msg_id,\n  channel: 'telegram',\n  source_type: 'telegram_image',\n  source_url: `telegram:file_id:${env.file_id}`,\n  image_url: dataUrl,\n  supplier_hint: null\n} }];"
+      },
+      "id": "7",
+      "name": "Build Vision Input Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 180]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "invoice_image_vision_parse",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zalo_user_id": "={{$json.zalo_user_id}}",
+            "zalo_msg_id": "={{$json.zalo_msg_id}}",
+            "channel": "={{$json.channel}}",
+            "source_type": "={{$json.source_type}}",
+            "source_url": "={{$json.source_url}}",
+            "image_url": "={{$json.image_url}}",
+            "supplier_hint": "={{$json.supplier_hint}}"
+          }
+        }
+      },
+      "id": "8",
+      "name": "Execute Image Parse Core",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1900, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{$env.TELEGRAM_BOT_TOKEN}}/getFile",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "file_id",
+              "value": "={{$json.file_id}}"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Telegram Get File (XML)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1180, 360]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/file/bot{{$env.TELEGRAM_BOT_TOKEN}}/{{$json.result.file_path}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "10",
+      "name": "Download XML Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = $('Normalize Telegram Envelope').item.json;\nconst bin = $binary.data;\nif (!bin?.data) throw new Error('Telegram XML binary missing');\nconst xml_text = Buffer.from(bin.data, 'base64').toString('utf8');\nreturn [{ json: {\n  zalo_user_id: env.sender_id,\n  zalo_msg_id: env.msg_id,\n  channel: 'telegram',\n  source_type: 'telegram_xml',\n  source_url: `telegram:file_id:${env.file_id}`,\n  file_url: '',\n  xml_text\n} }];"
+      },
+      "id": "11",
+      "name": "Build XML Parse Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 360]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "invoice_xml_parse_normalize",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zalo_user_id": "={{$json.zalo_user_id}}",
+            "zalo_msg_id": "={{$json.zalo_msg_id}}",
+            "channel": "={{$json.channel}}",
+            "source_type": "={{$json.source_type}}",
+            "source_url": "={{$json.source_url}}",
+            "file_url": "={{$json.file_url}}",
+            "xml_text": "={{$json.xml_text}}"
+          }
+        }
+      },
+      "id": "12",
+      "name": "Execute XML Parse Core",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1900, 360]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ops_events (ts, level, workflow, event_type, message, context) VALUES (NOW(), 'info', 'telegram_ingress_router', 'text_event', 'Telegram text/callback routed to session layer', jsonb_build_object('sender_id', '{{$json.sender_id}}', 'msg_id', '{{$json.msg_id}}'));"
+      },
+      "id": "13",
+      "name": "Log Text Route",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1180, 520],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = $('Normalize Telegram Envelope').item.json;\nreturn [{ json: { status: 'text_routed', channel: 'telegram', sender_id: env.sender_id, msg_id: env.msg_id, hint: 'Integrate with existing session handlers (price/global_confirm/barcode) via payload mapping.' } }];"
+      },
+      "id": "14",
+      "name": "Return Text Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 520]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Telegram Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Telegram Envelope": {
+      "main": [
+        [
+          {
+            "node": "Log Telegram Ingress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Telegram Ingress": {
+      "main": [
+        [
+          {
+            "node": "Branch by Telegram Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Branch by Telegram Type": {
+      "main": [
+        [
+          {
+            "node": "Telegram Get File (Photo)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Get File (XML)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Text Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Get File (Photo)": {
+      "main": [
+        [
+          {
+            "node": "Download Photo Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Photo Binary": {
+      "main": [
+        [
+          {
+            "node": "Build Vision Input Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Vision Input Envelope": {
+      "main": [
+        [
+          {
+            "node": "Execute Image Parse Core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Get File (XML)": {
+      "main": [
+        [
+          {
+            "node": "Download XML Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download XML Binary": {
+      "main": [
+        [
+          {
+            "node": "Build XML Parse Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build XML Parse Envelope": {
+      "main": [
+        [
+          {
+            "node": "Execute XML Parse Core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Text Route": {
+      "main": [
+        [
+          {
+            "node": "Return Text Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

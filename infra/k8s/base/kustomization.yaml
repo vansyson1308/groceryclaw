@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: groceryclaw-v2
+resources:
+  - namespace.yaml
+  - serviceaccounts.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - gateway-deployment.yaml
+  - worker-deployment.yaml
+  - admin-deployment.yaml
+  - services.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - migrate-job.yaml

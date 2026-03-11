@@ -1,0 +1,442 @@
+{
+  "name": "Zalo Webhook Receiver V3",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/zalo-oa",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Zalo Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "2",
+      "name": "Respond 200 Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $json.headers || {};\nconst body = $json.body || {};\n\nconst appId = String(body.app_id || '');\nconst timestampRaw = String(body.timestamp || headers['x-zalo-timestamp'] || headers['X-Zalo-Timestamp'] || '');\nconst payload = JSON.stringify(body);\nconst secret = String($env.ZALO_OA_SECRET || '');\nconst signature = String(headers['x-zalo-signature'] || headers['X-Zalo-Signature'] || '').trim();\nconst replayWindowSec = Number($env.WEBHOOK_REPLAY_WINDOW_SECONDS || 300);\n\nconst senderId = String(body?.sender?.id || body?.sender_id || body?.user_id || '').trim() || 'unknown';\nconst msgId = String(body?.message?.msg_id || body?.message_id || body?.msg_id || body?.event_id || '').trim();\n\nif (!appId || !timestampRaw || !secret || !signature) {\n  return [{ json: { isValid: false, reason: 'missing_signature_fields', sender_id: senderId, zalo_msg_id: msgId || null, payload } }];\n}\n\nconst timestamp = Number(timestampRaw);\nif (!Number.isFinite(timestamp)) {\n  return [{ json: { isValid: false, reason: 'invalid_timestamp', sender_id: senderId, zalo_msg_id: msgId || null, payload } }];\n}\n\nconst nowSec = Math.floor(Date.now() / 1000);\nconst ageSec = Math.abs(nowSec - timestamp);\nif (ageSec > replayWindowSec) {\n  return [{ json: { isValid: false, reason: 'timestamp_out_of_window', sender_id: senderId, zalo_msg_id: msgId || null, payload, age_sec: ageSec } }];\n}\n\nconst crypto = require('crypto');\nconst expected = crypto.createHash('sha256').update(`${appId}${timestampRaw}${payload}${secret}`, 'utf8').digest('hex');\nconst provided = signature.toLowerCase();\n\nlet ok = false;\ntry {\n  ok = provided.length === expected.length && crypto.timingSafeEqual(Buffer.from(provided, 'utf8'), Buffer.from(expected, 'utf8'));\n} catch {\n  ok = false;\n}\n\nreturn [{\n  json: {\n    isValid: ok,\n    reason: ok ? null : 'invalid_signature',\n    sender_id: senderId,\n    zalo_msg_id: msgId || null,\n    payload\n  }\n}];"
+      },
+      "id": "3",
+      "name": "Verify Signature Async",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sig-valid",
+              "leftValue": "={{$json.isValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT access_token, expires_at\nFROM zalo_token_store\nWHERE is_active = TRUE\n  AND token_type = 'oa_access'\nORDER BY created_at DESC\nLIMIT 1;"
+      },
+      "id": "5",
+      "name": "Get Active Zalo Access Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1180,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $json;\nif (!record?.access_token || !record?.expires_at) {\n  throw new Error('E011: Zalo access token expired or missing. Check Phase 0.5 workflow.');\n}\n\nconst expiresAt = new Date(record.expires_at);\nif (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {\n  throw new Error('E011: Zalo access token expired or missing. Check Phase 0.5 workflow.');\n}\n\nconst senderId = $('Mark Replay State').item.json.sender_id;\nif (!senderId || senderId === 'unknown') {\n  return [{ json: { skip: true, reason: 'no_sender_id' } }];\n}\n\nreturn [{\n  json: {\n    skip: false,\n    access_token: record.access_token,\n    request_body: {\n      recipient: { user_id: senderId },\n      message: { text: 'Sếp ơi, em nhận được tin nhắn rồi!' }\n    }\n  }\n}];"
+      },
+      "id": "6",
+      "name": "Build Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip-reply",
+              "leftValue": "={{$json.skip}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7",
+      "name": "Has Sender?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openapi.zalo.me/v3.0/oa/message/cs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.request_body}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "8",
+      "name": "Send Hello Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('[zalo_webhook_v3] incoming payload', $('Zalo Webhook').item.json.body);\nreturn items;"
+      },
+      "id": "9",
+      "name": "Log Incoming Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO invoice_log (\n    zalo_user_id,\n    zalo_msg_id,\n    supplier_code,\n    source_type,\n    source_url,\n    parsed_data,\n    status,\n    error_details,\n    processing_time_ms,\n    created_at\n  ) VALUES (\n    COALESCE('{{$('Verify Signature Async').item.json.sender_id}}', 'unknown'),\n    NULLIF('{{$('Verify Signature Async').item.json.zalo_msg_id}}', ''),\n    'zalo_webhook_receiver_v3',\n    'xml',\n    'workflow://Zalo Webhook Receiver V3',\n    jsonb_build_object('event', 'signature_failed', 'reason', '{{$json.reason || \"invalid_signature\"}}'),\n    'failed',\n    'E001: Zalo signature verification failed',\n    0,\n    NOW()\n  )\n  RETURNING id\n)\nINSERT INTO ops_events (ts, level, workflow, event_type, message, context)\nVALUES (NOW(), 'warn', 'zalo_webhook_receiver_v3', 'invalid_signature', 'Webhook signature rejected; processing stopped', jsonb_build_object('zalo_user_id', '{{$('Verify Signature Async').item.json.sender_id}}', 'zalo_msg_id', '{{$('Verify Signature Async').item.json.zalo_msg_id}}', 'reason', '{{$json.reason || \"invalid_signature\"}}'));"
+      },
+      "id": "10",
+      "name": "Flag Invalid Signature",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1180,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, status FROM invoice_log WHERE zalo_user_id='{{$json.sender_id}}' AND zalo_msg_id='{{$json.zalo_msg_id}}' AND status <> 'failed' ORDER BY created_at DESC LIMIT 1;"
+      },
+      "id": "11",
+      "name": "Check msg_id replay guard",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1160,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const current = $('Verify Signature Async').item.json;\nif (!current.zalo_msg_id) return [{ json: { ...current, replayed: false } }];\nconst row = $json || {};\nreturn [{ json: { ...current, replayed: !!row.id, replay_row_id: row.id || null } }];"
+      },
+      "id": "12",
+      "name": "Mark Replay State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "replayed",
+              "leftValue": "={{$json.replayed}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "13",
+      "name": "Is Replay msg_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1600,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ops_events (ts, level, workflow, event_type, message, context) VALUES (NOW(), 'warn', 'zalo_webhook_receiver_v3', 'replay_blocked', 'Blocked duplicated zalo_msg_id from webhook', jsonb_build_object('zalo_user_id', '{{$json.sender_id}}', 'zalo_msg_id', '{{$json.zalo_msg_id}}'));"
+      },
+      "id": "14",
+      "name": "Log Replay Blocked",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1820,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Zalo Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Immediately",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Verify Signature Async",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Signature Async": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Incoming Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Check msg_id replay guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Zalo Access Token": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reply": {
+      "main": [
+        [
+          {
+            "node": "Has Sender?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Sender?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Hello Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check msg_id replay guard": {
+      "main": [
+        [
+          {
+            "node": "Mark Replay State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Replay State": {
+      "main": [
+        [
+          {
+            "node": "Is Replay msg_id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Replay msg_id?": {
+      "main": [
+        [
+          {
+            "node": "Log Replay Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Active Zalo Access Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

@@ -1,0 +1,194 @@
+{
+  "name": "Zalo Token Refresh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 20
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, token_type, refresh_token\nFROM zalo_token_store\nWHERE is_active = TRUE\n  AND token_type = 'oa_access'\nORDER BY created_at DESC\nLIMIT 1;"
+      },
+      "id": "2",
+      "name": "Get Active Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth.zaloapp.com/v4/oa/access_token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "refresh_token",
+              "value": "={{$json.refresh_token}}"
+            },
+            {
+              "name": "app_id",
+              "value": "={{$env.ZALO_APP_ID}}"
+            },
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "3",
+      "name": "Refresh Zalo Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json || {};\nconst error = payload.error || payload.message || payload.error_name || payload.error_description;\nconst accessToken = payload.access_token;\nconst refreshToken = payload.refresh_token;\nconst expiresIn = Number(payload.expires_in || 90000);\n\nif (!accessToken || !refreshToken || error) {\n  return [{ json: { isValid: false, error: String(error || 'Invalid refresh response') } }];\n}\n\nconst expiresAtIso = new Date(Date.now() + expiresIn * 1000).toISOString();\nreturn [{\n  json: {\n    isValid: true,\n    access_token: accessToken,\n    refresh_token: refreshToken,\n    expires_in: expiresIn,\n    expires_at: expiresAtIso\n  }\n}];"
+      },
+      "id": "4",
+      "name": "Validate Refresh Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok-check",
+              "leftValue": "={{$json.isValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Refresh OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1160, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "BEGIN;\nUPDATE zalo_token_store\nSET is_active = FALSE, updated_at = NOW()\nWHERE token_type = 'oa_access' AND is_active = TRUE;\n\nINSERT INTO zalo_token_store (\n  token_type,\n  access_token,\n  refresh_token,\n  expires_at,\n  issued_at,\n  refresh_count,\n  is_active,\n  created_at,\n  updated_at\n) VALUES (\n  'oa_access',\n  '{{$json.access_token}}',\n  '{{$json.refresh_token}}',\n  NOW() + INTERVAL '25 hours',\n  NOW(),\n  0,\n  TRUE,\n  NOW(),\n  NOW()\n);\nCOMMIT;"
+      },
+      "id": "6",
+      "name": "Persist New Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1380, 220],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO invoice_log (zalo_user_id, supplier_code, source_type, source_url, parsed_data, status, error_details, processing_time_ms, created_at) VALUES ('system', 'zalo_token_refresh', 'xml', 'workflow://Zalo Token Refresh', jsonb_build_object('event', 'token_refresh_failed'), 'token_error', 'Zalo token refresh failed. Check workflow execution data for details.', 0, NOW());"
+      },
+      "id": "7",
+      "name": "Log Refresh Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1380, 380],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    note: 'n8n credentials are not auto-mutated by workflow execution.',\n    manual_step: 'Use zalo_token_store as source of truth. Before any Zalo API call, query DB for active token via helper function pattern.',\n    expires_at: $json.expires_at\n  }\n}];"
+      },
+      "id": "8",
+      "name": "Credential Update Strategy Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 220]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Active Token", "type": "main", "index": 0 }]]
+    },
+    "Get Active Token": {
+      "main": [[{ "node": "Refresh Zalo Token", "type": "main", "index": 0 }]]
+    },
+    "Refresh Zalo Token": {
+      "main": [[{ "node": "Validate Refresh Response", "type": "main", "index": 0 }]]
+    },
+    "Validate Refresh Response": {
+      "main": [[{ "node": "Refresh OK?", "type": "main", "index": 0 }]]
+    },
+    "Refresh OK?": {
+      "main": [
+        [{ "node": "Persist New Token", "type": "main", "index": 0 }],
+        [{ "node": "Log Refresh Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Persist New Token": {
+      "main": [[{ "node": "Credential Update Strategy Note", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

@@ -1,0 +1,73 @@
+{
+  "name": "Ops Event Logger",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst allowedLevels = new Set(['debug','info','warn','error']);\nconst level = allowedLevels.has(String(input.level || 'info').toLowerCase()) ? String(input.level).toLowerCase() : 'info';\nconst workflow = String(input.workflow || 'unknown_workflow').slice(0, 120);\nconst event_type = String(input.event_type || 'generic_event').slice(0, 120);\nconst rawMessage = String(input.message || '');\nconst message = rawMessage\n  .replace(/(Bearer\\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]')\n  .replace(/(token|secret|password|api[_-]?key)\\s*[:=]\\s*[^\\s,;]+/gi, '$1=[REDACTED]')\n  .slice(0, 300);\n\nconst sensitiveKeys = new Set([\n  'access_token','refresh_token','authorization','api_key','secret','password',\n  'message_text','raw_payload','parsed_data','xml_content','image_bytes','binary'\n]);\n\nfunction sanitize(value) {\n  if (value === null || value === undefined) return value;\n  if (Array.isArray(value)) return value.slice(0, 20).map(sanitize);\n  if (typeof value === 'object') {\n    const out = {};\n    for (const [k, v] of Object.entries(value)) {\n      const key = String(k);\n      if (sensitiveKeys.has(key.toLowerCase())) {\n        out[key] = '[REDACTED]';\n      } else {\n        out[key] = sanitize(v);\n      }\n    }\n    return out;\n  }\n  if (typeof value === 'string') return value.slice(0, 500);\n  return value;\n}\n\nconst context = sanitize(input.context || {});\nreturn [{ json: { level, workflow, event_type, message: message || '[empty]', context } }];"
+      },
+      "id": "2",
+      "name": "Validate and Redact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ops_events (ts, level, workflow, event_type, message, context) VALUES (NOW(), '{{$json.level}}', '{{$json.workflow}}', '{{$json.event_type}}', '{{$json.message.replace(/'/g, \"''\")}}', '{{JSON.stringify($json.context).replace(/'/g, \"''\")}}'::jsonb) RETURNING id, ts, level, workflow, event_type;"
+      },
+      "id": "3",
+      "name": "Insert Ops Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [760, 280],
+      "credentials": {
+        "postgres": {
+          "id": "__SET_IN_N8N__",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate and Redact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Redact": {
+      "main": [
+        [
+          {
+            "node": "Insert Ops Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

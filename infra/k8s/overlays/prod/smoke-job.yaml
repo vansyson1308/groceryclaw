@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: smoke
+  namespace: groceryclaw-v2
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: v2-smoke
+  namespace: groceryclaw-v2
+  labels:
+    app.kubernetes.io/component: smoke
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: v2-smoke
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      serviceAccountName: smoke
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-ceu"]
+          args:
+            - |
+              msg_id="smoke-${HOSTNAME}-$(date +%s)"
+              payload=$(printf '{"platform_user_id":"smoke-user","zalo_msg_id":"%s","message_type":"text","text":"smoke"}' "$msg_id")
+
+              deadline=$(( $(date +%s) + 90 ))
+              while [ "$(date +%s)" -lt "$deadline" ]; do
+                if wget -qO- http://gateway/readyz | grep -q '"status":"ok"'; then
+                  break
+                fi
+                sleep 2
+              done
+
+              if ! wget -qO- http://gateway/readyz | grep -q '"status":"ok"'; then
+                echo "gateway not ready within timeout" >&2
+                exit 1
+              fi
+
+              sig=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SIGNATURE_SECRET" -binary | xxd -p -c 256)
+              code=$(wget -qS -O /tmp/webhook.out --server-response \
+                --header='content-type: application/json' \
+                --header="x-zalo-signature: ${sig}" \
+                --post-data "$payload" \
+                http://gateway/webhooks/zalo 2>&1 | awk '/HTTP\// {print $2}' | tail -n1)
+              if [ "$code" != "200" ]; then
+                echo "webhook failed with HTTP $code" >&2
+                cat /tmp/webhook.out >&2 || true
+                exit 1
+              fi
+
+              found=$(psql "$DB_APP_URL" -tAqc "SELECT count(*) FROM inbound_events WHERE zalo_msg_id = '$msg_id';")
+              if [ "${found:-0}" -lt 1 ]; then
+                echo "no inbound_events row found for smoke message" >&2
+                exit 1
+              fi
+
+              echo "smoke passed (msg_id=${msg_id})"
+          env:
+            - name: DB_APP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DB_APP_URL
+            - name: WEBHOOK_SIGNATURE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: WEBHOOK_SIGNATURE_SECRET
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
