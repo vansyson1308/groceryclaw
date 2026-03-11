@@ -16,6 +16,18 @@ Scope is intentionally limited to safe, grounded automation:
 - Smoke helper: `scripts/release/smoke_check.sh`
 - Active manual release workflow: `.github/workflows/v2-release.yml`
 
+## 2.1 Preflight references
+- Preflight checklist: `docs/deployment/preflight-checklist.md`
+- Staging-first guide: `docs/deployment/staging-first-deploy.md`
+- Local preflight script: `scripts/release/preflight_check.sh`
+- Local release-plan helper: `scripts/release/print_release_plan.sh`
+- Platform handoff checklist: `docs/deployment/platform-handoff-checklist.md`
+- Environment mapping sheet: `docs/deployment/env-mapping-sheet.md`
+- First staging signoff: `docs/deployment/first-staging-signoff.md`
+- Operator acceptance audit: `docs/deployment/operator-acceptance-report.md`
+- Known good commands: `docs/deployment/known-good-commands.md`
+- Secrets inventory template: `docs/deployment/secrets-inventory.template.md`
+
 ## 3. Prerequisites
 
 ### Repository and CI prerequisites
@@ -72,6 +84,11 @@ These are templates only; real values come from secret manager/platform env conf
 6. Run smoke checks:
    - lightweight: `scripts/release/smoke_check.sh`
    - deep gateway webhook smoke (optional): `scripts/v2/k8s_prod_smoke.sh` with required secret.
+
+Preflight before first run:
+```bash
+CHECK_CLUSTER=true TARGET_NAMESPACE=groceryclaw-v2 REQUIRE_DOCKER=true bash scripts/release/preflight_check.sh
+```
 
 ## 6. Manual workflow usage
 
