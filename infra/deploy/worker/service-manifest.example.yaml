@@ -1,0 +1,41 @@
+apiVersion: platform.groceryclaw.dev/v1alpha1
+kind: ServiceUnit
+metadata:
+  name: worker
+spec:
+  type: worker
+  owner: platform
+  source:
+    repoPath: .
+    context: .
+  build:
+    dockerfile: apps/worker/Dockerfile
+    image: ghcr.io/groceryclaw/worker
+  runtime:
+    command: ["node", "apps/worker/dist/index.js"]
+    port: 3002
+    envFile: infra/deploy/worker/env.example
+  exposure:
+    policy: internal-only
+    ingress:
+      enabled: false
+  dependencies:
+    postgres: required
+    redis: required
+  healthchecks:
+    liveness:
+      type: http
+      path: /healthz
+      port: 3002
+    readiness:
+      type: http
+      path: /readyz
+      port: 3002
+  observability:
+    metrics:
+      enabled: true
+      port: 9090
+      path: /metrics
+  notes:
+    - Queue-driven runtime; no public endpoint exposure.
+    - Requires outbound egress to configured upstream APIs.
