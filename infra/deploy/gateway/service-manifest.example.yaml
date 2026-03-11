@@ -1,0 +1,43 @@
+apiVersion: platform.groceryclaw.dev/v1alpha1
+kind: ServiceUnit
+metadata:
+  name: gateway
+spec:
+  type: web
+  owner: platform
+  source:
+    repoPath: .
+    context: .
+  build:
+    dockerfile: apps/gateway/Dockerfile
+    image: ghcr.io/groceryclaw/gateway
+  runtime:
+    command: ["node", "apps/gateway/dist/server.js"]
+    port: 8080
+    envFile: infra/deploy/gateway/env.example
+  exposure:
+    policy: public
+    ingress:
+      enabled: true
+      routes:
+        - path: /webhooks/zalo
+          method: POST
+        - path: /healthz
+          method: GET
+        - path: /readyz
+          method: GET
+  dependencies:
+    postgres: required
+    redis: required
+  healthchecks:
+    liveness:
+      type: http
+      path: /healthz
+      port: 8080
+    readiness:
+      type: http
+      path: /readyz
+      port: 8080
+  notes:
+    - Keep webhook secrets in secret manager, not env files in VCS.
+    - Ensure DB/Redis are private network services.
