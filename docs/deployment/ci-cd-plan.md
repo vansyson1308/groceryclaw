@@ -13,6 +13,8 @@ It is grounded in existing repo conventions (`apps/*` Dockerfiles, `package.json
 
 ### Already exists
 - CI quality gates for V2 (lint/type/test/e2e/perf/docs/kustomize) in `.github/workflows/v2-ci.yml`.
+- Manual release workflow exists in `.github/workflows/v2-release.yml` (safe `workflow_dispatch` with optional push/helper execution).
+- Active changed-service detector exists at `scripts/release/detect_changed_services.mjs`.
 - Per-service Dockerfiles:
   - `apps/gateway/Dockerfile`
   - `apps/admin/Dockerfile`
@@ -22,9 +24,9 @@ It is grounded in existing repo conventions (`apps/*` Dockerfiles, `package.json
 - Deploy contracts for each service exist under `infra/deploy/{gateway,admin,worker}`.
 
 ### Missing for full per-service CD
-- Active production release workflow wiring under `.github/workflows/` (templates exist but are intentionally non-active).
-- Environment-specific secret/registry/deploy executor integration for build/publish/deploy stages.
-- Runtime smoke-gate automation against target environment endpoints after deploy stages.
+- Environment-specific secret/registry/deploy executor integration for fully unattended production releases.
+- Production-grade automated image-tag mutation/apply strategy per environment (currently emitted as release artifacts + helper scripts).
+- Runtime smoke-gate integration against real environment endpoints in CI with managed credentials.
 
 ## 2) Target CI/CD model
 
@@ -155,7 +157,9 @@ All three apps depend on `@groceryclaw/common` (`file:../../packages/common`) in
 4. deploy worker/admin/gateway in order,
 5. run smoke checks and halt rollout on failure.
 
-## 12) Implemented template assets (current)
-- `infra/deploy/ci/detect-changed-services.example.mjs` (path-based detector)
-- `infra/deploy/ci/github-actions-release-template.example.yml` (template workflow, not active by default)
+## 12) Implemented execution assets (current)
+- Active detector: `scripts/release/detect_changed_services.mjs`
+- Active manual release workflow: `.github/workflows/v2-release.yml`
+- Active helper scripts: `scripts/release/render_k8s_manifests.sh`, `scripts/release/deploy_k8s.sh`, `scripts/release/smoke_check.sh`
+- Templates retained for reference: `infra/deploy/ci/*`
 
