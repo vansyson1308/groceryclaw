@@ -549,9 +549,10 @@ There Is No Limit To What You Can Accomplish Using Zalo!
     try {
       const raw = await readBody(req);
 
-      // Zalo webhook URL verification: empty or minimal test payloads
-      // are accepted without signature check so Zalo can register the URL.
-      if (raw.length === 0 || raw.toString('utf8').trim() === '{}') {
+      // Zalo webhook URL verification: when no signature header is present,
+      // accept the request so Zalo can confirm the endpoint is reachable.
+      const signatureHeader = req.headers?.['x-zalo-signature'] ?? req.headers?.['mac'] ?? '';
+      if (raw.length === 0 || !signatureHeader) {
         json(res, 200, { status: 'ok' });
         return;
       }
