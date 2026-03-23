@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export type WebhookVerifyMode = 'mode1' | 'mode2';
 
@@ -180,8 +180,19 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
       return { ok: false, statusCode: 401, reason: 'unauthorized' };
     }
 
-    const hmac = createHmac(config.signatureAlgorithm, config.signatureSecret).update(rawBody);
-    const expectedHex = hmac.digest('hex');
+    // Zalo uses plain SHA256(appId + body + timestamp + secret), not HMAC
+    let expectedHex: string;
+    try {
+      const bodyStr = rawBody.toString('utf8');
+      const bodyParsed = JSON.parse(bodyStr) as { app_id?: string; timestamp?: string };
+      const appId = bodyParsed.app_id ?? '';
+      const timestamp = bodyParsed.timestamp ?? '';
+      const dataToSign = appId + bodyStr + timestamp + config.signatureSecret;
+      expectedHex = createHash('sha256').update(dataToSign).digest('hex');
+    } catch {
+      // Fallback to HMAC if body is not JSON (non-Zalo webhooks)
+      expectedHex = createHmac(config.signatureAlgorithm, config.signatureSecret).update(rawBody).digest('hex');
+    }
 
     const matches = parsed.kind === 'hex'
       ? safeEqualHex(expectedHex, parsed.value)

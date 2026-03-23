@@ -573,7 +573,7 @@ There Is No Limit To What You Can Accomplish Using Zalo!
 
       // Zalo webhook URL verification: when no signature header is present,
       // accept the request so Zalo can confirm the endpoint is reachable.
-      const signatureHeader = req.headers?.['x-zalo-signature'] ?? req.headers?.['mac'] ?? '';
+      const signatureHeader = req.headers?.['x-zevent-signature'] ?? req.headers?.['x-zalo-signature'] ?? req.headers?.['mac'] ?? '';
       if (raw.length === 0 || !signatureHeader) {
         json(res, 200, { status: 'ok' });
         return;
