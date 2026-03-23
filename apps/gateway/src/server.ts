@@ -515,6 +515,21 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Zalo domain verification file
+  if (req.method === 'GET' && req.url === '/zalo_verifierRSUNEU_9938gw9C-wUGLPMBbfdgEatCaCpOn.html') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta property="zalo-platform-site-verification" content="RSUNEU_9938gw9C-wUGLPMBbfdgEatCaCpOn" />
+</head>
+<body>
+There Is No Limit To What You Can Accomplish Using Zalo!
+</body>
+</html>`);
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/webhooks/zalo') {
     const startedAtMs = Date.now();
     if (!webhookEnabled) {
