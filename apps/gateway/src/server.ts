@@ -438,6 +438,16 @@ function getSourceIp(headers: Record<string, string | string[] | undefined>): st
   return '';
 }
 
+function classifyInboundMessage(event: ZaloWebhookEvent): 'image_invoice' | 'text_chat' | 'file_invoice' {
+  const hasImageAttachment = event.attachments.some((a) => a.type === 'image' && a.url);
+  if (hasImageAttachment) return 'image_invoice';
+
+  const hasFileAttachment = event.attachments.some((a) => (!a.type || a.type === 'file') && a.url);
+  if (hasFileAttachment) return 'file_invoice';
+
+  return 'text_chat';
+}
+
 async function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, tenantId: string) {
   const inserted = await insertInboundEvent(event, tenantId);
   const processingMode = await getTenantProcessingMode(tenantId);
@@ -456,8 +466,19 @@ async function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, ten
   }
 
   if (inserted.inserted) {
+    const messageClass = classifyInboundMessage(event);
+    let jobType: string;
+
+    if (messageClass === 'image_invoice') {
+      jobType = 'PROCESS_IMAGE_INVOICE';
+    } else if (messageClass === 'text_chat') {
+      jobType = 'CHATBOT_REPLY';
+    } else {
+      jobType = processingMode === 'legacy' ? 'LEGACY_FORWARD_INBOUND' : 'PROCESS_INBOUND_EVENT';
+    }
+
     await enqueue({
-      job_type: processingMode === 'legacy' ? 'LEGACY_FORWARD_INBOUND' : 'PROCESS_INBOUND_EVENT',
+      job_type: jobType,
       correlation_id: requestId,
       request_hash: createHash('sha256').update(JSON.stringify(event.raw)).digest('hex').slice(0, 12),
       tenant_id: tenantId,
@@ -466,7 +487,8 @@ async function enqueueLinkedFlow(event: ZaloWebhookEvent, requestId: string, ten
       ...(zaloUserId ? { zalo_user_id: zaloUserId } : {}),
       zalo_msg_id: event.zalo_msg_id,
       processing_mode: processingMode,
-      dedupe_hit: !inserted.inserted
+      dedupe_hit: !inserted.inserted,
+      ...(messageClass === 'text_chat' && event.text ? { message_text: event.text } : {})
     });
   }
 

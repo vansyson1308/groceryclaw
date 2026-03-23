@@ -18,11 +18,13 @@ import {
 import { recordJobDurationByType, recordJobFailure, recordJobSuccess, recordQueueLag, startWorkerMetricsServer } from './metrics.js';
 import { startWorkerHealthServer } from './health-server.js';
 import { processInboundEventPipeline } from './process-inbound.js';
+import { processImageInvoice } from './process-image-invoice.js';
+import { processChatbotReply } from './process-chatbot.js';
 import { processMapResolve } from './mapping-resolve.js';
 import { HttpKiotvietAdapter } from './kiotviet-adapter.js';
 import { processKiotvietSync } from './kiotviet-sync.js';
 import { NotifierRetriableError, processFlushPendingNotificationsJob, processNotifyUserJob } from './notifier.js';
-import { HttpStubZaloAdapter } from './zalo-adapter.js';
+import { HttpStubZaloAdapter, HttpZaloOAAdapter } from './zalo-adapter.js';
 
 const config = loadBaseConfig({
   serviceName: 'worker',
@@ -174,16 +176,24 @@ async function processInboundEvent(job: WorkerJobEnvelope): Promise<void> {
   }, job);
 }
 
+function createZaloAdapter() {
+  const oaAccessToken = process.env.ZALO_OA_ACCESS_TOKEN ?? '';
+  if (oaAccessToken && oaAccessToken !== 'BOOTSTRAP_ONLY_REFRESH_LATER') {
+    return new HttpZaloOAAdapter(oaAccessToken, Number(process.env.ZALO_OA_TIMEOUT_MS ?? '5000'));
+  }
+  return new HttpStubZaloAdapter(
+    process.env.ZALO_STUB_BASE_URL ?? 'http://127.0.0.1:18081',
+    process.env.ZALO_STUB_TOKEN ?? 'stub-zalo-token',
+    Number(process.env.ZALO_STUB_TIMEOUT_MS ?? '2000')
+  );
+}
+
 function notifierDeps() {
   return {
     exec: runSql,
     queryOne: runQueryOne,
     queryMany: runQueryMany,
-    adapter: new HttpStubZaloAdapter(
-      process.env.ZALO_STUB_BASE_URL ?? 'http://127.0.0.1:18081',
-      process.env.ZALO_STUB_TOKEN ?? 'stub-zalo-token',
-      Number(process.env.ZALO_STUB_TIMEOUT_MS ?? '2000')
-    ),
+    adapter: createZaloAdapter(),
     enabled: (process.env.WORKER_NOTIFIER_ENABLED ?? 'true') === 'true',
     interactionWindowEnforced,
     flushEnabled: flushPendingEnabled,
@@ -244,6 +254,55 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
   }, job);
 }
 
+async function processImageInvoiceJob(job: WorkerJobEnvelope): Promise<void> {
+  await processImageInvoice({
+    queryOne: runQueryOne,
+    exec: runSql,
+    runInTenantTransaction: async (tenantId, jobType, work) => {
+      if (!pgPool) {
+        return work({ queryOne: runQueryOne, exec: runSql });
+      }
+      return runTenantScopedTransaction({
+        pool: pgPool,
+        tenantId,
+        applicationName: `worker:${jobType}`,
+        work: async (client) => work({
+          queryOne: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            if (result.rows.length === 0) return '';
+            const row = result.rows[0] ?? {};
+            return Object.values(row).join('|').trim();
+          },
+          exec: async (sql, params = []) => {
+            await query(client, sql, params);
+          }
+        })
+      });
+    },
+    enqueue,
+    ocrEnabled: (process.env.WORKER_IMAGE_OCR_ENABLED ?? 'false') === 'true',
+    openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+    openaiModel: process.env.OPENAI_OCR_MODEL ?? 'gpt-4o',
+    allowedDomains: (process.env.WORKER_XML_ALLOWED_DOMAINS ?? 'zalo.me,zadn.vn').split(',').map((x) => x.trim()).filter(Boolean),
+    maxBytes: Number(process.env.WORKER_IMAGE_MAX_BYTES ?? '10485760'),
+    timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? '30000')
+  }, job);
+}
+
+async function processChatbotReplyJob(job: WorkerJobEnvelope): Promise<void> {
+  await processChatbotReply({
+    queryOne: runQueryOne,
+    queryMany: runQueryMany,
+    exec: runSql,
+    enqueue,
+    chatbotEnabled: (process.env.WORKER_CHATBOT_ENABLED ?? 'false') === 'true',
+    openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+    openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini',
+    maxContextProducts: Number(process.env.CHATBOT_MAX_CONTEXT_PRODUCTS ?? '20'),
+    timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? '30000')
+  }, job);
+}
+
 async function checkReady(): Promise<boolean> {
   if (!readyzStrict) {
     return true;
@@ -272,6 +331,10 @@ async function handleEnvelope(rawData: unknown): Promise<void> {
   const job = validated.value;
   if (job.job_type === 'PROCESS_INBOUND_EVENT') {
     await processInboundEvent(job);
+  } else if (job.job_type === 'PROCESS_IMAGE_INVOICE') {
+    await processImageInvoiceJob(job);
+  } else if (job.job_type === 'CHATBOT_REPLY') {
+    await processChatbotReplyJob(job);
   } else if (job.job_type === 'MAP_RESOLVE') {
     await processMapResolveJob(job);
   } else if (job.job_type === 'KIOTVIET_SYNC') {

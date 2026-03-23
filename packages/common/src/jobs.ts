@@ -2,6 +2,8 @@ import type { NotificationType, NotificationTemplateVars } from './notifier-temp
 
 export type WorkerJobType =
   | 'PROCESS_INBOUND_EVENT'
+  | 'PROCESS_IMAGE_INVOICE'
+  | 'CHATBOT_REPLY'
   | 'NOTIFY_USER'
   | 'FLUSH_PENDING_NOTIFICATIONS'
   | 'MAP_RESOLVE'
@@ -19,6 +21,7 @@ export interface WorkerJobEnvelope {
   readonly notification_type?: NotificationType;
   readonly template_vars?: NotificationTemplateVars;
   readonly enqueued_at_ms?: number;
+  readonly message_text?: string;
 }
 
 function asNonEmptyString(value: unknown): string | null {
@@ -47,7 +50,7 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
     return { ok: false };
   }
 
-  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC'];
+  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC'];
   if (!allowed.includes(jobType as WorkerJobType)) {
     return { ok: false };
   }
@@ -65,6 +68,12 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
   if (payload.zalo_user_id !== undefined && zaloUserId === null) return { ok: false };
 
   if (jobType === 'PROCESS_INBOUND_EVENT' && (!tenantId || !inboundEventId)) {
+    return { ok: false };
+  }
+  if (jobType === 'PROCESS_IMAGE_INVOICE' && (!tenantId || !inboundEventId)) {
+    return { ok: false };
+  }
+  if (jobType === 'CHATBOT_REPLY' && !tenantId) {
     return { ok: false };
   }
   if (jobType === 'FLUSH_PENDING_NOTIFICATIONS' && (!tenantId || !zaloUserId)) {
@@ -104,7 +113,8 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
       ...(canonicalInvoiceId ? { canonical_invoice_id: canonicalInvoiceId } : {}),
       ...(notificationType ? { notification_type: notificationType as NotificationType } : {}),
       ...(templateVars && isRecord(templateVars) ? { template_vars: templateVars } : {}),
-      ...(typeof enqueuedAtMs === 'number' ? { enqueued_at_ms: enqueuedAtMs } : {})
+      ...(typeof enqueuedAtMs === 'number' ? { enqueued_at_ms: enqueuedAtMs } : {}),
+      ...(typeof payload.message_text === 'string' ? { message_text: payload.message_text } : {})
     }
   };
 }

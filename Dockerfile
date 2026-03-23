@@ -14,6 +14,9 @@ COPY db ./db
 RUN npm install --no-audit --no-fund
 RUN npm run build
 
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+
 ENV NODE_ENV=production
 EXPOSE 8080
-CMD ["node", "apps/gateway/dist/server.js"]
+CMD ["sh", "entrypoint.sh"]
