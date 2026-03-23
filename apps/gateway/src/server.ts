@@ -538,13 +538,24 @@ There Is No Limit To What You Can Accomplish Using Zalo!
     }
 
     const contentType = String(req.headers?.['content-type'] ?? '');
+
+    // Zalo webhook URL verification: responds 200 to any POST without
+    // valid JSON content-type so Zalo can confirm the endpoint is reachable.
     if (!contentType.toLowerCase().includes('application/json')) {
-      json(res, 415, { error: 'unsupported_media_type' });
+      json(res, 200, { status: 'ok' });
       return;
     }
 
     try {
       const raw = await readBody(req);
+
+      // Zalo webhook URL verification: empty or minimal test payloads
+      // are accepted without signature check so Zalo can register the URL.
+      if (raw.length === 0 || raw.toString('utf8').trim() === '{}') {
+        json(res, 200, { status: 'ok' });
+        return;
+      }
+
       const headerMap: Record<string, string | undefined> = {};
       for (const [key, value] of Object.entries(req.headers ?? {})) {
         headerMap[key.toLowerCase()] = Array.isArray(value) ? value[0] : value;
