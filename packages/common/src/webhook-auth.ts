@@ -183,17 +183,51 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
       return { ok: false, statusCode: 401, reason: 'unauthorized' };
     }
 
-    // Zalo uses plain SHA256(appId + body + timestamp + secret), not HMAC
+    // Zalo MAC = SHA256(appId + timestamp + data + OASecretKey)
+    // Try multiple data orderings to find the correct one
     let expectedHex: string;
+    let matchedVariant = '';
     try {
       const bodyStr = rawBody.toString('utf8');
-      const bodyParsed = JSON.parse(bodyStr) as { app_id?: string; timestamp?: string };
-      const appId = bodyParsed.app_id ?? '';
-      const timestamp = bodyParsed.timestamp ?? '';
-      const dataToSign = appId + bodyStr + timestamp + config.signatureSecret;
-      expectedHex = createHash('sha256').update(dataToSign).digest('hex');
+      const bodyParsed = JSON.parse(bodyStr) as { app_id?: string; timestamp?: string; [key: string]: unknown };
+      const appId = String(bodyParsed.app_id ?? '');
+      const timestamp = String(bodyParsed.timestamp ?? '');
+
+      // Build variants to try
+      const variants: Array<{ name: string; data: string }> = [
+        { name: 'appId+ts+body+secret', data: appId + timestamp + bodyStr + config.signatureSecret },
+        { name: 'appId+body+ts+secret', data: appId + bodyStr + timestamp + config.signatureSecret },
+        { name: 'appId+ts+secret', data: appId + timestamp + config.signatureSecret },
+      ];
+
+      const providedHex = parsed.kind === 'hex' ? parsed.value : Buffer.from(parsed.value, 'base64').toString('hex');
+
+      expectedHex = '';
+      for (const v of variants) {
+        const candidate = createHash('sha256').update(v.data).digest('hex');
+        if (candidate === providedHex) {
+          expectedHex = candidate;
+          matchedVariant = v.name;
+          break;
+        }
+      }
+
+      // Log debug info for diagnosis (temporary)
+      if (!expectedHex) {
+        const v0 = createHash('sha256').update(variants[0]!.data).digest('hex');
+        console.error(JSON.stringify({
+          _debug: 'zalo_mac_mismatch',
+          provided: providedHex.slice(0, 16),
+          variant0: v0.slice(0, 16),
+          appId: appId.slice(0, 6),
+          ts: timestamp,
+          bodyLen: bodyStr.length,
+          bodyStart: bodyStr.slice(0, 80),
+          bodyKeys: Object.keys(bodyParsed).join(',')
+        }));
+        expectedHex = v0; // will fail comparison below
+      }
     } catch {
-      // Fallback to HMAC if body is not JSON (non-Zalo webhooks)
       expectedHex = createHmac(config.signatureAlgorithm, config.signatureSecret).update(rawBody).digest('hex');
     }
 
