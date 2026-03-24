@@ -591,10 +591,21 @@ There Is No Limit To What You Can Accomplish Using Zalo!
 
       if (!authResult.ok) {
         metrics.webhookAuthFailuresTotal += 1;
+        const debugHeaders: Record<string, string> = {};
+        for (const h of ['x-zevent-signature', 'x-zalo-signature', 'mac', 'content-type']) {
+          if (headerMap[h]) debugHeaders[h] = String(headerMap[h]).slice(0, 20) + '...';
+        }
+        let debugBody: Record<string, unknown> = {};
+        try {
+          const bp = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
+          debugBody = { app_id: bp.app_id, event_name: bp.event_name, timestamp: bp.timestamp, has_sender: !!bp.sender, body_len: raw.length };
+        } catch { /* ignore */ }
         logger.warn('webhook_auth_fail', {
           request_id: requestId,
           reason: authResult.reason,
-          verify_mode: config.webhookAuth.verifyMode
+          verify_mode: config.webhookAuth.verifyMode,
+          debug_headers: debugHeaders,
+          debug_body: debugBody
         });
 
         if (authResult.statusCode === 429) {
