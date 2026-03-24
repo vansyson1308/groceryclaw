@@ -419,6 +419,9 @@ async function enqueueNotify(platformUserId: string, template: 'invite_success' 
     'onboarding_prompt': 'WELCOME_LINKED'
   };
   const notificationType = templateToNotificationType[template] || 'GENERIC_INFO';
+  const templateVarsMap: Record<string, Record<string, string>> = {
+    'invite_generic_failure': { message: 'Mã mời không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại.' }
+  };
   await enqueue({
     job_type: 'NOTIFY_USER',
     template,
@@ -427,7 +430,8 @@ async function enqueueNotify(platformUserId: string, template: 'invite_success' 
     tenant_id: tenantId ?? null,
     inbound_event_id: null,
     zalo_msg_id: zaloMsgId ?? '',
-    correlation_id: correlationId ?? ''
+    correlation_id: correlationId ?? '',
+    ...(templateVarsMap[template] ? { template_vars: templateVarsMap[template] } : {})
   });
 }
 
