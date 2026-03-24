@@ -425,6 +425,7 @@ async function enqueueNotify(platformUserId: string, template: 'invite_success' 
     notification_type: notificationType,
     platform_user_id: platformUserId,
     tenant_id: tenantId ?? null,
+    inbound_event_id: null,
     zalo_msg_id: zaloMsgId ?? '',
     correlation_id: correlationId ?? ''
   });
