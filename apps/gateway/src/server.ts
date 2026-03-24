@@ -416,11 +416,12 @@ async function enqueueNotify(platformUserId: string, template: 'invite_success' 
     'invite_success': 'WELCOME_LINKED',
     'invite_generic_failure': 'GENERIC_INFO',
     'invite_wait_retry': 'RATE_LIMITED',
-    'onboarding_prompt': 'WELCOME_LINKED'
+    'onboarding_prompt': 'GENERIC_INFO'
   };
   const notificationType = templateToNotificationType[template] || 'GENERIC_INFO';
   const templateVarsMap: Record<string, Record<string, string>> = {
-    'invite_generic_failure': { message: 'Mã mời không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại.' }
+    'invite_generic_failure': { message: 'Mã mời không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại.' },
+    'onboarding_prompt': { message: 'Chào bạn! Để sử dụng, vui lòng gửi mã mời từ chủ cửa hàng của bạn.' }
   };
   await enqueue({
     job_type: 'NOTIFY_USER',

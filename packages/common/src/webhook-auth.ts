@@ -71,7 +71,10 @@ function safeEqualHex(expectedHex: string, providedHex: string): boolean {
 
 function parseSignature(headerValue: string): { kind: 'hex' | 'base64'; value: string } | null {
   const trimmed = headerValue.trim();
-  const noPrefix = trimmed.startsWith('sha256=') ? trimmed.slice('sha256='.length) : trimmed;
+  // Strip known prefixes: sha256= (generic), mac= (Zalo x-zevent-signature)
+  let noPrefix = trimmed;
+  if (noPrefix.startsWith('sha256=')) noPrefix = noPrefix.slice('sha256='.length);
+  else if (noPrefix.startsWith('mac=')) noPrefix = noPrefix.slice('mac='.length);
 
   if (/^[0-9a-fA-F]+$/.test(noPrefix) && noPrefix.length % 2 === 0) {
     return { kind: 'hex', value: noPrefix.toLowerCase() };
