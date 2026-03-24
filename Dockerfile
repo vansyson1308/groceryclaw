@@ -10,6 +10,7 @@ COPY package.json package-lock.json tsconfig.base.json tsconfig.build.json types
 COPY apps ./apps
 COPY packages ./packages
 COPY db ./db
+COPY scripts/v2/remote_migrate.mjs ./scripts/v2/remote_migrate.mjs
 
 RUN npm install --no-audit --no-fund
 RUN npm run build
