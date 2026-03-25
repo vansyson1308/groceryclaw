@@ -558,6 +558,12 @@ There Is No Limit To What You Can Accomplish Using Zalo!
     return;
   }
 
+  // Zalo webhook URL verification: GET returns 200 so Zalo can confirm endpoint is reachable
+  if (req.method === 'GET' && req.url === '/webhooks/zalo') {
+    json(res, 200, { status: 'ok' });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/webhooks/zalo') {
     const startedAtMs = Date.now();
     if (!webhookEnabled) {
