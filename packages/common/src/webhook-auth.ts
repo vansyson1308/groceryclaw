@@ -183,89 +183,92 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
       return { ok: false, statusCode: 401, reason: 'unauthorized' };
     }
 
-    // Zalo OA webhook MAC: try multiple formula variants using raw Buffer
-    // to avoid UTF-8 encoding round-trip issues with multi-byte characters.
+    // Zalo OA webhook MAC: brute-force all formula variants with both secrets
     let expectedHex: string;
     try {
       const bodyStr = rawBody.toString('utf8');
       const bodyParsed = JSON.parse(bodyStr) as { app_id?: string; oa_id?: string; timestamp?: string; [key: string]: unknown };
       const appId = String(bodyParsed.app_id ?? '');
+      const recipientObj = (bodyParsed.recipient && typeof bodyParsed.recipient === 'object') ? bodyParsed.recipient as Record<string, unknown> : null;
+      const oaId = String(bodyParsed.oa_id ?? (recipientObj?.id ?? ''));
       const timestamp = String(bodyParsed.timestamp ?? '');
-      const secret = config.signatureSecret;
 
       const providedHex = parsed.kind === 'hex' ? parsed.value : Buffer.from(parsed.value, 'base64').toString('hex');
 
-      // Use raw Buffer for body to preserve exact bytes (avoids UTF-8 round-trip)
+      // Try both OA Secret and App Secret
+      const appSecret = process.env.ZALO_APP_SECRET ?? '';
+      const secrets: Array<{ label: string; value: string }> = [
+        { label: 'oa', value: config.signatureSecret },
+      ];
+      if (appSecret && appSecret !== config.signatureSecret) {
+        secrets.push({ label: 'app', value: appSecret });
+      }
+
       const appIdBuf = Buffer.from(appId, 'utf8');
+      const oaIdBuf = Buffer.from(String(oaId), 'utf8');
       const tsBuf = Buffer.from(timestamp, 'utf8');
-      const secretBuf = Buffer.from(secret, 'utf8');
-
-      // Try all plausible formula variants
-      const variants: Array<{ name: string; input: Buffer }> = [
-        { name: 'buf:appId+body+ts+secret', input: Buffer.concat([appIdBuf, rawBody, tsBuf, secretBuf]) },
-        { name: 'str:appId+body+ts+secret', input: Buffer.from(appId + bodyStr + timestamp + secret, 'utf8') },
-        { name: 'buf:appId+ts+body+secret', input: Buffer.concat([appIdBuf, tsBuf, rawBody, secretBuf]) },
-        { name: 'buf:body+ts+secret', input: Buffer.concat([rawBody, tsBuf, secretBuf]) },
-        { name: 'buf:appId+body+secret', input: Buffer.concat([appIdBuf, rawBody, secretBuf]) },
-        { name: 'buf:ts+body+secret', input: Buffer.concat([tsBuf, rawBody, secretBuf]) },
-      ];
-
-      // Also HMAC variants
-      const hmacVariants: Array<{ name: string; key: Buffer; data: Buffer }> = [
-        { name: 'hmac:secret,appId+body+ts', key: secretBuf, data: Buffer.concat([appIdBuf, rawBody, tsBuf]) },
-        { name: 'hmac:secret,body', key: secretBuf, data: rawBody },
-        { name: 'hmac:secret,appId+ts+body', key: secretBuf, data: Buffer.concat([appIdBuf, tsBuf, rawBody]) },
-      ];
 
       expectedHex = '';
       let matchedVariant = '';
+      const allResults: Record<string, string> = {};
 
-      for (const v of variants) {
-        const candidate = createHash('sha256').update(v.input).digest('hex');
-        if (candidate === providedHex) {
-          expectedHex = candidate;
-          matchedVariant = v.name;
-          break;
+      for (const s of secrets) {
+        const sBuf = Buffer.from(s.value, 'utf8');
+        // Also try base64-decoded secret
+        const sB64Buf = Buffer.from(s.value, 'base64');
+
+        const variants: Array<{ name: string; input: Buffer }> = [
+          // Standard formulas with appId
+          { name: `${s.label}:appId+body+ts+secret`, input: Buffer.concat([appIdBuf, rawBody, tsBuf, sBuf]) },
+          { name: `${s.label}:appId+ts+body+secret`, input: Buffer.concat([appIdBuf, tsBuf, rawBody, sBuf]) },
+          { name: `${s.label}:appId+body+secret`, input: Buffer.concat([appIdBuf, rawBody, sBuf]) },
+          // With oaId instead of appId
+          { name: `${s.label}:oaId+body+ts+secret`, input: Buffer.concat([oaIdBuf, rawBody, tsBuf, sBuf]) },
+          // Without appId
+          { name: `${s.label}:body+ts+secret`, input: Buffer.concat([rawBody, tsBuf, sBuf]) },
+          { name: `${s.label}:body+secret`, input: Buffer.concat([rawBody, sBuf]) },
+          // Base64-decoded secret
+          { name: `${s.label}b64:appId+body+ts+secret`, input: Buffer.concat([appIdBuf, rawBody, tsBuf, sB64Buf]) },
+        ];
+
+        const hmacVariants: Array<{ name: string; key: Buffer; data: Buffer }> = [
+          { name: `hmac-${s.label}:appId+body+ts`, key: sBuf, data: Buffer.concat([appIdBuf, rawBody, tsBuf]) },
+          { name: `hmac-${s.label}:body`, key: sBuf, data: rawBody },
+          { name: `hmac-${s.label}:appId+ts+body`, key: sBuf, data: Buffer.concat([appIdBuf, tsBuf, rawBody]) },
+          // HMAC with base64-decoded key
+          { name: `hmac-${s.label}b64:body`, key: sB64Buf, data: rawBody },
+          { name: `hmac-${s.label}b64:appId+body+ts`, key: sB64Buf, data: Buffer.concat([appIdBuf, rawBody, tsBuf]) },
+        ];
+
+        for (const v of variants) {
+          const candidate = createHash('sha256').update(v.input).digest('hex');
+          allResults[v.name] = candidate.slice(0, 16);
+          if (candidate === providedHex) { expectedHex = candidate; matchedVariant = v.name; }
         }
-      }
-
-      if (!expectedHex) {
         for (const v of hmacVariants) {
           const candidate = createHmac('sha256', v.key as unknown as string).update(v.data as unknown as string).digest('hex');
-          if (candidate === providedHex) {
-            expectedHex = candidate;
-            matchedVariant = v.name;
-            break;
-          }
+          allResults[v.name] = candidate.slice(0, 16);
+          if (candidate === providedHex) { expectedHex = candidate; matchedVariant = v.name; }
         }
+        if (expectedHex) break;
       }
 
       if (!expectedHex) {
-        // Log all variant results for diagnosis
-        const results: Record<string, string> = {};
-        for (const v of variants) {
-          results[v.name] = createHash('sha256').update(v.input).digest('hex').slice(0, 16);
-        }
-        for (const v of hmacVariants) {
-          results[v.name] = createHmac('sha256', v.key as unknown as string).update(v.data as unknown as string).digest('hex').slice(0, 16);
-        }
         console.error(JSON.stringify({
-          _debug: 'zalo_mac_brute',
+          _debug: 'zalo_mac_brute_v3',
           provided: providedHex.slice(0, 16),
-          results,
-          appId,
-          ts: timestamp,
-          bodyLen: bodyStr.length,
-          rawBufLen: rawBody.length,
-          secretLen: secret.length,
-          bodyFirst60: bodyStr.slice(0, 60),
-          rawHexFirst20: (rawBody as unknown as Uint8Array).slice(0, 10).toString(),
+          results: allResults,
+          appId, oaId: String(oaId), ts: timestamp,
+          bodyLen: bodyStr.length, rawBufLen: rawBody.length,
+          secretLens: secrets.map(s => `${s.label}:${s.value.length}`).join(','),
+          bodyFull: bodyStr.length <= 500 ? bodyStr : bodyStr.slice(0, 250) + '...' + bodyStr.slice(-100),
         }));
         expectedHex = 'mismatch';
       } else {
         console.error(JSON.stringify({ _debug: 'zalo_mac_matched', variant: matchedVariant }));
       }
-    } catch {
+    } catch (err) {
+      console.error(JSON.stringify({ _debug: 'zalo_mac_error', error: String(err) }));
       expectedHex = createHash(config.signatureAlgorithm).update(rawBody).digest('hex');
     }
 
