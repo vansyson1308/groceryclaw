@@ -1,19 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { verifyWebhookRequest } from '../../packages/common/dist/index.js';
 
-const rawBody = Buffer.from('{"platform_user_id":"u1","zalo_msg_id":"m1","attachments":[]}');
+// Zalo OA MAC formula: SHA256(appId + rawBody + timestamp + OASecretKey)
+function zaloMac(appId, rawBody, timestamp, oaSecret) {
+  return createHash('sha256').update(appId + rawBody + timestamp + oaSecret, 'utf8').digest('hex');
+}
 
-test('verifyWebhookRequest mode1 accepts valid hmac and rejects invalid', () => {
-  const secret = 'abc123';
-  const sig = createHmac('sha256', secret).update(rawBody).digest('hex');
-  const baseConfig = {
+const secret = 'test_oa_secret_key';
+const rawBodyStr = '{"app_id":"12345","timestamp":"1700000000000","platform_user_id":"u1","zalo_msg_id":"m1","attachments":[]}';
+const rawBody = Buffer.from(rawBodyStr);
+const validSig = zaloMac('12345', rawBodyStr, '1700000000000', secret);
+
+function baseConfig(overrides = {}) {
+  return {
     nodeEnv: 'test',
     verifyMode: 'mode1',
     mode2AllowInProduction: false,
     signatureSecret: secret,
-    signatureHeaders: ['x-zalo-signature'],
+    signatureHeaders: ['x-zevent-signature'],
     signatureAlgorithm: 'sha256',
     mode2TokenHeader: 'x-webhook-token',
     mode2Token: 'token',
@@ -24,63 +30,52 @@ test('verifyWebhookRequest mode1 accepts valid hmac and rejects invalid', () => 
     mode2AttachmentAllowlist: ['zalo.me', 'zadn.vn'],
     enforceTimestamp: false,
     timestampHeader: 'x-zalo-timestamp',
-    timestampMaxDriftSeconds: 300
+    timestampMaxDriftSeconds: 300,
+    ...overrides
   };
+}
 
-  const ok = verifyWebhookRequest(baseConfig, { headers: { 'x-zalo-signature': sig }, sourceIp: '1.1.1.1' }, rawBody);
+test('verifyWebhookRequest mode1 accepts valid Zalo OA MAC signature', () => {
+  const cfg = baseConfig();
+  const ok = verifyWebhookRequest(cfg, { headers: { 'x-zevent-signature': validSig }, sourceIp: '1.1.1.1' }, rawBody);
   assert.equal(ok.ok, true);
+  assert.equal(ok.statusCode, 200);
+});
 
-  const bad = verifyWebhookRequest(baseConfig, { headers: { 'x-zalo-signature': 'deadbeef' }, sourceIp: '1.1.1.1' }, rawBody);
+test('verifyWebhookRequest mode1 rejects invalid signature', () => {
+  const cfg = baseConfig();
+  const bad = verifyWebhookRequest(cfg, { headers: { 'x-zevent-signature': 'deadbeef'.repeat(8) }, sourceIp: '1.1.1.1' }, rawBody);
   assert.equal(bad.ok, false);
   assert.equal(bad.statusCode, 401);
 });
 
-
 test('verifyWebhookRequest mode1 rejects missing signature header', () => {
-  const secret = 'abc123';
-  const cfg = {
-    nodeEnv: 'test',
-    verifyMode: 'mode1',
-    mode2AllowInProduction: false,
-    signatureSecret: secret,
-    signatureHeaders: ['x-zalo-signature'],
-    signatureAlgorithm: 'sha256',
-    mode2TokenHeader: 'x-webhook-token',
-    mode2Token: 'token',
-    mode2IpAllowlist: [],
-    mode2GlobalRateLimitPerMinute: 300,
-    mode2PerIpRateLimitPerMinute: 60,
-    mode2PerPlatformUserRateLimitPerMinute: 30,
-    mode2AttachmentAllowlist: ['zalo.me', 'zadn.vn'],
-    enforceTimestamp: false,
-    timestampHeader: 'x-zalo-timestamp',
-    timestampMaxDriftSeconds: 300
-  };
-
+  const cfg = baseConfig();
   const result = verifyWebhookRequest(cfg, { headers: {}, sourceIp: '1.1.1.1' }, rawBody);
   assert.equal(result.ok, false);
   assert.equal(result.statusCode, 401);
 });
 
+test('verifyWebhookRequest mode1 handles mac= prefix in signature', () => {
+  const cfg = baseConfig();
+  const ok = verifyWebhookRequest(cfg, { headers: { 'x-zevent-signature': `mac=${validSig}` }, sourceIp: '1.1.1.1' }, rawBody);
+  assert.equal(ok.ok, true);
+});
+
+test('verifyWebhookRequest mode1 rejects wrong secret', () => {
+  const cfg = baseConfig({ signatureSecret: 'wrong_secret' });
+  const result = verifyWebhookRequest(cfg, { headers: { 'x-zevent-signature': validSig }, sourceIp: '1.1.1.1' }, rawBody);
+  assert.equal(result.ok, false);
+  assert.equal(result.statusCode, 401);
+});
+
 test('verifyWebhookRequest mode2 allowed in production only with explicit override', () => {
-  const cfg = {
+  const cfg = baseConfig({
     nodeEnv: 'production',
     verifyMode: 'mode2',
     mode2AllowInProduction: true,
-    signatureSecret: 'unused',
-    signatureHeaders: ['x-zalo-signature'],
-    signatureAlgorithm: 'sha256',
-    mode2TokenHeader: 'x-webhook-token',
-    mode2Token: 'allow-token',
-    mode2IpAllowlist: [],
-    mode2GlobalRateLimitPerMinute: 300,
-    mode2PerIpRateLimitPerMinute: 60,
-    mode2PerPlatformUserRateLimitPerMinute: 30,
-    mode2AttachmentAllowlist: ['zalo.me', 'zadn.vn'],
-    enforceTimestamp: false,
-    timestampHeader: 'x-zalo-timestamp',
-    timestampMaxDriftSeconds: 300
-  };
+    mode2Token: 'allow-token'
+  });
 
   const ok = verifyWebhookRequest(cfg, { headers: { 'x-webhook-token': 'allow-token' }, sourceIp: '1.1.1.1' }, rawBody);
   assert.equal(ok.ok, true);

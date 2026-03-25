@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 export type WebhookVerifyMode = 'mode1' | 'mode2';
 
@@ -183,80 +183,22 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
       return { ok: false, statusCode: 401, reason: 'unauthorized' };
     }
 
-    // Zalo MAC = SHA256(appId + timestamp + data + OASecretKey)
-    // Try multiple data orderings to find the correct one
+    // Zalo OA webhook MAC = SHA256(appId + data + timestamp + OASecretKey)
+    // where data = raw HTTP body (JSON string as received, byte-exact)
+    // See: https://developers.zalo.me/docs/official-account/webhook
     let expectedHex: string;
-    let matchedVariant = '';
     try {
       const bodyStr = rawBody.toString('utf8');
       const bodyParsed = JSON.parse(bodyStr) as { app_id?: string; timestamp?: string; [key: string]: unknown };
       const appId = String(bodyParsed.app_id ?? '');
       const timestamp = String(bodyParsed.timestamp ?? '');
 
-      // Build variants to try — Zalo formula: SHA256(appId + data + timestamp + OASecret)
-      // "data" interpretation varies across Zalo API versions
-      const variants: Array<{ name: string; data: string }> = [
-        { name: 'appId+ts+body+secret', data: appId + timestamp + bodyStr + config.signatureSecret },
-        { name: 'appId+body+ts+secret', data: appId + bodyStr + timestamp + config.signatureSecret },
-        { name: 'appId+ts+secret', data: appId + timestamp + config.signatureSecret },
-        { name: 'appId+data+ts+secret(hmac)', data: '' }, // placeholder for HMAC
-      ];
-
-      // Also try HMAC-SHA256 variants
-      const hmacVariants: Array<{ name: string; key: string; data: string }> = [
-        { name: 'hmac(secret,appId+body+ts+secret)', key: config.signatureSecret, data: appId + bodyStr + timestamp + config.signatureSecret },
-        { name: 'hmac(secret,appId+ts+body+secret)', key: config.signatureSecret, data: appId + timestamp + bodyStr + config.signatureSecret },
-        { name: 'hmac(secret,body)', key: config.signatureSecret, data: bodyStr },
-      ];
-
-      const providedHex = parsed.kind === 'hex' ? parsed.value : Buffer.from(parsed.value, 'base64').toString('hex');
-
-      expectedHex = '';
-      for (const v of variants) {
-        if (!v.data) continue;
-        const candidate = createHash('sha256').update(v.data).digest('hex');
-        if (candidate === providedHex) {
-          expectedHex = candidate;
-          matchedVariant = v.name;
-          break;
-        }
-      }
-
-      if (!expectedHex) {
-        for (const v of hmacVariants) {
-          const candidate = createHmac('sha256', v.key).update(v.data).digest('hex');
-          if (candidate === providedHex) {
-            expectedHex = candidate;
-            matchedVariant = v.name;
-            break;
-          }
-        }
-      }
-
-      // Log debug info for diagnosis (temporary)
-      if (!expectedHex) {
-        const allResults: Record<string, string> = {};
-        for (const v of variants) {
-          if (!v.data) continue;
-          allResults[v.name] = createHash('sha256').update(v.data).digest('hex').slice(0, 12);
-        }
-        for (const v of hmacVariants) {
-          allResults[v.name] = createHmac('sha256', v.key).update(v.data).digest('hex').slice(0, 12);
-        }
-        console.error(JSON.stringify({
-          _debug: 'zalo_mac_mismatch_v2',
-          provided: providedHex.slice(0, 12),
-          results: allResults,
-          appId: appId.slice(0, 6),
-          ts: timestamp,
-          bodyLen: bodyStr.length,
-          bodyKeys: Object.keys(bodyParsed).join(','),
-          secretLen: config.signatureSecret.length
-        }));
-        expectedHex = 'mismatch'; // will fail comparison below
-      }
+      // Plain SHA-256 (not HMAC), direct concatenation, no separators
+      const baseString = appId + bodyStr + timestamp + config.signatureSecret;
+      expectedHex = createHash('sha256').update(baseString).digest('hex');
     } catch {
-      expectedHex = createHmac(config.signatureAlgorithm, config.signatureSecret).update(rawBody).digest('hex');
+      // Fallback for non-Zalo or malformed body: hash raw body with secret appended
+      expectedHex = createHash(config.signatureAlgorithm).update(rawBody.toString('utf8') + config.signatureSecret).digest('hex');
     }
 
     const matches = parsed.kind === 'hex'

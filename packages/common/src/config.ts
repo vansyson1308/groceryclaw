@@ -156,7 +156,7 @@ export function loadGatewayConfig(envInput?: Record<string, string | undefined>)
       signatureSecret: env.WEBHOOK_SIGNATURE_SECRET ?? '',
       signatureHeaders: parseCsv(env.WEBHOOK_SIGNATURE_HEADERS).length > 0
         ? parseCsv(env.WEBHOOK_SIGNATURE_HEADERS)
-        : ['x-zalo-signature', 'x-signature', 'x-hub-signature-256'],
+        : ['x-zevent-signature', 'x-zalo-signature', 'x-signature'],
       signatureAlgorithm: env.WEBHOOK_SIGNATURE_ALGORITHM === 'sha512' ? 'sha512' : 'sha256',
       mode2TokenHeader: (env.WEBHOOK_MODE2_TOKEN_HEADER ?? 'x-webhook-token').toLowerCase(),
       mode2Token: env.WEBHOOK_MODE2_TOKEN ?? '',
