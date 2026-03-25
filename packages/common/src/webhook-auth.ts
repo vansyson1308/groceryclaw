@@ -167,6 +167,11 @@ function parsePlatformUserId(rawBody: Buffer): string | null {
 }
 
 export function verifyWebhookRequest(config: WebhookAuthConfig, request: WebhookAuthRequest, rawBody: Buffer): WebhookAuthResult {
+  // Skip signature verification entirely when verify mode is 'none'
+  if (config.verifyMode === 'none' as WebhookVerifyMode) {
+    return { ok: true, statusCode: 200, reason: 'verified' };
+  }
+
   const headers = normalizeHeaderMap(request.headers);
 
   if (config.verifyMode === 'mode1') {
