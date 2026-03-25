@@ -196,6 +196,24 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
       // Plain SHA-256 (not HMAC), direct concatenation, no separators
       const baseString = appId + bodyStr + timestamp + config.signatureSecret;
       expectedHex = createHash('sha256').update(baseString).digest('hex');
+
+      // Temporary debug: log MAC computation details (no secrets)
+      const providedHex = parsed.kind === 'hex' ? parsed.value : Buffer.from(parsed.value, 'base64').toString('hex');
+      if (expectedHex !== providedHex) {
+        console.error(JSON.stringify({
+          _debug: 'zalo_mac_detail',
+          provided: providedHex.slice(0, 16),
+          expected: expectedHex.slice(0, 16),
+          appId,
+          ts: timestamp,
+          bodyLen: bodyStr.length,
+          bodyFirst80: bodyStr.slice(0, 80),
+          bodyLast40: bodyStr.slice(-40),
+          secretLen: config.signatureSecret.length,
+          rawBufLen: rawBody.length,
+          bodyKeys: Object.keys(bodyParsed).join(','),
+        }));
+      }
     } catch {
       // Fallback for non-Zalo or malformed body: hash raw body with secret appended
       expectedHex = createHash(config.signatureAlgorithm).update(rawBody.toString('utf8') + config.signatureSecret).digest('hex');
