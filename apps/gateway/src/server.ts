@@ -558,6 +558,41 @@ There Is No Limit To What You Can Accomplish Using Zalo!
     return;
   }
 
+  // One-off: create tenant + invite code via HTTP
+  if (req.method === 'GET' && req.url?.startsWith('/ops/create-invite')) {
+    const opsKey = process.env.OPS_KEY ?? '';
+    const urlKey = new URL(req.url, 'http://localhost').searchParams.get('key') ?? '';
+    if (!opsKey || urlKey !== opsKey) {
+      json(res, 403, { error: 'forbidden' });
+      return;
+    }
+    try {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      await runSql(`
+        INSERT INTO tenants (id, name, status, processing_mode)
+        VALUES ($1, 'Tạp Hóa GroceryClaw', 'active', 'v2')
+        ON CONFLICT (id) DO NOTHING
+      `, [tenantId]);
+
+      const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const bytes = Array.from({ length: 10 }, () => Math.floor(Math.random() * 256));
+      const code = bytes.map(b => ALPHABET[b % ALPHABET.length]).join('');
+      const pepper = Buffer.from(invitePepperB64, 'base64');
+      const codeHash = createHash('sha256').update(Buffer.concat([pepper, Buffer.from(code, 'utf8')])).digest('hex');
+      const codeHint = code.slice(0, 2) + '****' + code.slice(-2);
+
+      await runSql(`
+        INSERT INTO invite_codes (tenant_id, code_hash, code_hint, target_role, status, expires_at)
+        VALUES ($1, decode($2, 'hex'), $3, 'staff', 'active', now() + interval '720 hours')
+      `, [tenantId, codeHash, codeHint]);
+
+      json(res, 200, { tenant_id: tenantId, code, code_hint: codeHint, expires_in: '30 days' });
+    } catch (err) {
+      json(res, 500, { error: String(err) });
+    }
+    return;
+  }
+
   // Zalo webhook URL verification: GET returns 200 so Zalo can confirm endpoint is reachable
   if (req.method === 'GET' && req.url === '/webhooks/zalo') {
     json(res, 200, { status: 'ok' });
