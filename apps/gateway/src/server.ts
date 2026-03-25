@@ -558,6 +558,25 @@ There Is No Limit To What You Can Accomplish Using Zalo!
     return;
   }
 
+  // One-off: link KiotViet retailer to tenant
+  if (req.method === 'GET' && req.url?.startsWith('/ops/link-kiotviet')) {
+    const opsKey = process.env.OPS_KEY ?? '';
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    if (!opsKey || params.get('key') !== opsKey) {
+      json(res, 403, { error: 'forbidden' });
+      return;
+    }
+    try {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      const retailer = params.get('retailer') ?? 'taphoatuyetbachd';
+      await runSql(`UPDATE tenants SET kiotviet_retailer = $1, name = $2 WHERE id = $3`, [retailer, `Tạp Hóa ${retailer}`, tenantId]);
+      json(res, 200, { tenant_id: tenantId, kiotviet_retailer: retailer, status: 'linked' });
+    } catch (err) {
+      json(res, 500, { error: String(err) });
+    }
+    return;
+  }
+
   // One-off: create tenant + invite code via HTTP
   if (req.method === 'GET' && req.url?.startsWith('/ops/create-invite')) {
     const opsKey = process.env.OPS_KEY ?? '';
