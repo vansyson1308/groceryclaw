@@ -612,7 +612,11 @@ There Is No Limit To What You Can Accomplish Using Zalo!
           const bp = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
           const senderObj = bp.sender && typeof bp.sender === 'object' ? bp.sender as Record<string, unknown> : null;
           const messageObj = bp.message && typeof bp.message === 'object' ? bp.message as Record<string, unknown> : null;
-          isProcessableEvent = !!(senderObj?.id && (messageObj?.msg_id || bp.zalo_msg_id));
+          const msgId = String(messageObj?.msg_id ?? bp.zalo_msg_id ?? '');
+          // Zalo Developer Console test events use placeholder msg_id like
+          // "This is message id" — real Zalo msg_ids are hex strings without spaces.
+          const isTestMsgId = !msgId || msgId.includes(' ');
+          isProcessableEvent = !!(senderObj?.id && msgId && !isTestMsgId);
         } catch { /* not valid JSON = not a real event */ }
 
         if (!isProcessableEvent && authResult.statusCode !== 429) {
