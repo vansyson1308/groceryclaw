@@ -259,7 +259,7 @@ export function verifyWebhookRequest(config: WebhookAuthConfig, request: Webhook
           rawBufLen: rawBody.length,
           secretLen: secret.length,
           bodyFirst60: bodyStr.slice(0, 60),
-          rawHexFirst20: rawBody.subarray(0, 10).toString('hex'),
+          rawHexFirst20: (rawBody as unknown as Uint8Array).slice(0, 10).toString(),
         }));
         expectedHex = 'mismatch';
       } else {
