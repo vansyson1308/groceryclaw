@@ -602,6 +602,25 @@ There Is No Limit To What You Can Accomplish Using Zalo!
       }, raw);
 
       if (!authResult.ok) {
+        // Zalo webhook URL verification: if signature fails but the payload
+        // is not a processable event (missing sender.id / message.msg_id),
+        // treat it as a connectivity/verification test and return 200.
+        // This allows Zalo Developer Console to confirm the endpoint while
+        // still enforcing auth for real webhook events.
+        let isProcessableEvent = false;
+        try {
+          const bp = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
+          const senderObj = bp.sender && typeof bp.sender === 'object' ? bp.sender as Record<string, unknown> : null;
+          const messageObj = bp.message && typeof bp.message === 'object' ? bp.message as Record<string, unknown> : null;
+          isProcessableEvent = !!(senderObj?.id && (messageObj?.msg_id || bp.zalo_msg_id));
+        } catch { /* not valid JSON = not a real event */ }
+
+        if (!isProcessableEvent && authResult.statusCode !== 429) {
+          logger.info('webhook_verification_passthrough', { request_id: requestId, body_len: raw.length });
+          json(res, 200, { status: 'ok' });
+          return;
+        }
+
         metrics.webhookAuthFailuresTotal += 1;
         const debugHeaders: Record<string, string> = {};
         for (const h of ['x-zevent-signature', 'x-zalo-signature', 'mac', 'content-type']) {
