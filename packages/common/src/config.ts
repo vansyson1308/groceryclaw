@@ -69,11 +69,11 @@ function parsePositiveInt(value: string | undefined, field: string, fallback: nu
 
 function parseVerifyMode(value: string | undefined): WebhookVerifyMode {
   const mode = value ?? 'mode1';
-  if (mode === 'mode1' || mode === 'mode2') {
+  if (mode === 'mode1' || mode === 'mode2' || mode === 'none') {
     return mode;
   }
 
-  throw new Error(`WEBHOOK_VERIFY_MODE must be one of mode1|mode2, received: ${mode}`);
+  throw new Error(`WEBHOOK_VERIFY_MODE must be one of mode1|mode2|none, received: ${mode}`);
 }
 
 function parseCsv(value: string | undefined): string[] {

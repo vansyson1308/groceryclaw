@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export type WebhookVerifyMode = 'mode1' | 'mode2';
+export type WebhookVerifyMode = 'mode1' | 'mode2' | 'none';
 
 export interface WebhookAuthConfig {
   readonly nodeEnv: 'development' | 'test' | 'production';
@@ -168,7 +168,7 @@ function parsePlatformUserId(rawBody: Buffer): string | null {
 
 export function verifyWebhookRequest(config: WebhookAuthConfig, request: WebhookAuthRequest, rawBody: Buffer): WebhookAuthResult {
   // Skip signature verification entirely when verify mode is 'none'
-  if (config.verifyMode === 'none' as WebhookVerifyMode) {
+  if (config.verifyMode === 'none') {
     return { ok: true, statusCode: 200, reason: 'verified' };
   }
 
