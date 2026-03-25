@@ -12,6 +12,13 @@ else
   echo "[entrypoint] WARNING: No DB_APP_URL or DATABASE_URL set — skipping migrations."
 fi
 
+# --- One-off: create invite code if requested ---
+if [ "$CREATE_INVITE" = "true" ]; then
+  echo "[entrypoint] Creating tenant + invite code..."
+  node scripts/v2/create_invite.mjs
+  echo "[entrypoint] Done. Set CREATE_INVITE= (empty) to skip next deploy."
+fi
+
 # Start worker in background (processes BullMQ jobs)
 node apps/worker/dist/index.js &
 WORKER_PID=$!
