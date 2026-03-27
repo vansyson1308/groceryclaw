@@ -33,6 +33,77 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sqlQuoteSync(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+async function resolveKiotvietOAuthToken(
+  deps: KiotvietSyncDeps,
+  tenantId: string,
+  credentials: Record<string, unknown>
+): Promise<string | null> {
+  const clientId = typeof credentials.client_id === 'string' ? credentials.client_id : '';
+  const clientSecret = typeof credentials.client_secret === 'string' ? credentials.client_secret : '';
+  const retailer = typeof credentials.retailer === 'string' ? credentials.retailer : '';
+
+  if (!clientId || !clientSecret) return null;
+
+  // Check cache first
+  const cachedRow = await deps.queryOne(`
+    SELECT access_token
+    FROM kiotviet_token_cache
+    WHERE tenant_id = ${sqlQuoteSync(tenantId)}::uuid
+      AND expires_at > now()
+    LIMIT 1;
+  `);
+
+  const cachedToken = cachedRow.split('\n').map((x) => x.trim()).find((x) => x.length > 10);
+  if (cachedToken) return cachedToken;
+
+  // Exchange credentials for access token
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const res = await fetch('https://id.kiotviet.vn/connect/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          scopes: 'PublicApi.Access',
+          grant_type: 'client_credentials',
+          client_id: clientId,
+          client_secret: clientSecret
+        }).toString(),
+        signal: controller.signal
+      });
+
+      if (!res.ok) return null;
+
+      const data = await res.json() as { access_token?: string; expires_in?: number };
+      if (!data.access_token) return null;
+
+      const expiresInSeconds = data.expires_in ?? 3600;
+      const expiresAt = new Date(Date.now() + (expiresInSeconds - 60) * 1000).toISOString();
+
+      // Cache the token
+      await deps.exec(`
+        INSERT INTO kiotviet_token_cache (tenant_id, access_token, expires_at)
+        VALUES (${sqlQuoteSync(tenantId)}::uuid, ${sqlQuoteSync(data.access_token)}, ${sqlQuoteSync(expiresAt)}::timestamptz)
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          access_token = EXCLUDED.access_token,
+          expires_at = EXCLUDED.expires_at,
+          created_at = now();
+      `);
+
+      return data.access_token;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
 export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJobEnvelope): Promise<void> {
   if (!job.tenant_id || !job.canonical_invoice_id) throw new Error('invalid_sync_job');
 
@@ -90,24 +161,36 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
 
   let secretToken = '';
   if (deps.mekB64) {
-    const secretRow = await deps.queryOne(`
-      SELECT encode(encrypted_dek, 'hex') || '|' || encode(encrypted_value, 'hex') || '|' || encode(dek_nonce, 'hex') || '|' || encode(value_nonce, 'hex')
-      FROM secret_versions
-      WHERE tenant_id = $1::uuid
-        AND secret_type = 'kiotviet_token'
-        AND status = 'active'
-      ORDER BY version DESC
-      LIMIT 1;
-    `, [job.tenant_id]);
+    // Try kiotviet_client_credentials first (per-tenant OAuth), then fall back to kiotviet_token (legacy)
+    for (const secretType of ['kiotviet_client_credentials', 'kiotviet_token'] as const) {
+      const secretRow = await deps.queryOne(`
+        SELECT encode(encrypted_dek, 'hex') || '|' || encode(encrypted_value, 'hex') || '|' || encode(dek_nonce, 'hex') || '|' || encode(value_nonce, 'hex')
+        FROM secret_versions
+        WHERE tenant_id = $1::uuid
+          AND secret_type = $2
+          AND status = 'active'
+        ORDER BY version DESC
+        LIMIT 1;
+      `, [job.tenant_id, secretType]);
 
-    const line = secretRow.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
-    if (line) {
-      const parsed = parseSecretRow(line);
-      if (parsed) {
-        const plaintext = decryptPayload(parsed, deps.mekB64);
-        const payload = JSON.parse(plaintext) as Record<string, unknown>;
-        if (typeof payload.token === 'string' && payload.token.trim()) {
-          secretToken = payload.token;
+      const line = secretRow.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
+      if (line) {
+        const parsed = parseSecretRow(line);
+        if (parsed) {
+          const plaintext = decryptPayload(parsed, deps.mekB64);
+          const payload = JSON.parse(plaintext) as Record<string, unknown>;
+
+          if (secretType === 'kiotviet_client_credentials') {
+            // OAuth flow: exchange client_id + client_secret for access token
+            const accessToken = await resolveKiotvietOAuthToken(deps, job.tenant_id, payload);
+            if (accessToken) {
+              secretToken = accessToken;
+              break;
+            }
+          } else if (typeof payload.token === 'string' && payload.token.trim()) {
+            secretToken = payload.token;
+            break;
+          }
         }
       }
     }

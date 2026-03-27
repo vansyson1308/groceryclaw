@@ -1,5 +1,4 @@
-import type { RuntimeEnvironment } from './types.js';
-import type { WebhookAuthConfig, WebhookVerifyMode } from './webhook-auth.js';
+import type { RuntimeEnvironment, TelegramConfig, TelegramMode } from './types.js';
 
 export interface BaseConfig {
   readonly nodeEnv: RuntimeEnvironment;
@@ -9,7 +8,7 @@ export interface BaseConfig {
 }
 
 export interface GatewayConfig extends BaseConfig {
-  readonly webhookAuth: WebhookAuthConfig;
+  readonly telegram: TelegramConfig;
 }
 
 export interface DatabaseConfig {
@@ -67,18 +66,13 @@ function parsePositiveInt(value: string | undefined, field: string, fallback: nu
   return parsed;
 }
 
-function parseVerifyMode(value: string | undefined): WebhookVerifyMode {
-  const mode = value ?? 'mode1';
-  if (mode === 'mode1' || mode === 'mode2' || mode === 'none') {
+function parseTelegramMode(value: string | undefined): TelegramMode {
+  const mode = value ?? 'polling';
+  if (mode === 'polling' || mode === 'webhook') {
     return mode;
   }
 
-  throw new Error(`WEBHOOK_VERIFY_MODE must be one of mode1|mode2|none, received: ${mode}`);
-}
-
-function parseCsv(value: string | undefined): string[] {
-  if (!value) return [];
-  return value.split(',').map((item) => item.trim()).filter((item) => item.length > 0);
+  throw new Error(`TELEGRAM_MODE must be one of polling|webhook, received: ${mode}`);
 }
 
 function parseDbUrl(value: string, field: 'DB_APP_URL' | 'DB_ADMIN_URL'): string {
@@ -140,36 +134,16 @@ export function loadGatewayConfig(envInput?: Record<string, string | undefined>)
     env
   });
 
-  const verifyMode = parseVerifyMode(env.WEBHOOK_VERIFY_MODE);
-  const enforceTimestamp = parseBoolean(env.WEBHOOK_ENFORCE_TIMESTAMP, false);
-
-  if (enforceTimestamp && verifyMode !== 'mode1') {
-    throw new Error('WEBHOOK_ENFORCE_TIMESTAMP can only be true when WEBHOOK_VERIFY_MODE=mode1');
-  }
+  const botToken = env.TELEGRAM_BOT_TOKEN ?? '';
+  const mode = parseTelegramMode(env.TELEGRAM_MODE);
 
   return {
     ...base,
-    webhookAuth: {
-      nodeEnv: base.nodeEnv,
-      verifyMode,
-      mode2AllowInProduction: parseBoolean(env.WEBHOOK_MODE2_ALLOW_IN_PRODUCTION, false),
-      signatureSecret: env.WEBHOOK_SIGNATURE_SECRET ?? '',
-      signatureHeaders: parseCsv(env.WEBHOOK_SIGNATURE_HEADERS).length > 0
-        ? parseCsv(env.WEBHOOK_SIGNATURE_HEADERS)
-        : ['x-zevent-signature', 'x-zalo-signature', 'x-signature'],
-      signatureAlgorithm: env.WEBHOOK_SIGNATURE_ALGORITHM === 'sha512' ? 'sha512' : 'sha256',
-      mode2TokenHeader: (env.WEBHOOK_MODE2_TOKEN_HEADER ?? 'x-webhook-token').toLowerCase(),
-      mode2Token: env.WEBHOOK_MODE2_TOKEN ?? '',
-      mode2IpAllowlist: parseCsv(env.WEBHOOK_MODE2_IP_ALLOWLIST),
-      mode2GlobalRateLimitPerMinute: parsePositiveInt(env.WEBHOOK_MODE2_GLOBAL_RATE_PER_MINUTE, 'WEBHOOK_MODE2_GLOBAL_RATE_PER_MINUTE', 300),
-      mode2PerIpRateLimitPerMinute: parsePositiveInt(env.WEBHOOK_MODE2_PER_IP_RATE_PER_MINUTE, 'WEBHOOK_MODE2_PER_IP_RATE_PER_MINUTE', 60),
-      mode2PerPlatformUserRateLimitPerMinute: parsePositiveInt(env.WEBHOOK_MODE2_PER_PLATFORM_USER_RATE_PER_MINUTE, 'WEBHOOK_MODE2_PER_PLATFORM_USER_RATE_PER_MINUTE', 30),
-      mode2AttachmentAllowlist: parseCsv(env.WEBHOOK_MODE2_ATTACHMENT_ALLOWLIST).length > 0
-        ? parseCsv(env.WEBHOOK_MODE2_ATTACHMENT_ALLOWLIST)
-        : ['zalo.me', 'zadn.vn'],
-      enforceTimestamp,
-      timestampHeader: (env.WEBHOOK_TIMESTAMP_HEADER ?? 'x-zalo-timestamp').toLowerCase(),
-      timestampMaxDriftSeconds: parsePositiveInt(env.WEBHOOK_TIMESTAMP_MAX_DRIFT_SECONDS, 'WEBHOOK_TIMESTAMP_MAX_DRIFT_SECONDS', 300)
+    telegram: {
+      botToken,
+      mode,
+      ...(env.TELEGRAM_WEBHOOK_SECRET ? { webhookSecret: env.TELEGRAM_WEBHOOK_SECRET } : {}),
+      ...(env.TELEGRAM_WEBHOOK_URL ? { webhookUrl: env.TELEGRAM_WEBHOOK_URL } : {})
     }
   };
 }

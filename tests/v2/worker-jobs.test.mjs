@@ -8,7 +8,7 @@ test('validateWorkerJobEnvelope accepts PROCESS_INBOUND_EVENT payload', () => {
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: '22222222-2222-2222-2222-222222222222',
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1'
   });
 
@@ -21,7 +21,7 @@ test('validateWorkerJobEnvelope rejects missing tenant for PROCESS_INBOUND_EVENT
     tenant_id: null,
     inbound_event_id: '22222222-2222-2222-2222-222222222222',
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1'
   });
 
@@ -35,7 +35,7 @@ test('validateWorkerJobEnvelope accepts MAP_RESOLVE payload', () => {
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: null,
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1',
     canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
   });
@@ -49,7 +49,7 @@ test('validateWorkerJobEnvelope accepts NOTIFY_USER payload', () => {
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: null,
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1',
     notification_type: 'RATE_LIMITED',
     template_vars: {}
@@ -63,8 +63,8 @@ test('validateWorkerJobEnvelope accepts FLUSH_PENDING_NOTIFICATIONS payload', ()
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: '22222222-2222-2222-2222-222222222222',
     platform_user_id: 'u1',
-    zalo_user_id: '33333333-3333-3333-3333-333333333333',
-    zalo_msg_id: 'm1',
+    user_id: '33333333-3333-3333-3333-333333333333',
+    message_id: 'm1',
     correlation_id: 'c1'
   });
   assert.equal(parsed.ok, true);
@@ -76,7 +76,7 @@ test('validateWorkerJobEnvelope accepts numeric enqueued_at_ms and rejects inval
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: '22222222-2222-2222-2222-222222222222',
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1',
     enqueued_at_ms: Date.now()
   });
@@ -87,7 +87,7 @@ test('validateWorkerJobEnvelope accepts numeric enqueued_at_ms and rejects inval
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: '22222222-2222-2222-2222-222222222222',
     platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
+    message_id: 'm1',
     correlation_id: 'c1',
     enqueued_at_ms: -5
   });

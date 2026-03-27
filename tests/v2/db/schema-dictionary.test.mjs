@@ -7,7 +7,7 @@ const dictionary = JSON.parse(readFileSync('db/v2/schema_dictionary.json', 'utf8
 test('schema dictionary has core V2 tables', () => {
   const required = [
     'tenants',
-    'zalo_users',
+    'platform_users',
     'tenant_users',
     'invite_codes',
     'secret_versions',

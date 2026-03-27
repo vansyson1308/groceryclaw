@@ -11,7 +11,8 @@ export type NotificationTemplateVars = Record<string, string | number | boolean>
 export interface NotifyUserPayload {
   readonly tenant_id: string | null;
   readonly platform_user_id: string;
-  readonly zalo_user_id?: string;
+  readonly user_id?: string;
+  readonly telegram_chat_id?: number;
   readonly notification_type: NotificationType;
   readonly template_vars: NotificationTemplateVars;
   readonly correlation_id: string;
@@ -45,8 +46,12 @@ export function renderNotificationTemplate(payload: NotifyUserPayload, maxLen = 
       text = 'Kết nối cửa hàng thành công. Bạn có thể gửi hóa đơn để xử lý ngay.';
       break;
     case 'INVOICE_PROCESSED':
-      requireVars(payload.template_vars, ['invoice_number']);
-      text = `Hóa đơn ${payload.template_vars.invoice_number} đã được xử lý thành công.`;
+      if (payload.template_vars.item_count !== undefined) {
+        text = `Da xu ly thanh cong hoa don voi ${payload.template_vars.item_count} san pham. Tong: ${Number(payload.template_vars.total ?? 0).toLocaleString()} ${payload.template_vars.currency ?? 'VND'}.`;
+      } else {
+        requireVars(payload.template_vars, ['invoice_number']);
+        text = `Hoa don ${payload.template_vars.invoice_number} da duoc xu ly thanh cong.`;
+      }
       break;
     case 'NEED_MAPPING_INPUT':
       requireVars(payload.template_vars, ['unresolved_count']);

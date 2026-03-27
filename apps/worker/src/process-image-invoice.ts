@@ -196,7 +196,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     throw new Error('openai_api_key_missing');
   }
@@ -224,7 +224,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     return;
   }
@@ -286,7 +286,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     await deps.enqueue({
       job_type: 'MAP_RESOLVE', correlation_id: job.correlation_id,
       tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
-      platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id
+      platform_user_id: job.platform_user_id, message_id: job.message_id
     });
   } catch (error) {
     await deps.exec('UPDATE inbound_events SET status = $1, error_message = $2, updated_at = now() WHERE id = $3::uuid;',
@@ -294,7 +294,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     throw (error instanceof Error ? error : new Error('image_ocr_failed'));
   }

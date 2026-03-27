@@ -161,7 +161,7 @@ export async function processChatbotReply(deps: ChatbotDeps, job: WorkerJobEnvel
       job_type: 'NOTIFY_USER', notification_type: 'GENERIC_INFO',
       template_vars: { message: 'Tính năng trả lời tự động chưa được bật.' },
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     return;
   }
@@ -170,7 +170,7 @@ export async function processChatbotReply(deps: ChatbotDeps, job: WorkerJobEnvel
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     return;
   }
@@ -183,13 +183,13 @@ export async function processChatbotReply(deps: ChatbotDeps, job: WorkerJobEnvel
       job_type: 'NOTIFY_USER', notification_type: 'GENERIC_INFO',
       template_vars: { message: reply },
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
   } catch (error) {
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
-      zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
+      message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id
     });
     throw (error instanceof Error ? error : new Error('chatbot_failed'));
   }

@@ -14,7 +14,7 @@ import {
   setNotifierPendingBacklog
 } from './metrics.js';
 import { runTenantScopedTransaction } from './db-session.js';
-import { ZaloSendError, type ZaloOutboundAdapter } from './zalo-adapter.js';
+import { TelegramSendError, type TelegramOutboundAdapter } from './telegram-adapter.js';
 
 function sqlQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
@@ -40,7 +40,7 @@ export interface NotifierDeps {
   readonly exec: (sql: string) => Promise<void>;
   readonly queryOne: (sql: string) => Promise<string>;
   readonly queryMany: (sql: string) => Promise<string[]>;
-  readonly adapter: ZaloOutboundAdapter;
+  readonly adapter: TelegramOutboundAdapter;
   readonly enabled: boolean;
   readonly interactionWindowEnforced: boolean;
   readonly flushEnabled: boolean;
@@ -68,7 +68,7 @@ async function canSendNow(deps: NotifierDeps, tenantId: string, zaloUserId: stri
     BEGIN;
     SET LOCAL app.current_tenant = ${sqlQuote(tenantId)};
     SELECT COALESCE(EXTRACT(EPOCH FROM (now() - last_interaction_at))::bigint, 9999999)::text
-    FROM zalo_users
+    FROM platform_users
     WHERE id = ${sqlQuote(zaloUserId)}::uuid
     LIMIT 1;
     COMMIT;
@@ -153,7 +153,7 @@ async function markTerminalFailure(deps: NotifierDeps, payload: NotifyUserPayloa
 }
 
 async function deferNotification(deps: NotifierDeps, payload: NotifyUserPayload): Promise<void> {
-  if (!payload.tenant_id || !payload.zalo_user_id) {
+  if (!payload.tenant_id || !payload.user_id) {
     return;
   }
 
@@ -169,17 +169,17 @@ async function deferNotification(deps: NotifierDeps, payload: NotifyUserPayload)
         await deps.exec(`
           DELETE FROM pending_notifications
           WHERE tenant_id = ${sqlQuote(payload.tenant_id!)}::uuid
-            AND zalo_user_id = ${sqlQuote(payload.zalo_user_id!)}::uuid
+            AND user_id = ${sqlQuote(payload.user_id!)}::uuid
             AND status = 'pending'
             AND message_type = ${sqlQuote(payload.notification_type)};
         `);
       }
 
       await deps.exec(`
-        INSERT INTO pending_notifications (tenant_id, zalo_user_id, platform_user_id, message_type, payload, expires_at, status)
+        INSERT INTO pending_notifications (tenant_id, user_id, platform_user_id, message_type, payload, expires_at, status)
         VALUES (
           ${sqlQuote(payload.tenant_id!)}::uuid,
-          ${sqlQuote(payload.zalo_user_id!)}::uuid,
+          ${sqlQuote(payload.user_id!)}::uuid,
           ${sqlQuote(payload.platform_user_id)},
           ${sqlQuote(payload.notification_type)},
           ${sqlQuote(JSON.stringify(payload.template_vars ?? {}))}::jsonb,
@@ -194,7 +194,7 @@ async function deferNotification(deps: NotifierDeps, payload: NotifyUserPayload)
           SELECT id
           FROM pending_notifications
           WHERE tenant_id = ${sqlQuote(payload.tenant_id!)}::uuid
-            AND zalo_user_id = ${sqlQuote(payload.zalo_user_id!)}::uuid
+            AND user_id = ${sqlQuote(payload.user_id!)}::uuid
             AND status = 'pending'
           ORDER BY created_at DESC
           OFFSET ${maxPending}
@@ -205,7 +205,7 @@ async function deferNotification(deps: NotifierDeps, payload: NotifyUserPayload)
         UPDATE pending_notifications
         SET status = 'expired'
         WHERE tenant_id = ${sqlQuote(payload.tenant_id!)}::uuid
-          AND zalo_user_id = ${sqlQuote(payload.zalo_user_id!)}::uuid
+          AND user_id = ${sqlQuote(payload.user_id!)}::uuid
           AND status = 'pending'
           AND expires_at <= now();
       `);
@@ -218,7 +218,7 @@ async function deferNotification(deps: NotifierDeps, payload: NotifyUserPayload)
           'notifier',
           'notification_deferred',
           'pending_notifications',
-          ${sqlQuote(payload.zalo_user_id!)},
+          ${sqlQuote(payload.user_id!)},
           ${sqlQuote(JSON.stringify({
             notification_type: payload.notification_type,
             correlation_id: payload.correlation_id
@@ -241,7 +241,7 @@ async function sendNotification(deps: NotifierDeps, payload: NotifyUserPayload, 
       limit_scope: limiter.scope
     });
 
-    if (payload.tenant_id && payload.zalo_user_id) {
+    if (payload.tenant_id && payload.user_id) {
       await deferNotification(deps, payload);
       return false;
     }
@@ -267,7 +267,8 @@ async function sendNotification(deps: NotifierDeps, payload: NotifyUserPayload, 
       `);
     }
 
-    const result = await deps.adapter.sendText(payload.platform_user_id, text, { correlation_id: payload.correlation_id });
+    const chatId = payload.telegram_chat_id ?? Number(payload.platform_user_id);
+    const result = await deps.adapter.sendText(chatId, text, { correlation_id: payload.correlation_id });
 
     if (payload.tenant_id) {
       await deps.exec(`
@@ -301,7 +302,7 @@ async function sendNotification(deps: NotifierDeps, payload: NotifyUserPayload, 
     return true;
   } catch (error) {
     recordNotifierFailed();
-    if (error instanceof ZaloSendError) {
+    if (error instanceof TelegramSendError) {
       if (error.kind === 'TERMINAL') {
         await markTerminalFailure(deps, payload, error.code, pendingNotificationId);
         logger.error('notifier_send_terminal_failure', {
@@ -346,14 +347,14 @@ export async function processNotifyUserJob(deps: NotifierDeps, job: WorkerJobEnv
   const payload: NotifyUserPayload = {
     tenant_id: job.tenant_id,
     platform_user_id: job.platform_user_id,
-    ...(job.zalo_user_id ? { zalo_user_id: job.zalo_user_id } : {}),
+    ...(job.user_id ? { user_id: job.user_id } : {}),
     notification_type: job.notification_type,
     template_vars: job.template_vars ?? {},
     correlation_id: job.correlation_id
   };
 
-  if (deps.interactionWindowEnforced && payload.tenant_id && payload.zalo_user_id) {
-    const open = await canSendNow(deps, payload.tenant_id, payload.zalo_user_id);
+  if (deps.interactionWindowEnforced && payload.tenant_id && payload.user_id) {
+    const open = await canSendNow(deps, payload.tenant_id, payload.user_id);
     if (!open) {
       await deferNotification(deps, payload);
       return;
@@ -368,11 +369,11 @@ export async function processFlushPendingNotificationsJob(deps: NotifierDeps, jo
     return;
   }
 
-  if (!job.tenant_id || !job.zalo_user_id) {
+  if (!job.tenant_id || !job.user_id) {
     return;
   }
   const startedAt = Date.now();
-  const zaloUserId = job.zalo_user_id;
+  const zaloUserId = job.user_id;
   const maxRows = Math.max(1, Math.min(deps.flushBatchSize, deps.flushMaxPerRun));
 
   await runTenantScopedTransaction({
@@ -384,7 +385,7 @@ export async function processFlushPendingNotificationsJob(deps: NotifierDeps, jo
         UPDATE pending_notifications
         SET status = 'expired'
         WHERE tenant_id = ${sqlQuote(job.tenant_id!)}::uuid
-          AND zalo_user_id = ${sqlQuote(zaloUserId)}::uuid
+          AND user_id = ${sqlQuote(zaloUserId)}::uuid
           AND status = 'pending'
           AND expires_at <= now();
       `);
@@ -393,7 +394,7 @@ export async function processFlushPendingNotificationsJob(deps: NotifierDeps, jo
         SELECT id::text || '|' || COALESCE(platform_user_id, '') || '|' || message_type || '|' || payload::text
         FROM pending_notifications
         WHERE tenant_id = ${sqlQuote(job.tenant_id!)}::uuid
-          AND zalo_user_id = ${sqlQuote(zaloUserId)}::uuid
+          AND user_id = ${sqlQuote(zaloUserId)}::uuid
           AND status = 'pending'
           AND expires_at > now()
         ORDER BY created_at ASC
@@ -414,7 +415,7 @@ export async function processFlushPendingNotificationsJob(deps: NotifierDeps, jo
 
         const notifyPayload: NotifyUserPayload = {
           tenant_id: job.tenant_id,
-          zalo_user_id: zaloUserId,
+          user_id: zaloUserId,
           platform_user_id: row.platform_user_id,
           notification_type: row.message_type as NotifyUserPayload['notification_type'],
           template_vars: row.payload,

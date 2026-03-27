@@ -127,7 +127,7 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
 
   if (!deps.xmlParseEnabled) {
     await deps.exec('UPDATE inbound_events SET status = $1, updated_at = now() WHERE id = $2::uuid;', ['completed', job.inbound_event_id]);
-    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_skipped', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
+    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_skipped', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
     await markJob(deps, job.tenant_id, job.correlation_id, 'completed');
     return;
   }
@@ -152,7 +152,7 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
   const xmlUrl = extractXmlUrl(event);
   if (!xmlUrl) {
     await deps.exec('UPDATE inbound_events SET status = $1, error_message = $2, updated_at = now() WHERE id = $3::uuid;', ['failed', 'xml_attachment_missing', event.id]);
-    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_invalid', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
+    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_invalid', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
     await markJob(deps, job.tenant_id, job.correlation_id, 'failed', 'xml_attachment_missing');
     return;
   }
@@ -262,11 +262,11 @@ export async function processInboundEventPipeline(deps: ProcessInboundDeps, job:
       await db.exec('UPDATE inbound_events SET status = $1, updated_at = now() WHERE id = $2::uuid;', ['completed', event.id]);
     });
 
-    await deps.enqueue({ job_type: 'MAP_RESOLVE', correlation_id: job.correlation_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id, platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id });
+    await deps.enqueue({ job_type: 'MAP_RESOLVE', correlation_id: job.correlation_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id, platform_user_id: job.platform_user_id, message_id: job.message_id });
     await markJob(deps, job.tenant_id, job.correlation_id, 'completed');
   } catch (error) {
     await deps.exec('UPDATE inbound_events SET status = $1, error_message = $2, updated_at = now() WHERE id = $3::uuid;', ['failed', 'xml_parse_failed', event.id]);
-    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_invalid', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, zalo_msg_id: job.zalo_msg_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
+    await deps.enqueue({ job_type: 'NOTIFY_USER', template: 'xml_invalid', correlation_id: job.correlation_id, platform_user_id: job.platform_user_id, message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id });
     await markJob(deps, job.tenant_id, job.correlation_id, 'failed', error instanceof Error ? error.message : 'xml_parse_failed');
     throw (error instanceof Error ? error : new Error('xml_parse_failed'));
   }

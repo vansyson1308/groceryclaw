@@ -748,6 +748,149 @@ const server = createServer(async (req, res) => {
       json(res, 200, { items });
       return;
     }
+
+    // ====== KiotViet credentials endpoint ======
+    if (req.method === 'POST' && /^\/tenants\/[0-9a-f-]{36}\/kiotviet$/i.test(url.pathname)) {
+      const principal = await authorize(req, 'ops', requestId);
+      if (!principal) { json(res, 401, { error: 'unauthorized' }); return; }
+      if (!isAllowedByRole('ops', principal.role, req.method)) { json(res, 403, { error: 'forbidden' }); return; }
+
+      const tenantId = parseTenantIdFromPath(url.pathname);
+      if (!tenantId) { json(res, 404, { error: 'not_found' }); return; }
+      if (!adminMekB64) { json(res, 503, { error: 'service_unavailable' }); return; }
+
+      const body = JSON.parse((await readBody(req)).toString('utf8')) as Record<string, unknown>;
+      const clientId = typeof body.client_id === 'string' ? body.client_id.trim() : '';
+      const clientSecret = typeof body.client_secret === 'string' ? body.client_secret.trim() : '';
+      const retailer = typeof body.retailer === 'string' ? body.retailer.trim() : '';
+
+      if (!clientId || !clientSecret) { json(res, 400, { error: 'bad_request' }); return; }
+
+      // Encrypt credentials
+      const secretPayload = JSON.stringify({ client_id: clientId, client_secret: clientSecret, retailer });
+      const encrypted = encryptPayload(secretPayload, adminMekB64);
+
+      // Get next version
+      const versionOut = await runSql(`
+        SELECT COALESCE(MAX(version), 0) + 1 FROM secret_versions
+        WHERE tenant_id = $1::uuid AND secret_type = 'kiotviet_client_credentials';
+      `, [tenantId]);
+      const nextVersion = Number(versionOut.trim()) || 1;
+
+      // Revoke old active versions
+      await runSql(`
+        UPDATE secret_versions SET status = 'rotated', rotated_at = now()
+        WHERE tenant_id = $1::uuid AND secret_type = 'kiotviet_client_credentials' AND status = 'active';
+      `, [tenantId]);
+
+      // Insert new version
+      await runSql(`
+        INSERT INTO secret_versions (tenant_id, secret_type, version, encrypted_dek, encrypted_value, dek_nonce, value_nonce, status)
+        VALUES ($1::uuid, 'kiotviet_client_credentials', $2, $3, $4, $5, $6, 'active');
+      `, [
+        tenantId, nextVersion,
+        encrypted.encryptedDek, encrypted.encryptedValue,
+        encrypted.dekNonce, encrypted.valueNonce
+      ]);
+
+      // Update tenant with client_id and retailer
+      await runSql(`
+        UPDATE tenants SET kiotviet_client_id = $1, kiotviet_retailer = $2, updated_at = now()
+        WHERE id = $3::uuid;
+      `, [clientId, retailer, tenantId]);
+
+      await writeAdminAudit(principal, 'kiotviet_credentials_set', requestId, {
+        client_id: clientId, retailer, version: nextVersion
+      }, tenantId);
+
+      json(res, 200, { status: 'ok', client_id: clientId, retailer, version: nextVersion });
+      return;
+    }
+
+    // ====== Employee permissions endpoints ======
+
+    // GET /tenants/:id/permissions - list employees and permissions
+    if (req.method === 'GET' && /^\/tenants\/[0-9a-f-]{36}\/permissions$/i.test(url.pathname)) {
+      const principal = await authorize(req, 'read_only', requestId);
+      if (!principal) { json(res, 401, { error: 'unauthorized' }); return; }
+      if (!isAllowedByRole('read_only', principal.role, req.method)) { json(res, 403, { error: 'forbidden' }); return; }
+
+      const tenantId = parseTenantIdFromPath(url.pathname);
+      if (!tenantId) { json(res, 404, { error: 'not_found' }); return; }
+
+      const result = await runSql(`
+        SELECT ep.id::text, ep.tenant_user_id::text, ep.permission_type, ep.permission_value,
+               pu.platform_user_id, pu.display_name
+        FROM employee_permissions ep
+        JOIN tenant_users tu ON tu.id = ep.tenant_user_id
+        JOIN platform_users pu ON pu.id = tu.user_id
+        WHERE ep.tenant_id = $1::uuid
+        ORDER BY ep.created_at ASC;
+      `, [tenantId]);
+
+      const items = result.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+        const [id, tenantUserId, permType, permValue, platformUserId, displayName] = line.split('|');
+        return { id, tenant_user_id: tenantUserId, permission_type: permType, permission_value: permValue, platform_user_id: platformUserId, display_name: displayName || null };
+      });
+
+      json(res, 200, { items });
+      return;
+    }
+
+    // POST /tenants/:id/permissions - add permission
+    if (req.method === 'POST' && /^\/tenants\/[0-9a-f-]{36}\/permissions$/i.test(url.pathname)) {
+      const principal = await authorize(req, 'ops', requestId);
+      if (!principal) { json(res, 401, { error: 'unauthorized' }); return; }
+      if (!isAllowedByRole('ops', principal.role, req.method)) { json(res, 403, { error: 'forbidden' }); return; }
+
+      const tenantId = parseTenantIdFromPath(url.pathname);
+      if (!tenantId) { json(res, 404, { error: 'not_found' }); return; }
+
+      const body = JSON.parse((await readBody(req)).toString('utf8')) as Record<string, unknown>;
+      const tenantUserId = typeof body.tenant_user_id === 'string' ? body.tenant_user_id.trim() : '';
+      const permType = typeof body.permission_type === 'string' ? body.permission_type.trim() : '';
+      const permValue = typeof body.permission_value === 'string' ? body.permission_value.trim() : '';
+
+      if (!tenantUserId || !permType || !permValue) { json(res, 400, { error: 'bad_request' }); return; }
+      if (!['product_code', 'category', 'all'].includes(permType)) { json(res, 400, { error: 'bad_request' }); return; }
+
+      const result = await runSql(`
+        INSERT INTO employee_permissions (tenant_id, tenant_user_id, permission_type, permission_value)
+        VALUES ($1::uuid, $2::uuid, $3, $4)
+        ON CONFLICT (tenant_id, tenant_user_id, permission_type, permission_value) DO NOTHING
+        RETURNING id::text;
+      `, [tenantId, tenantUserId, permType, permValue]);
+
+      const id = result.split('\n').map(l => l.trim()).find(l => /^[0-9a-f-]{36}$/i.test(l));
+
+      await writeAdminAudit(principal, 'permission_create', requestId, {
+        tenant_user_id: tenantUserId, permission_type: permType, permission_value: permValue
+      }, tenantId);
+
+      json(res, id ? 201 : 200, { id: id ?? 'existing', permission_type: permType, permission_value: permValue });
+      return;
+    }
+
+    // DELETE /tenants/:id/permissions/:permId - remove permission
+    if (req.method === 'DELETE' && /^\/tenants\/[0-9a-f-]{36}\/permissions\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+      const principal = await authorize(req, 'ops', requestId);
+      if (!principal) { json(res, 401, { error: 'unauthorized' }); return; }
+      if (!isAllowedByRole('ops', principal.role, req.method)) { json(res, 403, { error: 'forbidden' }); return; }
+
+      const parts = url.pathname.split('/');
+      const tenantId = parts[2] ?? '';
+      const permId = parts[4] ?? '';
+
+      await runSql(`
+        DELETE FROM employee_permissions
+        WHERE id = $1::uuid AND tenant_id = $2::uuid;
+      `, [permId, tenantId]);
+
+      await writeAdminAudit(principal, 'permission_delete', requestId, { permission_id: permId }, tenantId);
+
+      json(res, 200, { status: 'deleted' });
+      return;
+    }
   } catch (error) {
     metrics.requestFailuresTotal += 1;
     logger.warn('admin_request_failed', {

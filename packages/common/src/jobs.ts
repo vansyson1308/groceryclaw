@@ -3,6 +3,7 @@ import type { NotificationType, NotificationTemplateVars } from './notifier-temp
 export type WorkerJobType =
   | 'PROCESS_INBOUND_EVENT'
   | 'PROCESS_IMAGE_INVOICE'
+  | 'PROCESS_EXCEL_INVOICE'
   | 'CHATBOT_REPLY'
   | 'NOTIFY_USER'
   | 'FLUSH_PENDING_NOTIFICATIONS'
@@ -14,9 +15,11 @@ export interface WorkerJobEnvelope {
   readonly tenant_id: string | null;
   readonly inbound_event_id: string | null;
   readonly platform_user_id: string;
-  readonly zalo_user_id?: string;
-  readonly zalo_msg_id: string;
+  readonly message_id: string;
   readonly correlation_id: string;
+  readonly user_id?: string;
+  readonly telegram_chat_id?: number;
+  readonly file_id?: string;
   readonly canonical_invoice_id?: string;
   readonly notification_type?: NotificationType;
   readonly template_vars?: NotificationTemplateVars;
@@ -43,14 +46,14 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
   const payload = input as Record<string, unknown>;
   const jobType = asNonEmptyString(payload.job_type);
   const platformUserId = asNonEmptyString(payload.platform_user_id);
-  const zaloMsgId = asNonEmptyString(payload.zalo_msg_id);
+  const messageId = asNonEmptyString(payload.message_id);
   const correlationId = asNonEmptyString(payload.correlation_id);
 
-  if (!jobType || !platformUserId || !zaloMsgId || !correlationId) {
+  if (!jobType || !platformUserId || !messageId || !correlationId) {
     return { ok: false };
   }
 
-  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC'];
+  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'PROCESS_EXCEL_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC'];
   if (!allowed.includes(jobType as WorkerJobType)) {
     return { ok: false };
   }
@@ -61,11 +64,9 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
   const tenantId = tenantIdRaw === null ? null : asNonEmptyString(tenantIdRaw);
   const inboundEventId = inboundEventIdRaw === null ? null : asNonEmptyString(inboundEventIdRaw);
   const canonicalInvoiceId = canonicalInvoiceRaw === undefined ? null : asNonEmptyString(canonicalInvoiceRaw);
-  const zaloUserId = payload.zalo_user_id === undefined ? null : asNonEmptyString(payload.zalo_user_id);
 
   if (tenantIdRaw !== null && tenantId === null) return { ok: false };
   if (inboundEventIdRaw !== null && inboundEventId === null) return { ok: false };
-  if (payload.zalo_user_id !== undefined && zaloUserId === null) return { ok: false };
 
   if (jobType === 'PROCESS_INBOUND_EVENT' && (!tenantId || !inboundEventId)) {
     return { ok: false };
@@ -73,10 +74,13 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
   if (jobType === 'PROCESS_IMAGE_INVOICE' && (!tenantId || !inboundEventId)) {
     return { ok: false };
   }
+  if (jobType === 'PROCESS_EXCEL_INVOICE' && (!tenantId || !inboundEventId)) {
+    return { ok: false };
+  }
   if (jobType === 'CHATBOT_REPLY' && !tenantId) {
     return { ok: false };
   }
-  if (jobType === 'FLUSH_PENDING_NOTIFICATIONS' && (!tenantId || !zaloUserId)) {
+  if (jobType === 'FLUSH_PENDING_NOTIFICATIONS' && !tenantId) {
     return { ok: false };
   }
   if ((jobType === 'MAP_RESOLVE' || jobType === 'KIOTVIET_SYNC') && (!tenantId || !canonicalInvoiceId)) {
@@ -100,6 +104,16 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
     }
   }
 
+  const telegramChatId = payload.telegram_chat_id;
+  if (telegramChatId !== undefined && (typeof telegramChatId !== 'number' || !Number.isInteger(telegramChatId))) {
+    return { ok: false };
+  }
+
+  const fileId = payload.file_id;
+  if (fileId !== undefined && typeof fileId !== 'string') {
+    return { ok: false };
+  }
+
   return {
     ok: true,
     value: {
@@ -107,9 +121,11 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
       tenant_id: tenantId,
       inbound_event_id: inboundEventId,
       platform_user_id: platformUserId,
-      ...(zaloUserId ? { zalo_user_id: zaloUserId } : {}),
-      zalo_msg_id: zaloMsgId,
+      message_id: messageId,
       correlation_id: correlationId,
+      ...(typeof payload.user_id === 'string' && payload.user_id.length > 0 ? { user_id: payload.user_id as string } : {}),
+      ...(typeof telegramChatId === 'number' ? { telegram_chat_id: telegramChatId } : {}),
+      ...(typeof fileId === 'string' && fileId.length > 0 ? { file_id: fileId } : {}),
       ...(canonicalInvoiceId ? { canonical_invoice_id: canonicalInvoiceId } : {}),
       ...(notificationType ? { notification_type: notificationType as NotificationType } : {}),
       ...(templateVars && isRecord(templateVars) ? { template_vars: templateVars } : {}),
