@@ -242,7 +242,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
       message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
       telegram_chat_id: job.telegram_chat_id,
-      message_text: `Da nhan dien ${itemCount} san pham, tong ${totalStr} VND tu anh hoa don.`
+      template_vars: { message: `Da nhan dien ${itemCount} san pham, tong ${totalStr} VND tu anh hoa don.` }
     });
 
     await deps.enqueue({
@@ -256,8 +256,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
       message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
-      telegram_chat_id: job.telegram_chat_id,
-      message_text: 'Khong the xu ly anh hoa don. Vui long thu lai hoac gui file Excel.'
+      telegram_chat_id: job.telegram_chat_id
     });
     throw (error instanceof Error ? error : new Error('image_ocr_failed'));
   }
