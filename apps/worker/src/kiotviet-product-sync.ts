@@ -49,9 +49,18 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
   const clientSecret = typeof creds.client_secret === 'string' ? creds.client_secret : '';
   const retailer = typeof creds.retailer === 'string' ? creds.retailer : '';
 
-  if (!clientId || !clientSecret || !retailer) {
-    console.error('[product-sync] missing creds:', { hasClientId: !!clientId, hasSecret: !!clientSecret, hasRetailer: !!retailer });
-    return null;
+  if (!clientId || !clientSecret) {
+    throw new Error(`product_sync_decrypt_fail:id=${!!clientId},secret=${!!clientSecret}`);
+  }
+
+  // Retailer from secret payload OR from tenants table
+  let resolvedRetailer = retailer;
+  if (!resolvedRetailer) {
+    const tenantRow = await deps.queryOne(`SELECT kiotviet_retailer FROM tenants WHERE id = $1::uuid`, [tenantId]);
+    resolvedRetailer = tenantRow.split('\n').map((x) => x.trim()).find((x) => x.length > 0) ?? '';
+  }
+  if (!resolvedRetailer) {
+    throw new Error('product_sync_missing_retailer');
   }
 
   // Check token cache
@@ -60,7 +69,7 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
     WHERE tenant_id = $1::uuid AND expires_at > now() LIMIT 1;
   `, [tenantId]);
   const cachedToken = cachedRow.split('\n').map((x) => x.trim()).find((x) => x.length > 10);
-  if (cachedToken) return { token: cachedToken, retailer };
+  if (cachedToken) return { token: cachedToken, retailer: resolvedRetailer };
 
   // Exchange credentials
   const res = await fetch('https://id.kiotviet.vn/connect/token', {
@@ -86,7 +95,7 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
     ON CONFLICT (tenant_id) DO UPDATE SET access_token = EXCLUDED.access_token, expires_at = EXCLUDED.expires_at, created_at = now();
   `, [tenantId, data.access_token, expiresAt]);
 
-  return { token: data.access_token, retailer };
+  return { token: data.access_token, retailer: resolvedRetailer };
 }
 
 export async function processKiotvietProductSync(deps: ProductSyncDeps, job: WorkerJobEnvelope): Promise<{ synced: number }> {
