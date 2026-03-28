@@ -276,12 +276,12 @@ async function processImageInvoiceJob(job: WorkerJobEnvelope): Promise<void> {
       });
     },
     enqueue,
+    telegramAdapter: createTelegramAdapter(),
     ocrEnabled: (process.env.WORKER_IMAGE_OCR_ENABLED ?? 'false') === 'true',
     openaiApiKey: process.env.OPENAI_API_KEY ?? '',
     openaiModel: process.env.OPENAI_OCR_MODEL ?? 'gpt-4o',
-    allowedDomains: (process.env.WORKER_XML_ALLOWED_DOMAINS ?? 'zalo.me,zadn.vn').split(',').map((x) => x.trim()).filter(Boolean),
-    maxBytes: Number(process.env.WORKER_IMAGE_MAX_BYTES ?? '10485760'),
-    timeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? '30000')
+    maxImageBytes: Number(process.env.WORKER_IMAGE_MAX_BYTES ?? '10485760'),
+    openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS ?? '60000')
   }, job);
 }
 

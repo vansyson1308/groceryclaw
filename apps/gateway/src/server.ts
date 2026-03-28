@@ -402,6 +402,7 @@ async function enqueueLinkedFlow(event: TelegramBotEvent, requestId: string, ten
       message_id: messageId,
       telegram_chat_id: event.chat_id,
       ...(event.document?.file_id ? { file_id: event.document.file_id } : {}),
+      ...(event.photo?.length ? { file_id: event.photo[event.photo.length - 1]!.file_id } : {}),
       ...(messageClass === 'text_chat' && event.text ? { message_text: event.text } : {})
     });
   }
