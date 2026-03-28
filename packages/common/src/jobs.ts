@@ -8,7 +8,8 @@ export type WorkerJobType =
   | 'NOTIFY_USER'
   | 'FLUSH_PENDING_NOTIFICATIONS'
   | 'MAP_RESOLVE'
-  | 'KIOTVIET_SYNC';
+  | 'KIOTVIET_SYNC'
+  | 'KIOTVIET_PRODUCT_SYNC';
 
 export interface WorkerJobEnvelope {
   readonly job_type: WorkerJobType;
@@ -53,7 +54,7 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
     return { ok: false };
   }
 
-  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'PROCESS_EXCEL_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC'];
+  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'PROCESS_EXCEL_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC', 'KIOTVIET_PRODUCT_SYNC'];
   if (!allowed.includes(jobType as WorkerJobType)) {
     return { ok: false };
   }

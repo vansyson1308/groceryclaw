@@ -26,6 +26,7 @@ import { processKiotvietSync } from './kiotviet-sync.js';
 import { NotifierRetriableError, processFlushPendingNotificationsJob, processNotifyUserJob } from './notifier.js';
 import { HttpTelegramBotAdapter, InMemoryStubTelegramAdapter } from './telegram-adapter.js';
 import { processExcelInvoice } from './process-excel-invoice.js';
+import { processKiotvietProductSync } from './kiotviet-product-sync.js';
 
 const config = loadBaseConfig({
   serviceName: 'worker',
@@ -228,8 +229,39 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
     queryMany: runQueryMany,
     exec: runSql,
     enqueue,
-    mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true'
+    mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
+    openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+    openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
   }, job);
+}
+
+async function processProductSyncJob(job: WorkerJobEnvelope): Promise<void> {
+  const tenantId = job.tenant_id;
+  if (!tenantId) throw new Error('product_sync_missing_tenant');
+  if (!pgPool) throw new Error('product_sync_no_db');
+
+  await runTenantScopedTransaction({
+    pool: pgPool,
+    tenantId,
+    applicationName: 'worker:KIOTVIET_PRODUCT_SYNC',
+    work: async (client) => {
+      const adapter = new HttpKiotvietAdapter(
+        process.env.KIOTVIET_BASE_URL ?? 'https://public.kiotapi.com',
+        Number(process.env.KIOTVIET_TIMEOUT_MS ?? '10000')
+      );
+      await processKiotvietProductSync({
+        queryOne: async (sql, params = []) => {
+          const result = await query(client, sql, params);
+          if (result.rows.length === 0) return '';
+          const row = result.rows[0] ?? {};
+          return Object.values(row).join('|').trim();
+        },
+        exec: async (sql, params = []) => { await query(client, sql, params); },
+        adapter,
+        mekB64: process.env.WORKER_MEK_B64 ?? ''
+      }, job);
+    }
+  });
 }
 
 async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
@@ -398,6 +430,8 @@ async function handleEnvelope(rawData: unknown): Promise<void> {
     await processMapResolveJob(job);
   } else if (job.job_type === 'KIOTVIET_SYNC') {
     await processKiotvietSyncJob(job);
+  } else if (job.job_type === 'KIOTVIET_PRODUCT_SYNC') {
+    await processProductSyncJob(job);
   } else if (job.job_type === 'FLUSH_PENDING_NOTIFICATIONS') {
     await processFlushPending(job);
   } else {
