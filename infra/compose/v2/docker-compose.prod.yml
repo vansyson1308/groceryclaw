@@ -59,6 +59,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ADMIN_HOST: "0.0.0.0"
       ADMIN_PORT: "3001"
+      DB_ADMIN_URL: "postgresql://${POSTGRES_SUPERUSER}:${POSTGRES_SUPERUSER_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}"
       ADMIN_ENABLED: "true"
       ADMIN_BREAKGLASS_ENABLED: "true"
       ADMIN_BREAKGLASS_API_KEY: ${ADMIN_BREAKGLASS_API_KEY:?set ADMIN_BREAKGLASS_API_KEY in .env.prod}
