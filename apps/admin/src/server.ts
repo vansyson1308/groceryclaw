@@ -232,10 +232,10 @@ function validateTenantPatch(input: unknown): { ok: true; processingMode?: 'lega
   return { ok: true, ...(processingMode ? { processingMode } : {}), ...(enabled !== undefined ? { enabled } : {}), ...(metadata ? { metadata } : {}) };
 }
 
-function validateSecretRotate(input: unknown): { ok: true; secretType: 'kiotviet_token'; payload: Record<string, unknown> } | { ok: false } {
+function validateSecretRotate(input: unknown): { ok: true; secretType: 'kiotviet_token' | 'kiotviet_client_credentials'; payload: Record<string, unknown> } | { ok: false } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false };
   const payload = input as Record<string, unknown>;
-  const secretType = payload.secret_type === 'kiotviet_token' ? payload.secret_type : null;
+  const secretType = (payload.secret_type === 'kiotviet_token' || payload.secret_type === 'kiotviet_client_credentials') ? payload.secret_type : null;
   const secretPayload = payload.payload;
   if (!secretType || !secretPayload || typeof secretPayload !== 'object' || Array.isArray(secretPayload)) {
     return { ok: false };
