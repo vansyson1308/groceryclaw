@@ -583,6 +583,7 @@ async function handleOps(req: { method?: string; url?: string; headers?: Record<
       await enqueue({
         job_type: 'KIOTVIET_PRODUCT_SYNC',
         tenant_id: tenantId,
+        inbound_event_id: null,
         platform_user_id: 'system',
         message_id: `sync-${Date.now()}`,
         correlation_id: `product-sync-${Date.now()}`
