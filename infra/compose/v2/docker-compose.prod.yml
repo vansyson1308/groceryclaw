@@ -1,0 +1,108 @@
+# Production overlay for VPS deployment (containerized PostgreSQL)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+
+services:
+  postgres:
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  redis:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  gateway:
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "8080"
+      READYZ_STRICT: "true"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env.prod}
+      TELEGRAM_MODE: polling
+      OPS_KEY: ${OPS_KEY:?set OPS_KEY in .env.prod}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:?set INVITE_PEPPER_B64 in .env.prod}
+      ONBOARDING_INVITE_USER_RATE_PER_MINUTE: ${ONBOARDING_INVITE_USER_RATE_PER_MINUTE:-10}
+      ONBOARDING_INVITE_IP_RATE_PER_MINUTE: ${ONBOARDING_INVITE_IP_RATE_PER_MINUTE:-20}
+    ports:
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8081}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  admin:
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ADMIN_ENABLED: "true"
+      ADMIN_BREAKGLASS_ENABLED: "true"
+      ADMIN_BREAKGLASS_API_KEY: ${ADMIN_BREAKGLASS_API_KEY:?set ADMIN_BREAKGLASS_API_KEY in .env.prod}
+      ADMIN_BREAKGLASS_SCOPE: "read_write"
+      ADMIN_TENANT_ENDPOINTS_ENABLED: "true"
+      ADMIN_SECRETS_ENABLED: "true"
+      ADMIN_INVITE_TTL_HOURS: "720"
+      ADMIN_MEK_B64: ${MEK_B64:?set MEK_B64 in .env.prod}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      WORKER_CONCURRENCY: "5"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env.prod}
+      KIOTVIET_BASE_URL: "https://public.kiotapi.com"
+      KIOTVIET_TIMEOUT_MS: "5000"
+      KIOTVIET_SYNC_MAX_RETRIES: "3"
+      KIOTVIET_SYNC_BACKOFF_MS: "500"
+      WORKER_MEK_B64: ${MEK_B64:?set MEK_B64 in .env.prod}
+      WORKER_MAPPING_ENABLED: "true"
+      WORKER_KIOTVIET_SYNC_ENABLED: "true"
+      WORKER_NOTIFIER_ENABLED: "true"
+      WORKER_XML_PARSE_ENABLED: "false"
+      WORKER_IMAGE_OCR_ENABLED: "false"
+      WORKER_CHATBOT_ENABLED: "false"
+      NOTIFIER_RATE_LIMIT_ENABLED: "true"
+      NOTIFIER_DLQ_ENABLED: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

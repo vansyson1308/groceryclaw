@@ -9,32 +9,40 @@ import { processKiotvietSync } from '../../apps/worker/dist/kiotviet-sync.js';
 function startKvStub(modeRef) {
   let calls = 0;
   let lastAuth = '';
+  let lastRetailer = '';
+  let lastBody = null;
   const server = createServer((req, res) => {
-    if (req.url !== '/imports/draft' || req.method !== 'POST') {
+    if (req.url !== '/purchaseorders' || req.method !== 'POST') {
       res.writeHead(404).end();
       return;
     }
     lastAuth = String(req.headers.authorization ?? '');
-    calls += 1;
-    const mode = modeRef.mode;
-    if (mode === 'success') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ external_reference_id: 'kv-1' }));
-      return;
-    }
-    if (mode === 'rate-then-success') {
-      if (calls === 1) {
-        res.writeHead(429).end();
-      } else {
+    lastRetailer = String(req.headers.retailer ?? '');
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try { lastBody = JSON.parse(body); } catch { lastBody = null; }
+      calls += 1;
+      const mode = modeRef.mode;
+      if (mode === 'success') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ external_reference_id: 'kv-2' }));
+        res.end(JSON.stringify({ id: 123, code: 'PN000123' }));
+        return;
       }
-      return;
-    }
-    if (mode === 'timeout') {
-      return;
-    }
-    res.writeHead(500).end();
+      if (mode === 'rate-then-success') {
+        if (calls === 1) {
+          res.writeHead(429).end();
+        } else {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ id: 124, code: 'PN000124' }));
+        }
+        return;
+      }
+      if (mode === 'timeout') {
+        return;
+      }
+      res.writeHead(500).end();
+    });
   });
 
   return new Promise((resolve) => {
@@ -44,6 +52,8 @@ function startKvStub(modeRef) {
         server,
         calls: () => calls,
         lastAuth: () => lastAuth,
+        lastRetailer: () => lastRetailer,
+        lastBody: () => lastBody,
         baseUrl: `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
       });
     });
@@ -78,14 +88,15 @@ test('kiotviet sync happy path stores result and idempotency', async () => {
   const modeRef = { mode: 'success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
-  const adapter = new HttpKiotvietAdapter(stub.baseUrl, 'token', 1000);
+  const adapter = new HttpKiotvietAdapter(stub.baseUrl, 1000);
 
   const deps = {
     queryOne: async (s) => {
       if (s.includes('FROM idempotency_keys')) return '';
+      if (s.includes('FROM tenants')) return 'taphoatest';
       return '';
     },
-    queryMany: async () => ['SKU1|2'],
+    queryMany: async () => ['SKU1|2|15000'],
     exec: async (s) => { sql.push(s); },
     adapter,
     syncEnabled: true,
@@ -105,8 +116,16 @@ test('kiotviet sync happy path stores result and idempotency', async () => {
 
   await processKiotvietSync(deps, job);
   assert.equal(stub.calls(), 1);
+  assert.equal(stub.lastRetailer(), 'taphoatest');
   assert.ok(sql.some((s) => s.includes('INSERT INTO idempotency_keys')));
   assert.ok(sql.some((s) => s.includes("'success'")));
+
+  // Verify request body has KiotViet purchase order format
+  const body = stub.lastBody();
+  assert.ok(body.purchaseOrderDetails);
+  assert.equal(body.purchaseOrderDetails[0].productCode, 'SKU1');
+  assert.equal(body.purchaseOrderDetails[0].quantity, 2);
+  assert.equal(body.purchaseOrderDetails[0].price, 15000);
 
   // replay: existing idempotency key should skip external call
   const depsReplay = {
@@ -123,11 +142,14 @@ test('kiotviet sync retries 429 then succeeds', async () => {
   const modeRef = { mode: 'rate-then-success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
-  const adapter = new HttpKiotvietAdapter(stub.baseUrl, 'token', 1000);
+  const adapter = new HttpKiotvietAdapter(stub.baseUrl, 1000);
 
   await processKiotvietSync({
-    queryOne: async () => '',
-    queryMany: async () => ['SKU1|1'],
+    queryOne: async (s) => {
+      if (s.includes('FROM tenants')) return 'taphoatest';
+      return '';
+    },
+    queryMany: async () => ['SKU1|1|10000'],
     exec: async (s) => { sql.push(s); },
     adapter,
     syncEnabled: true,
@@ -159,11 +181,12 @@ test('kiotviet sync decrypts active tenant secret in-memory and uses token heade
     queryOne: async (sql) => {
       if (sql.includes('FROM idempotency_keys')) return '';
       if (sql.includes('FROM secret_versions')) return secretLine;
+      if (sql.includes('FROM tenants')) return 'taphoatest';
       return '';
     },
-    queryMany: async () => ['SKU1|1'],
+    queryMany: async () => ['SKU1|1|5000'],
     exec: async () => {},
-    adapter: new HttpKiotvietAdapter(stub.baseUrl, 'fallback-token', 1000),
+    adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 1,
     backoffBaseMs: 1,
@@ -180,6 +203,7 @@ test('kiotviet sync decrypts active tenant secret in-memory and uses token heade
 
   assert.equal(stub.calls(), 1);
   assert.equal(stub.lastAuth(), 'Bearer secret-from-db');
+  assert.equal(stub.lastRetailer(), 'taphoatest');
   stub.server.close();
 });
 
@@ -192,11 +216,12 @@ test('kiotviet sync fails safe when secret is revoked/missing', async () => {
     queryOne: async (query) => {
       if (query.includes('FROM idempotency_keys')) return '';
       if (query.includes('FROM secret_versions')) return '';
+      if (query.includes('FROM tenants')) return 'taphoatest';
       return '';
     },
-    queryMany: async () => ['SKU1|1'],
+    queryMany: async () => ['SKU1|1|5000'],
     exec: async (statement) => { sql.push(statement); },
-    adapter: new HttpKiotvietAdapter(stub.baseUrl, 'fallback-token', 1000),
+    adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 1,
     backoffBaseMs: 1,
@@ -213,5 +238,36 @@ test('kiotviet sync fails safe when secret is revoked/missing', async () => {
 
   assert.equal(stub.calls(), 0);
   assert.ok(sql.some((line) => line.includes('missing_active_secret')));
+  stub.server.close();
+});
+
+test('kiotviet sync fails when retailer is missing', async () => {
+  const modeRef = { mode: 'success' };
+  const stub = await startKvStub(modeRef);
+  const sql = [];
+
+  await processKiotvietSync({
+    queryOne: async (query) => {
+      if (query.includes('FROM tenants')) return '';
+      return '';
+    },
+    queryMany: async () => ['SKU1|1|5000'],
+    exec: async (statement) => { sql.push(statement); },
+    adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
+    syncEnabled: true,
+    maxRetries: 1,
+    backoffBaseMs: 1
+  }, {
+    job_type: 'KIOTVIET_SYNC',
+    tenant_id: '11111111-1111-1111-1111-111111111111',
+    inbound_event_id: '22222222-2222-2222-2222-222222222222',
+    platform_user_id: 'u1',
+    zalo_msg_id: 'm1',
+    correlation_id: 'c1',
+    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
+  });
+
+  assert.equal(stub.calls(), 0);
+  assert.ok(sql.some((line) => line.includes('missing_retailer')));
   stub.server.close();
 });

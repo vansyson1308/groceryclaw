@@ -2,6 +2,18 @@ import { createLogger } from './logger.js';
 
 const log = createLogger({ service: 'telegram-bot', level: 'info' });
 
+export class TelegramApiError extends Error {
+  readonly statusCode: number;
+  readonly retryAfterMs: number | undefined;
+
+  constructor(method: string, statusCode: number, description: string, retryAfterSeconds?: number) {
+    super(`telegram_api_error: ${description}`);
+    this.name = 'TelegramApiError';
+    this.statusCode = statusCode;
+    this.retryAfterMs = retryAfterSeconds ? retryAfterSeconds * 1000 : undefined;
+  }
+}
+
 export interface TelegramFile {
   readonly file_id: string;
   readonly file_unique_id: string;
@@ -44,12 +56,15 @@ export class TelegramBotClient {
         signal: controller.signal,
       });
 
-      const json = (await res.json()) as { ok: boolean; result?: T; description?: string };
+      const json = (await res.json()) as { ok: boolean; result?: T; description?: string; parameters?: { retry_after?: number } };
 
       if (!json.ok) {
         const desc = json.description ?? 'unknown_error';
-        log.error(`Telegram API error: ${method} -> ${res.status} ${desc}`);
-        throw new Error(`telegram_api_error: ${desc}`);
+        const retryAfter = json.parameters?.retry_after;
+        log.error(`Telegram API error: ${method} -> ${res.status} ${desc}`, {
+          ...(retryAfter ? { retry_after_seconds: retryAfter } : {})
+        });
+        throw new TelegramApiError(method, res.status, desc, retryAfter);
       }
 
       return json.result as T;

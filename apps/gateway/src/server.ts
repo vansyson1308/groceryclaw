@@ -17,6 +17,7 @@ import {
   getSecurityHeaders,
   loadSecurityHeadersConfig,
   TelegramBotClient,
+  TelegramApiError,
   type TelegramBotEvent,
 } from '../../../packages/common/dist/index.js';
 
@@ -699,8 +700,14 @@ if (config.telegram.mode === 'polling' && config.telegram.botToken) {
           }
         }
       } catch (err) {
-        logger.error('Polling error', { error: err instanceof Error ? err.message : 'unknown' });
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const message = err instanceof Error ? err.message : 'unknown';
+        if (err instanceof TelegramApiError && err.statusCode === 409) {
+          logger.error('Polling conflict — another bot instance or webhook is active', { error: message });
+        } else {
+          logger.error('Polling error', { error: message });
+        }
+        const delay = (err instanceof TelegramApiError && err.retryAfterMs) ? err.retryAfterMs : 5000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   })();

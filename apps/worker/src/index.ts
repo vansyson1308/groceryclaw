@@ -234,9 +234,8 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
 
 async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
   const adapter = new HttpKiotvietAdapter(
-    process.env.KIOTVIET_STUB_BASE_URL ?? 'http://127.0.0.1:18080',
-    process.env.KIOTVIET_STUB_TOKEN ?? 'stub-token',
-    Number(process.env.KIOTVIET_TIMEOUT_MS ?? '2000')
+    process.env.KIOTVIET_BASE_URL ?? process.env.KIOTVIET_STUB_BASE_URL ?? 'https://public.kiotapi.com',
+    Number(process.env.KIOTVIET_TIMEOUT_MS ?? '5000')
   );
 
   await processKiotvietSync({

@@ -44,7 +44,6 @@ async function resolveKiotvietOAuthToken(
 ): Promise<string | null> {
   const clientId = typeof credentials.client_id === 'string' ? credentials.client_id : '';
   const clientSecret = typeof credentials.client_secret === 'string' ? credentials.client_secret : '';
-  const retailer = typeof credentials.retailer === 'string' ? credentials.retailer : '';
 
   if (!clientId || !clientSecret) return null;
 
@@ -133,21 +132,23 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
     return;
   }
 
+  // Query resolved items with unit_price from canonical_invoice_items
   const resolvedRows = await deps.queryMany(`
-    SELECT resolved_sku || '|' || quantity::text
-    FROM resolved_invoice_items
-    WHERE tenant_id = $1::uuid
-      AND canonical_invoice_id = $2::uuid
-      AND status = 'resolved'
-    ORDER BY id ASC;
+    SELECT ri.resolved_sku || '|' || ri.quantity::text || '|' || COALESCE(ci.unit_price, 0)::text
+    FROM resolved_invoice_items ri
+    LEFT JOIN canonical_invoice_items ci ON ci.id = ri.canonical_item_id AND ci.tenant_id = ri.tenant_id
+    WHERE ri.tenant_id = $1::uuid
+      AND ri.canonical_invoice_id = $2::uuid
+      AND ri.status = 'resolved'
+    ORDER BY ri.id ASC;
   `, [job.tenant_id, job.canonical_invoice_id]);
 
   const items = resolvedRows
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [sku, qty] = line.split('|');
-      return { sku: sku ?? '', quantity: Number(qty ?? '0') };
+      const [sku, qty, price] = line.split('|');
+      return { sku: sku ?? '', quantity: Number(qty ?? '0'), price: Number(price ?? '0') };
     })
     .filter((x) => x.sku.length > 0 && Number.isFinite(x.quantity) && x.quantity > 0);
 
@@ -155,6 +156,22 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
     await deps.exec(`
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
       VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"no_resolved_items"}'::jsonb);
+    `, [job.tenant_id, job.canonical_invoice_id]);
+    return;
+  }
+
+  // Resolve tenant retailer name for KiotViet Retailer header
+  const retailerRow = await deps.queryOne(`
+    SELECT kiotviet_retailer
+    FROM tenants
+    WHERE id = $1::uuid;
+  `, [job.tenant_id]);
+  const retailer = retailerRow.split('\n').map((x) => x.trim()).find((x) => x.length > 0) ?? '';
+
+  if (!retailer) {
+    await deps.exec(`
+      INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
+      VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"missing_retailer"}'::jsonb);
     `, [job.tenant_id, job.canonical_invoice_id]);
     return;
   }
@@ -207,12 +224,12 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
   let lastError = '';
   for (let attempt = 1; attempt <= deps.maxRetries; attempt += 1) {
     try {
-      const response = await deps.adapter.upsertImportDraft({
+      const response = await deps.adapter.createPurchaseOrder({
         tenant_id: job.tenant_id,
         canonical_invoice_id: job.canonical_invoice_id,
         correlation_id: job.correlation_id,
         items
-      }, secretToken || undefined);
+      }, { authToken: secretToken, retailer });
 
       const payloadHash = createHash('sha256').update(JSON.stringify(response.raw)).digest('hex');
 
