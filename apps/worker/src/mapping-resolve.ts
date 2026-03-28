@@ -34,6 +34,73 @@ interface AiMatchResult {
   confidence: number;
 }
 
+// ---------------------------------------------------------------------------
+// Keyword search helpers
+// ---------------------------------------------------------------------------
+
+const STOP_WORDS = new Set([
+  'kg', 'g', 'gr', 'ml', 'l', 'lon', 'chai', 'goi', 'hop', 'bich', 'cai',
+  'vi', 'bao', 'thung', 'loc', 'cay', 'gói', 'hộp', 'chai', 'bịch', 'cây',
+  'túi', 'tui', 'hũ', 'hu', 'vỉ', 'vi', 'lốc', 'loc', 'thùng', 'thung',
+]);
+
+/**
+ * Extract distinctive keywords from a product name for ILIKE search.
+ * Strips numbers, UOM tokens, and short words.
+ */
+function extractSearchKeywords(name: string): string[] {
+  return name
+    .replace(/[0-9.,]+/g, ' ')
+    .replace(/[()[\]{}]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w.toLowerCase()))
+    .slice(0, 3);
+}
+
+/**
+ * Search product_cache for candidate products matching ANY keyword from
+ * unresolved invoice items. Returns deduplicated results (max 200).
+ */
+async function searchCandidateProducts(
+  deps: MappingDeps,
+  tenantId: string,
+  items: CanonicalItem[]
+): Promise<{ code: string; name: string }[]> {
+  const allKeywords = new Set<string>();
+  for (const item of items) {
+    for (const kw of extractSearchKeywords(item.product_name)) {
+      allKeywords.add(kw);
+    }
+  }
+
+  const kwArray = [...allKeywords];
+  if (kwArray.length === 0) return [];
+
+  // Build parameterized ILIKE conditions: $2, $3, ...
+  const conditions = kwArray.map((_, i) => `product_name ILIKE $${i + 2}`);
+  const params: unknown[] = [tenantId, ...kwArray.map((kw) => `%${kw}%`)];
+
+  const rows = await deps.queryMany(`
+    SELECT DISTINCT sku || '|' || product_name
+    FROM product_cache
+    WHERE tenant_id = $1::uuid AND active = true
+      AND (${conditions.join(' OR ')})
+    LIMIT 200;
+  `, params);
+
+  return rows
+    .map((row) => {
+      const [code, ...rest] = row.split('|');
+      return { code: code ?? '', name: rest.join('|') };
+    })
+    .filter((p) => p.code.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI AI matching
+// ---------------------------------------------------------------------------
+
 async function aiMatchProducts(
   apiKey: string,
   model: string,
@@ -56,6 +123,7 @@ QUY TẮC:
 - Match dựa trên tên sản phẩm, bỏ qua viết tắt, hoa thường, khoảng trắng
 - VD: "BB nhân khoai môn" = "Bánh bao nhân khoai môn"
 - VD: "LX Đông Phương 500gr" = "Lạp xưởng Đông Phương 500g"
+- VD: "COCKTAIL 250gr" = "Xúc xích Cocktail 250g"
 - Nếu không chắc chắn (< 70% confident), trả null
 - confidence: 0-100
 
@@ -98,6 +166,10 @@ TRẢ VỀ JSON array:
   }
 }
 
+// ---------------------------------------------------------------------------
+// Main MAP_RESOLVE processor
+// ---------------------------------------------------------------------------
+
 export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelope): Promise<void> {
   if (!job.tenant_id) throw new Error('missing_tenant_id');
   if (!job.canonical_invoice_id) throw new Error('missing_canonical_invoice_id');
@@ -106,6 +178,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     return;
   }
 
+  // Fetch all canonical invoice items for this invoice
   const canonicalItemsRaw = await deps.queryMany(`
     SELECT json_build_object(
       'id', cii.id::text,
@@ -123,11 +196,13 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
 
   const unresolved: CanonicalItem[] = [];
 
-  // Tier 1: Exact match from mapping_dictionary or verified SKU in product_cache
+  // -----------------------------------------------------------------------
+  // Tier 1: Exact match from mapping_dictionary or verified SKU
+  // -----------------------------------------------------------------------
   for (const item of canonicalItems) {
     let resolvedSku: string | null = null;
 
-    // First check mapping_dictionary (handles aliases from previous AI matches)
+    // 1a. Check mapping_dictionary (aliases learned from previous AI matches)
     const aliasSku = await deps.queryOne(`
       SELECT target_sku
       FROM mapping_dictionary
@@ -139,7 +214,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       resolvedSku = aliasSku.trim();
     }
 
-    // If no alias match but invoice has SKU, verify it exists in product_cache
+    // 1b. If invoice has SKU, verify it exists in KiotViet product_cache
     if (!resolvedSku && item.sku) {
       const verified = await deps.queryOne(`
         SELECT sku FROM product_cache
@@ -149,6 +224,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       if (verified.trim()) {
         resolvedSku = verified.trim();
       }
+      // If SKU not in product_cache, it's a supplier code — fall through to AI
     }
 
     if (!resolvedSku) {
@@ -169,19 +245,13 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, resolvedSku, item.uom ?? null, item.quantity]);
   }
 
-  // Tier 2: AI matching against product_cache
+  // -----------------------------------------------------------------------
+  // Tier 2: AI matching with keyword-based catalog search
+  // -----------------------------------------------------------------------
   if (unresolved.length > 0 && deps.openaiApiKey) {
-    const catalogRows = await deps.queryMany(`
-      SELECT sku || '|' || product_name
-      FROM product_cache
-      WHERE tenant_id = $1::uuid AND active = true
-      ORDER BY product_name ASC
-      LIMIT 500;
-    `, [job.tenant_id as string]);
-
-    const catalog = catalogRows
-      .map((row) => { const [code, ...rest] = row.split('|'); return { code: code ?? '', name: rest.join('|') }; })
-      .filter((p) => p.code.length > 0);
+    // Smart search: extract keywords from unresolved product names,
+    // find relevant candidates in product_cache via ILIKE
+    const catalog = await searchCandidateProducts(deps, job.tenant_id, unresolved);
 
     if (catalog.length > 0) {
       const unresolvedNames = unresolved.map((u) => u.product_name);
@@ -239,7 +309,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       unresolved.length = 0;
       unresolved.push(...stillUnresolved);
     } else {
-      // No product cache — mark all as unresolved
+      // No product cache results — mark all as unresolved
       for (const item of unresolved) {
         await deps.exec(`
           INSERT INTO resolved_invoice_items (
@@ -266,7 +336,10 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
   `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
 
+  // Notify user about unresolved items with product names
   if (unresolved.length > 0) {
+    const names = unresolved.map((u) => u.product_name).slice(0, 5).join(', ');
+    const suffix = unresolved.length > 5 ? ` va ${unresolved.length - 5} SP khac` : '';
     await deps.enqueue({
       job_type: 'NOTIFY_USER',
       notification_type: 'GENERIC_INFO',
@@ -275,10 +348,11 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       platform_user_id: job.platform_user_id,
       message_id: job.message_id,
       telegram_chat_id: job.telegram_chat_id,
-      template_vars: { message: `${unresolved.length} san pham chua the doi chieu voi kho KiotViet. Vui long kiem tra lai ma hang.` }
+      template_vars: { message: `${unresolved.length} SP chua doi chieu: ${names}${suffix}. Vui long kiem tra lai.` }
     });
     return;
   }
 
+  // All items resolved — proceed to KiotViet sync
   await deps.enqueue({ ...job, job_type: 'KIOTVIET_SYNC' });
 }

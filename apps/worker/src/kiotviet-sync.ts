@@ -7,6 +7,7 @@ export interface KiotvietSyncDeps {
   readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
   readonly queryMany: (sql: string, params?: readonly unknown[]) => Promise<string[]>;
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
+  readonly enqueue: (payload: Record<string, unknown>) => Promise<void>;
   readonly adapter: KiotvietAdapter;
   readonly syncEnabled: boolean;
   readonly maxRetries: number;
@@ -103,6 +104,20 @@ async function resolveKiotvietOAuthToken(
   }
 }
 
+// Helper to build a notification envelope (avoids repeating boilerplate)
+function notifyEnvelope(job: WorkerJobEnvelope, message: string): Record<string, unknown> {
+  return {
+    job_type: 'NOTIFY_USER',
+    notification_type: 'GENERIC_INFO',
+    tenant_id: job.tenant_id,
+    platform_user_id: job.platform_user_id,
+    telegram_chat_id: job.telegram_chat_id,
+    correlation_id: job.correlation_id,
+    message_id: job.message_id,
+    template_vars: { message }
+  };
+}
+
 export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJobEnvelope): Promise<void> {
   if (!job.tenant_id || !job.canonical_invoice_id) throw new Error('invalid_sync_job');
 
@@ -157,6 +172,7 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
       VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"no_resolved_items"}'::jsonb);
     `, [job.tenant_id, job.canonical_invoice_id]);
+    await deps.enqueue(notifyEnvelope(job, 'Khong co san pham nao duoc doi chieu thanh cong. Phieu nhap khong duoc tao.'));
     return;
   }
 
@@ -173,6 +189,7 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
       VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"missing_retailer"}'::jsonb);
     `, [job.tenant_id, job.canonical_invoice_id]);
+    await deps.enqueue(notifyEnvelope(job, 'Chua cau hinh KiotViet cho cua hang. Vui long lien he ho tro.'));
     return;
   }
 
@@ -218,6 +235,7 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
       INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
       VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', '{"reason":"missing_active_secret"}'::jsonb);
     `, [job.tenant_id, job.canonical_invoice_id]);
+    await deps.enqueue(notifyEnvelope(job, 'Khong the xac thuc voi KiotViet. Vui long kiem tra lai cau hinh.'));
     return;
   }
 
@@ -255,6 +273,10 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
         VALUES ($1::uuid, 'system', 'worker', 'kiotviet_sync_success', 'canonical_invoices', $2, $3::jsonb);
       `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ external_reference_id: response.externalReferenceId })]);
 
+      // Notify user of success
+      await deps.enqueue(notifyEnvelope(job,
+        `Da tao phieu nhap kho thanh cong: ${response.externalReferenceId}. ${items.length} san pham.`));
+
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown_error';
@@ -270,4 +292,8 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
     INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, status, payload)
     VALUES ($1::uuid, $2::uuid, 'kiotviet', 'failed', $3::jsonb);
   `, [job.tenant_id, job.canonical_invoice_id, JSON.stringify({ reason: lastError })]);
+
+  // Notify user of failure (sanitize error — no sensitive info)
+  await deps.enqueue(notifyEnvelope(job,
+    'Khong the tao phieu nhap KiotViet. Vui long thu lai sau hoac lien he ho tro.'));
 }

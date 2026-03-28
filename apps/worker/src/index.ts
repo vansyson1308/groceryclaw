@@ -321,6 +321,7 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
             return result.rows.map((r) => Object.values(r).join('|').trim());
           },
           exec: async (sql, params = []) => { await query(client, sql, params); },
+          enqueue,
           adapter,
           syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
           maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
@@ -335,6 +336,7 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
       queryOne: runQueryOne,
       queryMany: runQueryMany,
       exec: runSql,
+      enqueue,
       adapter,
       syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
       maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
