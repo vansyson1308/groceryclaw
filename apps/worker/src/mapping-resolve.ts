@@ -1,5 +1,4 @@
 import type { WorkerJobEnvelope } from '../../../packages/common/dist/index.js';
-import { runTenantScopedTransaction } from './db-session.js';
 
 export interface MappingDeps {
   readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
@@ -124,141 +123,134 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
 
   const unresolved: CanonicalItem[] = [];
 
-  await runTenantScopedTransaction({
-    db: { runSql: deps.exec },
-    tenantId: job.tenant_id,
-    jobType: 'MAP_RESOLVE',
-    work: async () => {
-      // Tier 1: Exact match from mapping_dictionary
-      for (const item of canonicalItems) {
-        let resolvedSku = item.sku;
-        if (!resolvedSku) {
-          const aliasSku = await deps.queryOne(`
-            SELECT target_sku
-            FROM mapping_dictionary
-            WHERE tenant_id = $1::uuid
-              AND lower(alias_text) = lower($2)
-            LIMIT 1;
-          `, [job.tenant_id as string, item.product_name]);
-          resolvedSku = aliasSku.trim() || null;
-        }
+  // Tier 1: Exact match from mapping_dictionary
+  for (const item of canonicalItems) {
+    let resolvedSku = item.sku;
+    if (!resolvedSku) {
+      const aliasSku = await deps.queryOne(`
+        SELECT target_sku
+        FROM mapping_dictionary
+        WHERE tenant_id = $1::uuid
+          AND lower(alias_text) = lower($2)
+        LIMIT 1;
+      `, [job.tenant_id as string, item.product_name]);
+      resolvedSku = aliasSku.trim() || null;
+    }
 
-        if (!resolvedSku) {
-          unresolved.push(item);
-          continue;
-        }
+    if (!resolvedSku) {
+      unresolved.push(item);
+      continue;
+    }
 
-        await deps.exec(`
-          INSERT INTO resolved_invoice_items (
-            tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
-          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'resolved', $4, $5, $6)
-          ON CONFLICT (canonical_item_id) DO UPDATE SET
-            status = 'resolved',
-            resolved_sku = EXCLUDED.resolved_sku,
-            resolved_unit = EXCLUDED.resolved_unit,
-            quantity = EXCLUDED.quantity,
-            unresolved_reason = NULL;
-        `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, resolvedSku, item.uom ?? null, item.quantity]);
-      }
+    await deps.exec(`
+      INSERT INTO resolved_invoice_items (
+        tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
+      ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'resolved', $4, $5, $6)
+      ON CONFLICT (canonical_item_id) DO UPDATE SET
+        status = 'resolved',
+        resolved_sku = EXCLUDED.resolved_sku,
+        resolved_unit = EXCLUDED.resolved_unit,
+        quantity = EXCLUDED.quantity,
+        unresolved_reason = NULL;
+    `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, resolvedSku, item.uom ?? null, item.quantity]);
+  }
 
-      // Tier 2: AI matching against product_cache
-      if (unresolved.length > 0 && deps.openaiApiKey) {
-        const catalogRows = await deps.queryMany(`
-          SELECT sku || '|' || product_name
-          FROM product_cache
-          WHERE tenant_id = $1::uuid AND active = true
-          ORDER BY product_name ASC
-          LIMIT 500;
-        `, [job.tenant_id as string]);
+  // Tier 2: AI matching against product_cache
+  if (unresolved.length > 0 && deps.openaiApiKey) {
+    const catalogRows = await deps.queryMany(`
+      SELECT sku || '|' || product_name
+      FROM product_cache
+      WHERE tenant_id = $1::uuid AND active = true
+      ORDER BY product_name ASC
+      LIMIT 500;
+    `, [job.tenant_id as string]);
 
-        const catalog = catalogRows
-          .map((row) => { const [code, ...rest] = row.split('|'); return { code: code ?? '', name: rest.join('|') }; })
-          .filter((p) => p.code.length > 0);
+    const catalog = catalogRows
+      .map((row) => { const [code, ...rest] = row.split('|'); return { code: code ?? '', name: rest.join('|') }; })
+      .filter((p) => p.code.length > 0);
 
-        if (catalog.length > 0) {
-          const unresolvedNames = unresolved.map((u) => u.product_name);
-          const matches = await aiMatchProducts(
-            deps.openaiApiKey,
-            deps.openaiModel ?? 'gpt-4o-mini',
-            unresolvedNames,
-            catalog
-          );
+    if (catalog.length > 0) {
+      const unresolvedNames = unresolved.map((u) => u.product_name);
+      const matches = await aiMatchProducts(
+        deps.openaiApiKey,
+        deps.openaiModel ?? 'gpt-4o-mini',
+        unresolvedNames,
+        catalog
+      );
 
-          const stillUnresolved: CanonicalItem[] = [];
+      const stillUnresolved: CanonicalItem[] = [];
 
-          for (const item of unresolved) {
-            const match = matches.find((m) =>
-              m.invoice_product.toLowerCase() === item.product_name.toLowerCase() &&
-              m.matched_code &&
-              m.confidence >= 70
-            );
+      for (const item of unresolved) {
+        const match = matches.find((m) =>
+          m.invoice_product.toLowerCase() === item.product_name.toLowerCase() &&
+          m.matched_code &&
+          m.confidence >= 70
+        );
 
-            if (match && match.matched_code) {
-              // Auto-insert into mapping_dictionary for future Tier 1 hits
-              await deps.exec(`
-                INSERT INTO mapping_dictionary (tenant_id, alias_text, target_sku, confidence)
-                VALUES ($1::uuid, $2, $3, $4)
-                ON CONFLICT (tenant_id, alias_text) DO UPDATE SET target_sku = EXCLUDED.target_sku, confidence = EXCLUDED.confidence;
-              `, [job.tenant_id as string, item.product_name, match.matched_code, match.confidence]);
+        if (match && match.matched_code) {
+          // Auto-insert into mapping_dictionary for future Tier 1 hits
+          await deps.exec(`
+            INSERT INTO mapping_dictionary (tenant_id, alias_text, target_sku, confidence)
+            VALUES ($1::uuid, $2, $3, $4)
+            ON CONFLICT (tenant_id, alias_text) DO UPDATE SET target_sku = EXCLUDED.target_sku, confidence = EXCLUDED.confidence;
+          `, [job.tenant_id as string, item.product_name, match.matched_code, match.confidence]);
 
-              await deps.exec(`
-                INSERT INTO resolved_invoice_items (
-                  tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
-                ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'resolved', $4, $5, $6)
-                ON CONFLICT (canonical_item_id) DO UPDATE SET
-                  status = 'resolved',
-                  resolved_sku = EXCLUDED.resolved_sku,
-                  resolved_unit = EXCLUDED.resolved_unit,
-                  quantity = EXCLUDED.quantity,
-                  unresolved_reason = NULL;
-              `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, match.matched_code, item.uom ?? null, item.quantity]);
-            } else {
-              stillUnresolved.push(item);
-            }
-          }
-
-          // Mark remaining as unresolved
-          for (const item of stillUnresolved) {
-            await deps.exec(`
-              INSERT INTO resolved_invoice_items (
-                tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-              ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
-              ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
-            `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
-          }
-
-          // Replace unresolved list
-          unresolved.length = 0;
-          unresolved.push(...stillUnresolved);
-        } else {
-          // No product cache — mark all as unresolved
-          for (const item of unresolved) {
-            await deps.exec(`
-              INSERT INTO resolved_invoice_items (
-                tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-              ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'no_product_cache')
-              ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'no_product_cache';
-            `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
-          }
-        }
-      } else if (unresolved.length > 0) {
-        // No AI key — mark as unresolved
-        for (const item of unresolved) {
           await deps.exec(`
             INSERT INTO resolved_invoice_items (
-              tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-            ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
-            ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
-          `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+              tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'resolved', $4, $5, $6)
+            ON CONFLICT (canonical_item_id) DO UPDATE SET
+              status = 'resolved',
+              resolved_sku = EXCLUDED.resolved_sku,
+              resolved_unit = EXCLUDED.resolved_unit,
+              quantity = EXCLUDED.quantity,
+              unresolved_reason = NULL;
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, match.matched_code, item.uom ?? null, item.quantity]);
+        } else {
+          stillUnresolved.push(item);
         }
       }
 
-      await deps.exec(`
-        INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
-        VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
-      `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
+      // Mark remaining as unresolved
+      for (const item of stillUnresolved) {
+        await deps.exec(`
+          INSERT INTO resolved_invoice_items (
+            tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
+          ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
+        `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+      }
+
+      // Replace unresolved list
+      unresolved.length = 0;
+      unresolved.push(...stillUnresolved);
+    } else {
+      // No product cache — mark all as unresolved
+      for (const item of unresolved) {
+        await deps.exec(`
+          INSERT INTO resolved_invoice_items (
+            tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'no_product_cache')
+          ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'no_product_cache';
+        `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+      }
     }
-  });
+  } else if (unresolved.length > 0) {
+    // No AI key — mark as unresolved
+    for (const item of unresolved) {
+      await deps.exec(`
+        INSERT INTO resolved_invoice_items (
+          tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+        ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
+        ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
+      `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+    }
+  }
+
+  await deps.exec(`
+    INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
+    VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
+  `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
 
   if (unresolved.length > 0) {
     await deps.enqueue({

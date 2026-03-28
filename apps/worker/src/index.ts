@@ -224,15 +224,45 @@ async function processFlushPending(job: WorkerJobEnvelope): Promise<void> {
 }
 
 async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
-  await processMapResolve({
-    queryOne: runQueryOne,
-    queryMany: runQueryMany,
-    exec: runSql,
-    enqueue,
-    mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
-    openaiApiKey: process.env.OPENAI_API_KEY ?? '',
-    openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
-  }, job);
+  const tenantId = job.tenant_id;
+  if (!tenantId) throw new Error('map_resolve_missing_tenant');
+
+  if (pgPool) {
+    await runTenantScopedTransaction({
+      pool: pgPool,
+      tenantId,
+      applicationName: 'worker:MAP_RESOLVE',
+      work: async (client) => {
+        await processMapResolve({
+          queryOne: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            if (result.rows.length === 0) return '';
+            const row = result.rows[0] ?? {};
+            return Object.values(row).join('|').trim();
+          },
+          queryMany: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            return result.rows.map((r) => Object.values(r).join('|').trim());
+          },
+          exec: async (sql, params = []) => { await query(client, sql, params); },
+          enqueue,
+          mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
+          openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+          openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
+        }, job);
+      }
+    });
+  } else {
+    await processMapResolve({
+      queryOne: runQueryOne,
+      queryMany: runQueryMany,
+      exec: runSql,
+      enqueue,
+      mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
+      openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+      openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
+    }, job);
+  }
 }
 
 async function processProductSyncJob(job: WorkerJobEnvelope): Promise<void> {
