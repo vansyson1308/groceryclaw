@@ -20,7 +20,10 @@ function parseSecretRow(line: string): EnvelopeEncrypted | null {
 }
 
 async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promise<{ token: string; retailer: string } | null> {
-  if (!deps.mekB64) return null;
+  if (!deps.mekB64) {
+    console.error('[product-sync] mekB64 is empty');
+    return null;
+  }
 
   const secretRow = await deps.queryOne(`
     SELECT encode(encrypted_dek, 'hex') || '|' || encode(encrypted_value, 'hex') || '|' || encode(dek_nonce, 'hex') || '|' || encode(value_nonce, 'hex')
@@ -32,7 +35,10 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
   `, [tenantId]);
 
   const line = secretRow.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
-  if (!line) return null;
+  if (!line) {
+    console.error('[product-sync] no secret row found, raw:', secretRow.slice(0, 100));
+    return null;
+  }
 
   const parsed = parseSecretRow(line);
   if (!parsed) return null;
@@ -43,7 +49,10 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
   const clientSecret = typeof creds.client_secret === 'string' ? creds.client_secret : '';
   const retailer = typeof creds.retailer === 'string' ? creds.retailer : '';
 
-  if (!clientId || !clientSecret || !retailer) return null;
+  if (!clientId || !clientSecret || !retailer) {
+    console.error('[product-sync] missing creds:', { hasClientId: !!clientId, hasSecret: !!clientSecret, hasRetailer: !!retailer });
+    return null;
+  }
 
   // Check token cache
   const cachedRow = await deps.queryOne(`
