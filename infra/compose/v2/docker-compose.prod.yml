@@ -41,8 +41,7 @@ services:
       INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:?set INVITE_PEPPER_B64 in .env.prod}
       ONBOARDING_INVITE_USER_RATE_PER_MINUTE: ${ONBOARDING_INVITE_USER_RATE_PER_MINUTE:-10}
       ONBOARDING_INVITE_IP_RATE_PER_MINUTE: ${ONBOARDING_INVITE_IP_RATE_PER_MINUTE:-20}
-    ports:
-      - "127.0.0.1:${GATEWAY_HOST_PORT:-8081}:8080"
+    # Port controlled via GATEWAY_HOST_PORT in .env.prod (set to "127.0.0.1:8081")
     deploy:
       resources:
         limits:
