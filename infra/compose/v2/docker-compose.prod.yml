@@ -4,8 +4,7 @@
 services:
   postgres:
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:5433:5432"
+    # Port controlled via POSTGRES_HOST_PORT in .env.prod (set to "127.0.0.1:5433")
     deploy:
       resources:
         limits:
