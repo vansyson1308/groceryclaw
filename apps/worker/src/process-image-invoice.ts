@@ -195,7 +195,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     const parsed = await callOpenAiVision(deps.openaiApiKey, deps.openaiModel, imageBase64, mimeType, deps.openaiTimeoutMs);
     const fingerprint = invoiceFingerprint(job.tenant_id, parsed);
 
-    await withTenantTransaction(deps, job.tenant_id, 'PROCESS_IMAGE_INVOICE', async (db) => {
+    const canonicalInvoiceId = await withTenantTransaction(deps, job.tenant_id, 'PROCESS_IMAGE_INVOICE', async (db) => {
       const invoiceIdRaw = await db.queryOne(
         `INSERT INTO canonical_invoices (
           tenant_id, inbound_event_id, invoice_fingerprint, supplier_code, invoice_number,
@@ -232,6 +232,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       }
 
       await db.exec('UPDATE inbound_events SET status = $1, updated_at = now() WHERE id = $2::uuid;', ['completed', job.inbound_event_id]);
+      return invoiceId;
     });
 
     // Notify success and enqueue mapping
@@ -249,7 +250,8 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       job_type: 'MAP_RESOLVE', correlation_id: job.correlation_id,
       tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
       platform_user_id: job.platform_user_id, message_id: job.message_id,
-      telegram_chat_id: job.telegram_chat_id
+      telegram_chat_id: job.telegram_chat_id,
+      canonical_invoice_id: canonicalInvoiceId
     });
   } catch (error) {
     await deps.enqueue({
