@@ -571,6 +571,29 @@ async function handleOps(req: { method?: string; url?: string; headers?: Record<
     return true;
   }
 
+  if (req.method === 'GET' && url.startsWith('/ops/sync-products')) {
+    const opsKey = process.env.OPS_KEY ?? '';
+    const urlKey = new URL(url, 'http://localhost').searchParams.get('key') ?? '';
+    if (!opsKey || urlKey !== opsKey) {
+      json(res, 403, { error: 'forbidden' });
+      return true;
+    }
+    try {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      await enqueue({
+        job_type: 'KIOTVIET_PRODUCT_SYNC',
+        tenant_id: tenantId,
+        platform_user_id: 'system',
+        message_id: `sync-${Date.now()}`,
+        correlation_id: `product-sync-${Date.now()}`
+      });
+      json(res, 200, { tenant_id: tenantId, status: 'enqueued' });
+    } catch (err) {
+      json(res, 500, { error: String(err) });
+    }
+    return true;
+  }
+
   return false;
 }
 
