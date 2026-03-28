@@ -93,7 +93,11 @@ export async function processKiotvietProductSync(deps: ProductSyncDeps, job: Wor
   if (!job.tenant_id) throw new Error('product_sync_missing_tenant');
 
   const auth = await resolveOAuthToken(deps, job.tenant_id);
-  if (!auth) throw new Error('product_sync_no_credentials');
+  if (!auth) {
+    const mekPresent = !!deps.mekB64;
+    const secretCheck = await deps.queryOne(`SELECT COUNT(*)::text FROM secret_versions WHERE tenant_id = $1::uuid AND status = 'active'`, [job.tenant_id]);
+    throw new Error(`product_sync_no_credentials:mek=${mekPresent},secrets=${secretCheck.trim()}`);
+  }
 
   let totalSynced = 0;
   let currentItem = 0;
