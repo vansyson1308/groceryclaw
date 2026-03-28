@@ -399,6 +399,7 @@ async function enqueueLinkedFlow(event: TelegramBotEvent, requestId: string, ten
       tenant_id: tenantId,
       inbound_event_id: inserted.inboundEventId,
       platform_user_id: String(event.user_id),
+      user_id: userId ?? undefined,
       message_id: messageId,
       telegram_chat_id: event.chat_id,
       ...(event.document?.file_id ? { file_id: event.document.file_id } : {}),

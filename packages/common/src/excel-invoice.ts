@@ -17,6 +17,7 @@ interface ColumnMap {
 
 const HEADER_PATTERNS: Record<keyof ColumnMap, RegExp[]> = {
   product_name: [
+    /^t[eê]n\s*h[aà]ng\s*h[oó]a/i,
     /^t[eê]n\s*(sp|s[aả]n\s*ph[aẩ]m)/i,
     /^(s[aả]n\s*ph[aẩ]m|h[aà]ng\s*h[oó]a)/i,
     /^product[\s_]*name/i,
@@ -30,20 +31,24 @@ const HEADER_PATTERNS: Record<keyof ColumnMap, RegExp[]> = {
     /^quantity/i,
   ],
   unit_price: [
-    /^([dđ][oơ]n\s*gi[aá]|gia)/i,
+    /^([dđ][oơ]n\s*gi[aá])/i,
+    /^gi[aá]$/i,
     /^unit[\s_]*price/i,
     /^price/i,
   ],
   line_total: [
-    /^(th[aà]nh\s*ti[eề]n|t[oổ]ng)/i,
+    /^th[aà]nh\s*ti[eề]n/i,
+    /^t[oổ]ng(\s*ti[eề]n)?$/i,
     /^(line[\s_]*total|amount|total)/i,
   ],
   uom: [
-    /^([dđ][oơ]n\s*v[iị]|dvt)/i,
+    /^[dđ][oơ]n\s*v[iị](\s*t[ií]nh)?/i,
+    /^dvt$/i,
     /^(unit|uom)$/i,
   ],
   sku: [
-    /^(m[aã]\s*(sp|s[aả]n\s*ph[aẩ]m|h[aà]ng)|sku|code)/i,
+    /^m[aã]\s*(h[aà]ng|sp|s[aả]n\s*ph[aẩ]m)/i,
+    /^(sku|code)$/i,
     /^m[aã]$/i,
   ],
 };
@@ -68,14 +73,14 @@ function detectColumns(headerRow: unknown[]): ColumnMap | null {
     }
   }
 
-  if (map.product_name === undefined || map.quantity === undefined || map.unit_price === undefined) {
+  if (map.product_name === undefined || map.quantity === undefined) {
     return null;
   }
 
   return {
     product_name: map.product_name,
     quantity: map.quantity,
-    unit_price: map.unit_price,
+    unit_price: map.unit_price ?? -1,
     line_total: map.line_total ?? -1,
     ...(map.uom !== undefined ? { uom: map.uom } : {}),
     ...(map.sku !== undefined ? { sku: map.sku } : {}),
@@ -85,8 +90,31 @@ function detectColumns(headerRow: unknown[]): ColumnMap | null {
 function cellToNumber(cell: unknown): number {
   if (cell == null) return 0;
   if (typeof cell === 'number') return Number.isFinite(cell) ? cell : 0;
-  const s = String(cell).replace(/[,.\s]/g, (m) => (m === ',' ? '' : m)).trim();
+  let s = String(cell).trim();
   if (s.length === 0) return 0;
+  // Vietnamese format: "." = thousands separator, "," = decimal
+  // Detect: if string has dots and every dot-separated group (except first) has 3 digits → Vietnamese thousands
+  const hasDot = s.includes('.');
+  const hasComma = s.includes(',');
+  if (hasDot && !hasComma) {
+    const parts = s.split('.');
+    const isThousands = parts.length > 1 && parts.slice(1).every((p) => /^\d{3}$/.test(p));
+    if (isThousands) {
+      s = parts.join('');
+    }
+  } else if (hasDot && hasComma) {
+    // "33.334,50" → Vietnamese: dot=thousands, comma=decimal
+    const dotIdx = s.indexOf('.');
+    const commaIdx = s.indexOf(',');
+    if (dotIdx < commaIdx) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasComma && !hasDot) {
+    s = s.replace(/,/g, '');
+  }
+  s = s.replace(/\s/g, '');
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
@@ -136,7 +164,7 @@ export async function parseExcelInvoice(buffer: Buffer): Promise<CanonicalInvoic
   let columns: ColumnMap | null = null;
   let headerRowIndex = -1;
 
-  for (let r = 1; r <= Math.min(rowCount, 10); r++) {
+  for (let r = 1; r <= Math.min(rowCount, 20); r++) {
     const row = sheet.getRow(r);
     const values: unknown[] = [];
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
@@ -172,7 +200,7 @@ export async function parseExcelInvoice(buffer: Buffer): Promise<CanonicalInvoic
     if (productName.length === 0) continue;
 
     const quantity = cellToNumber(values[columns.quantity]);
-    const unitPrice = cellToNumber(values[columns.unit_price]);
+    const unitPrice = columns.unit_price >= 0 ? cellToNumber(values[columns.unit_price]) : 0;
     const lineTotal = columns.line_total >= 0
       ? cellToNumber(values[columns.line_total])
       : quantity * unitPrice;

@@ -137,7 +137,7 @@ async function markTerminalFailure(deps: NotifierDeps, payload: NotifyUserPayloa
           'system',
           'notifier',
           'notification_terminal_failure',
-          'zalo_messages',
+          'telegram_messages',
           ${sqlQuote(payload.platform_user_id)},
           ${sqlQuote(JSON.stringify({
             internal_error_code: errorCode,
@@ -260,14 +260,24 @@ async function sendNotification(deps: NotifierDeps, payload: NotifyUserPayload, 
           'system',
           'notifier',
           'notification_attempted',
-          'zalo_messages',
+          'telegram_messages',
           ${sqlQuote(payload.platform_user_id)},
           ${sqlQuote(JSON.stringify({ notification_type: payload.notification_type, correlation_id: payload.correlation_id }))}::jsonb
         );
       `);
     }
 
-    const chatId = payload.telegram_chat_id ?? Number(payload.platform_user_id);
+    let chatId = payload.telegram_chat_id;
+    if (!chatId && payload.platform_user_id) {
+      const chatIdRow = await deps.queryOne(`
+        SELECT telegram_chat_id FROM platform_users
+        WHERE platform_user_id = ${sqlQuote(payload.platform_user_id)} AND platform = 'telegram' AND telegram_chat_id IS NOT NULL
+        LIMIT 1;
+      `);
+      const parsed = Number(chatIdRow.trim());
+      chatId = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    }
+    if (!chatId) chatId = Number(payload.platform_user_id);
     const result = await deps.adapter.sendText(chatId, text, { correlation_id: payload.correlation_id });
 
     if (payload.tenant_id) {
@@ -278,7 +288,7 @@ async function sendNotification(deps: NotifierDeps, payload: NotifyUserPayload, 
           'system',
           'notifier',
           'notification_sent',
-          'zalo_messages',
+          'telegram_messages',
           ${sqlQuote(payload.platform_user_id)},
           ${sqlQuote(JSON.stringify({ notification_type: payload.notification_type, correlation_id: payload.correlation_id, message_id: result.message_id }))}::jsonb
         );

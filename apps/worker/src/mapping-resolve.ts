@@ -102,7 +102,16 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
   });
 
   if (unresolved.length > 0) {
-    await deps.enqueue({ ...job, job_type: 'NOTIFY_USER', template: 'mapping_needs_input', unresolved_count: unresolved.length });
+    await deps.enqueue({
+      job_type: 'NOTIFY_USER',
+      notification_type: 'GENERIC_INFO',
+      correlation_id: job.correlation_id,
+      tenant_id: job.tenant_id,
+      platform_user_id: job.platform_user_id,
+      message_id: job.message_id,
+      telegram_chat_id: job.telegram_chat_id,
+      template_vars: { message: `${unresolved.length} san pham chua the doi chieu voi kho KiotViet. Vui long kiem tra lai ma hang.` }
+    });
     return;
   }
 

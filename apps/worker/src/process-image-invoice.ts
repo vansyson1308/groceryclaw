@@ -57,28 +57,38 @@ function invoiceFingerprint(tenantId: string, invoice: ParsedInvoice): string {
 }
 
 async function callOpenAiVision(apiKey: string, model: string, imageBase64: string, mimeType: string, timeoutMs: number): Promise<ParsedInvoice> {
-  const systemPrompt = `Bạn là một hệ thống trích xuất dữ liệu hóa đơn. Phân tích ảnh hóa đơn và trả về JSON với cấu trúc chính xác sau:
+  const systemPrompt = `Bạn là hệ thống trích xuất dữ liệu hóa đơn Việt Nam (hóa đơn GTGT, phiếu xuất kho, phiếu giao hàng). Đọc chính xác từng dòng hàng hóa trong ảnh.
+
+QUY TẮC:
+- Đọc chính xác tên sản phẩm, KHÔNG suy luận hay thay đổi
+- Số lượng, đơn giá, thành tiền phải là SỐ NGUYÊN (VND, không có phần thập phân)
+- Với số có dấu chấm phân cách hàng nghìn (VD: 33.334), chuyển thành số nguyên: 33334
+- Mã hàng (SKU) lấy từ cột "Mã hàng" nếu có
+- Nếu không thấy mã hóa đơn, dùng format: IMG-YYYYMMDD-NNNN (ngày từ hóa đơn, NNNN là 4 số cuối random)
+- Ngày tháng format YYYY-MM-DD
+
+TRẢ VỀ JSON:
 {
-  "invoice_number": "mã hóa đơn (nếu không thấy, tạo dạng IMG-YYYYMMDD-XXXX)",
-  "invoice_date": "ngày hóa đơn dạng YYYY-MM-DD",
-  "supplier_code": "mã nhà cung cấp nếu có",
+  "invoice_number": "số/mã hóa đơn",
+  "invoice_date": "YYYY-MM-DD",
+  "supplier_code": "mã NCC nếu có, null nếu không",
   "currency": "VND",
-  "subtotal": 0,
-  "tax_total": 0,
-  "total": tổng tiền,
+  "subtotal": tổng trước thuế (số nguyên),
+  "tax_total": tổng thuế (số nguyên),
+  "total": tổng thanh toán (số nguyên),
   "items": [
     {
       "line_no": 1,
-      "sku": "mã hàng nếu có",
-      "product_name": "tên sản phẩm",
-      "quantity": số lượng,
-      "unit_price": đơn giá,
-      "line_total": thành tiền,
+      "sku": "mã hàng hoặc null",
+      "product_name": "tên hàng hóa chính xác",
+      "quantity": số lượng (số nguyên hoặc thập phân),
+      "unit_price": đơn giá (số nguyên),
+      "line_total": thành tiền (số nguyên),
       "uom": "đơn vị tính"
     }
   ]
 }
-Luôn trả về JSON hợp lệ. Nếu không đọc được thông tin nào, dùng giá trị mặc định hợp lý. Số tiền dùng số nguyên (VND).`;
+CHỈ trả về JSON, không thêm text.`;
 
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
 
@@ -90,11 +100,12 @@ Luôn trả về JSON hợp lệ. Nếu không đọc được thông tin nào, 
     },
     body: JSON.stringify({
       model,
+      temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: [
-          { type: 'image_url', image_url: { url: dataUrl } }
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } }
         ]}
       ],
       max_tokens: 4096
@@ -190,12 +201,12 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
     }
 
     const imageBase64 = imageBuffer.toString('base64');
-    const mimeType = 'image/jpeg';
+    const mimeType = 'image/jpeg'; // Telegram converts all photos to JPEG
 
     const parsed = await callOpenAiVision(deps.openaiApiKey, deps.openaiModel, imageBase64, mimeType, deps.openaiTimeoutMs);
     const fingerprint = invoiceFingerprint(job.tenant_id, parsed);
 
-    const canonicalInvoiceId = await withTenantTransaction(deps, job.tenant_id, 'PROCESS_IMAGE_INVOICE', async (db) => {
+    const result = await withTenantTransaction(deps, job.tenant_id, 'PROCESS_IMAGE_INVOICE', async (db) => {
       const invoiceIdRaw = await db.queryOne(
         `INSERT INTO canonical_invoices (
           tenant_id, inbound_event_id, invoice_fingerprint, supplier_code, invoice_number,
@@ -212,6 +223,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       );
 
       let invoiceId = invoiceIdRaw.trim();
+      let isDuplicate = false;
       if (!invoiceId) {
         const existingId = (await db.queryOne(
           `SELECT id::text FROM canonical_invoices WHERE tenant_id = $1::uuid AND invoice_fingerprint = $2 LIMIT 1;`,
@@ -219,6 +231,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
         )).trim();
         if (!existingId) throw new Error('canonical_invoice_insert_skipped');
         invoiceId = existingId;
+        isDuplicate = true;
       }
 
       for (const item of parsed.items) {
@@ -232,10 +245,20 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       }
 
       await db.exec('UPDATE inbound_events SET status = $1, updated_at = now() WHERE id = $2::uuid;', ['completed', job.inbound_event_id]);
-      return invoiceId;
+      return { invoiceId, isDuplicate };
     });
 
-    // Notify success and enqueue mapping
+    if (result.isDuplicate) {
+      await deps.enqueue({
+        job_type: 'NOTIFY_USER', notification_type: 'GENERIC_INFO',
+        correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,
+        message_id: job.message_id, tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
+        telegram_chat_id: job.telegram_chat_id,
+        template_vars: { message: 'Hoa don nay da duoc xu ly truoc do.' }
+      });
+      return;
+    }
+
     const itemCount = parsed.items.length;
     const totalStr = parsed.total.toLocaleString('vi-VN');
     await deps.enqueue({
@@ -251,7 +274,7 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       tenant_id: job.tenant_id, inbound_event_id: job.inbound_event_id,
       platform_user_id: job.platform_user_id, message_id: job.message_id,
       telegram_chat_id: job.telegram_chat_id,
-      canonical_invoice_id: canonicalInvoiceId
+      canonical_invoice_id: result.invoiceId
     });
   } catch (error) {
     await deps.enqueue({

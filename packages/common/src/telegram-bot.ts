@@ -106,12 +106,7 @@ export class TelegramBotClient {
       }
 
       const arrayBuffer = await res.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]!);
-      }
-      return Buffer.from(binary, 'binary');
+      return Buffer.from(arrayBuffer as never);
     } finally {
       clearTimeout(timer);
     }

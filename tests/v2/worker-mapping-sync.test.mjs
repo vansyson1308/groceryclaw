@@ -81,7 +81,7 @@ test('mapping unresolved does not call kiotviet and enqueues notify placeholder'
   });
 
   assert.ok(sql.some((s) => s.includes("'unresolved'")));
-  assert.ok(queue.some((q) => q.template === 'mapping_needs_input'));
+  assert.ok(queue.some((q) => q.notification_type === 'GENERIC_INFO' && q.template_vars?.message?.includes('chua the doi chieu')));
 });
 
 test('kiotviet sync happy path stores result and idempotency', async () => {
