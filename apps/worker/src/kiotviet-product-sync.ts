@@ -21,8 +21,7 @@ function parseSecretRow(line: string): EnvelopeEncrypted | null {
 
 async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promise<{ token: string; retailer: string } | null> {
   if (!deps.mekB64) {
-    console.error('[product-sync] mekB64 is empty');
-    return null;
+    throw new Error('product_sync_no_mek');
   }
 
   const secretRow = await deps.queryOne(`
@@ -36,12 +35,11 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
 
   const line = secretRow.split('\n').map((x) => x.trim()).find((x) => x.includes('|'));
   if (!line) {
-    console.error('[product-sync] no secret row found, raw:', secretRow.slice(0, 100));
-    return null;
+    throw new Error(`product_sync_no_secret_row:raw_len=${secretRow.length}`);
   }
 
   const parsed = parseSecretRow(line);
-  if (!parsed) return null;
+  if (!parsed) throw new Error('product_sync_parse_secret_failed');
 
   const plaintext = decryptPayload(parsed, deps.mekB64);
   const creds = JSON.parse(plaintext) as Record<string, unknown>;
@@ -84,9 +82,12 @@ async function resolveOAuthToken(deps: ProductSyncDeps, tenantId: string): Promi
     signal: AbortSignal.timeout(10_000)
   });
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`product_sync_token_exchange_failed:${res.status}:${errorBody.slice(0, 100)}`);
+  }
   const data = await res.json() as { access_token?: string; expires_in?: number };
-  if (!data.access_token) return null;
+  if (!data.access_token) throw new Error('product_sync_token_no_access_token');
 
   const expiresAt = new Date(Date.now() + ((data.expires_in ?? 3600) - 60) * 1000).toISOString();
   await deps.exec(`
