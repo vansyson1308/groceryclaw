@@ -386,7 +386,7 @@ async function enqueueLinkedFlow(event: TelegramBotEvent, requestId: string, ten
     let routed = false;
     if (event.message_type === 'text' && event.text) {
       const trimmedText = event.text.trim().toLowerCase();
-      const isConfirmPattern = ['1', '2', 'dung', 'đúng', 'sai'].includes(trimmedText);
+      const isConfirmPattern = ['1', '2', '3', 'dung', 'đúng', 'sai', 'bo qua', 'bỏ qua'].includes(trimmedText);
 
       if (isConfirmPattern || event.reply_to_message_id) {
         const countRow = await runTenantScopedSql(tenantId, `

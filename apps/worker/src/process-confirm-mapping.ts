@@ -43,14 +43,40 @@ function notifyEnvelope(job: WorkerJobEnvelope, message: string): Record<string,
   };
 }
 
+const SELECT_COLS = `id::text || '|' || canonical_invoice_id::text || '|' || canonical_item_id::text || '|' || suggested_sku || '|' || suggested_name || '|' || invoice_product_name`;
+
 export async function processConfirmMapping(deps: ConfirmMappingDeps, job: WorkerJobEnvelope): Promise<void> {
   if (!job.tenant_id) throw new Error('confirm_mapping_missing_tenant');
 
   const text = (job.message_text ?? '').trim().toLowerCase();
   const isConfirm = text === '1' || text === 'dung' || text === 'đúng';
   const isReject = text === '2' || text === 'sai';
+  const isSkip = text === '3' || text === 'bo qua' || text === 'bỏ qua';
 
-  if (!isConfirm && !isReject) {
+  // -----------------------------------------------------------------------
+  // Manual SKU input: reply to a pending confirmation with arbitrary text
+  // -----------------------------------------------------------------------
+  if (!isConfirm && !isReject && !isSkip) {
+    if (job.reply_to_message_id && job.telegram_chat_id) {
+      const row = await deps.queryOne(`
+        SELECT ${SELECT_COLS}
+        FROM pending_confirmations
+        WHERE telegram_chat_id = $1
+          AND sent_message_id = $2
+          AND status = 'pending'
+          AND expires_at > now()
+        LIMIT 1;
+      `, [job.telegram_chat_id, String(job.reply_to_message_id)]);
+
+      if (row.trim()) {
+        const manualPending = parsePendingRow(row.trim());
+        if (manualPending) {
+          await processManualSku(deps, job, manualPending, text);
+          return;
+        }
+      }
+    }
+
     // Not a valid confirmation response — forward to chatbot
     await deps.enqueue({
       job_type: 'CHATBOT_REPLY',
@@ -68,13 +94,12 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
   // -----------------------------------------------------------------------
   // Find the pending confirmation
   // -----------------------------------------------------------------------
-  const selectCols = `id::text || '|' || canonical_invoice_id::text || '|' || canonical_item_id::text || '|' || suggested_sku || '|' || suggested_name || '|' || invoice_product_name`;
   let pending: PendingRow | null = null;
 
   // Primary: lookup by reply_to_message_id
   if (job.reply_to_message_id && job.telegram_chat_id) {
     const row = await deps.queryOne(`
-      SELECT ${selectCols}
+      SELECT ${SELECT_COLS}
       FROM pending_confirmations
       WHERE telegram_chat_id = $1
         AND sent_message_id = $2
@@ -90,7 +115,7 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
   // Fallback: find by user's active pendings
   if (!pending) {
     const rows = await deps.queryMany(`
-      SELECT ${selectCols}
+      SELECT ${SELECT_COLS}
       FROM pending_confirmations
       WHERE tenant_id = $1::uuid
         AND platform_user_id = $2
@@ -130,9 +155,16 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
   }
 
   // -----------------------------------------------------------------------
-  // Process confirmation or rejection
+  // Process confirmation, rejection, or skip
   // -----------------------------------------------------------------------
   if (isConfirm) {
+    if (!pending.suggestedSku) {
+      // Unresolved item without suggestion — cannot confirm, ask for SKU
+      await deps.enqueue(notifyEnvelope(job,
+        `SP "${pending.invoiceProductName}" chua co goi y. Vui long gui ma SKU hoac reply 3=Bo qua.`));
+      return;
+    }
+
     // a. Insert into mapping_dictionary (learning for future Tier 1 hits)
     await deps.exec(`
       INSERT INTO mapping_dictionary (tenant_id, alias_text, target_sku, confidence)
@@ -154,8 +186,7 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
       WHERE id = $1::uuid;
     `, [pending.id]);
 
-  } else {
-    // Rejection
+  } else if (isReject) {
     await deps.exec(`
       UPDATE resolved_invoice_items
       SET status = 'unresolved', unresolved_reason = 'user_rejected'
@@ -167,59 +198,151 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
       SET status = 'rejected', resolved_at = now()
       WHERE id = $1::uuid;
     `, [pending.id]);
+
+  } else {
+    // Skip (promotional/gift item)
+    await deps.exec(`
+      UPDATE resolved_invoice_items
+      SET status = 'skipped', unresolved_reason = 'user_skipped'
+      WHERE canonical_item_id = $1::uuid AND tenant_id = $2::uuid;
+    `, [pending.canonicalItemId, job.tenant_id as string]);
+
+    await deps.exec(`
+      UPDATE pending_confirmations
+      SET status = 'skipped', resolved_at = now()
+      WHERE id = $1::uuid;
+    `, [pending.id]);
   }
 
   // -----------------------------------------------------------------------
-  // Check remaining status for this invoice
+  // Check remaining status + trigger sync if ready
   // -----------------------------------------------------------------------
+  const eventType = isConfirm ? 'mapping_confirmed' : isReject ? 'mapping_rejected' : 'mapping_skipped';
+  await checkRemainingAndNotify(deps, job, pending, isConfirm, isReject, isSkip, eventType);
+}
+
+// ---------------------------------------------------------------------------
+// Manual SKU: user replies with a SKU code to map an unresolved item
+// ---------------------------------------------------------------------------
+async function processManualSku(
+  deps: ConfirmMappingDeps,
+  job: WorkerJobEnvelope,
+  pending: PendingRow,
+  rawText: string
+): Promise<void> {
+  const manualSku = rawText.toUpperCase().trim();
+
+  // Verify SKU exists in product_cache
+  const skuRow = await deps.queryOne(`
+    SELECT sku || '|' || product_name
+    FROM product_cache
+    WHERE tenant_id = $1::uuid AND UPPER(sku) = $2 AND active = true
+    LIMIT 1;
+  `, [job.tenant_id as string, manualSku]);
+
+  if (!skuRow.trim()) {
+    await deps.enqueue(notifyEnvelope(job,
+      `Ma "${manualSku}" khong co trong kho. Vui long kiem tra lai, hoac reply 3=Bo qua.`));
+    return;
+  }
+
+  const [verifiedSku] = skuRow.trim().split('|');
+  const sku = verifiedSku ?? manualSku;
+
+  // Learn mapping
+  await deps.exec(`
+    INSERT INTO mapping_dictionary (tenant_id, alias_text, target_sku, confidence)
+    VALUES ($1::uuid, $2, $3, 100)
+    ON CONFLICT (tenant_id, alias_text) DO UPDATE SET target_sku = EXCLUDED.target_sku, confidence = 100;
+  `, [job.tenant_id as string, pending.invoiceProductName, sku]);
+
+  // Resolve the item
+  await deps.exec(`
+    UPDATE resolved_invoice_items
+    SET status = 'resolved', resolved_sku = $1, unresolved_reason = NULL
+    WHERE canonical_item_id = $2::uuid AND tenant_id = $3::uuid;
+  `, [sku, pending.canonicalItemId, job.tenant_id as string]);
+
+  // Mark pending as confirmed
+  await deps.exec(`
+    UPDATE pending_confirmations
+    SET status = 'confirmed', resolved_at = now()
+    WHERE id = $1::uuid;
+  `, [pending.id]);
+
+  await checkRemainingAndNotify(deps, job, pending, true, false, false, 'mapping_manual_sku');
+}
+
+// ---------------------------------------------------------------------------
+// Shared: check remaining items, build status message, trigger sync if ready
+// ---------------------------------------------------------------------------
+async function checkRemainingAndNotify(
+  deps: ConfirmMappingDeps,
+  job: WorkerJobEnvelope,
+  pending: PendingRow,
+  isConfirm: boolean,
+  isReject: boolean,
+  isSkip: boolean,
+  eventType: string
+): Promise<void> {
   const remainingRow = await deps.queryOne(`
     SELECT
       COUNT(*) FILTER (WHERE status = 'pending_confirmation')::text || '|' ||
       COUNT(*) FILTER (WHERE status = 'unresolved')::text || '|' ||
-      COUNT(*) FILTER (WHERE status = 'resolved')::text
+      COUNT(*) FILTER (WHERE status = 'resolved')::text || '|' ||
+      COUNT(*) FILTER (WHERE status = 'skipped')::text
     FROM resolved_invoice_items
     WHERE canonical_invoice_id = $1::uuid AND tenant_id = $2::uuid;
   `, [pending.canonicalInvoiceId, job.tenant_id as string]);
 
-  const [pendingCountStr, unresolvedCountStr, resolvedCountStr] = remainingRow.trim().split('|');
-  const remainingPending = Number(pendingCountStr ?? '0');
-  const remainingUnresolved = Number(unresolvedCountStr ?? '0');
-  const resolvedNow = Number(resolvedCountStr ?? '0');
+  const parts = remainingRow.trim().split('|');
+  const remainingPending = Number(parts[0] ?? '0');
+  const remainingUnresolved = Number(parts[1] ?? '0');
+  const resolvedNow = Number(parts[2] ?? '0');
+  const skippedNow = Number(parts[3] ?? '0');
 
   // Build status message
   let statusMsg: string;
   if (isConfirm) {
-    statusMsg = `Da xac nhan: "${pending.invoiceProductName}" = "${pending.suggestedName}". He thong se tu dong nhan dien lan sau.`;
-  } else {
+    const displayName = pending.suggestedName || pending.suggestedSku;
+    statusMsg = `Da xac nhan: "${pending.invoiceProductName}" = "${displayName}". He thong se tu dong nhan dien lan sau.`;
+  } else if (isReject) {
     statusMsg = `Da ghi nhan: "${pending.invoiceProductName}" khong phai la "${pending.suggestedName}".`;
+  } else {
+    statusMsg = `Da bo qua: "${pending.invoiceProductName}" (hang KM/khong can nhap).`;
   }
 
   // Append remaining status
   const statusParts: string[] = [];
   if (remainingPending > 0) statusParts.push(`${remainingPending} SP cho xac nhan`);
   if (remainingUnresolved > 0) statusParts.push(`${remainingUnresolved} SP chua nhan dien`);
+  if (skippedNow > 0) statusParts.push(`${skippedNow} SP da bo qua`);
   if (statusParts.length > 0) {
     statusMsg += ` Con ${statusParts.join(', ')}.`;
   }
 
-  // Check if all items resolved — trigger sync
-  if (remainingPending === 0 && resolvedNow > 0) {
-    if (remainingUnresolved === 0) {
-      statusMsg += ' Tat ca SP da doi chieu, dang tao phieu nhap...';
-    } else {
-      statusMsg += ` ${resolvedNow} SP da doi chieu, dang tao phieu nhap...`;
-    }
+  // Check if all items decided — trigger sync if any resolved
+  if (remainingPending === 0) {
+    if (resolvedNow > 0) {
+      if (remainingUnresolved === 0) {
+        statusMsg += ' Tat ca SP da doi chieu, dang tao phieu nhap...';
+      } else {
+        statusMsg += ` ${resolvedNow} SP da doi chieu, dang tao phieu nhap...`;
+      }
 
-    await deps.enqueue({
-      job_type: 'KIOTVIET_SYNC',
-      tenant_id: job.tenant_id,
-      canonical_invoice_id: pending.canonicalInvoiceId,
-      correlation_id: job.correlation_id,
-      platform_user_id: job.platform_user_id,
-      message_id: job.message_id,
-      inbound_event_id: job.inbound_event_id,
-      telegram_chat_id: job.telegram_chat_id
-    });
+      await deps.enqueue({
+        job_type: 'KIOTVIET_SYNC',
+        tenant_id: job.tenant_id,
+        canonical_invoice_id: pending.canonicalInvoiceId,
+        correlation_id: job.correlation_id,
+        platform_user_id: job.platform_user_id,
+        message_id: job.message_id,
+        inbound_event_id: job.inbound_event_id,
+        telegram_chat_id: job.telegram_chat_id
+      });
+    } else if (resolvedNow === 0 && skippedNow > 0) {
+      statusMsg += ' Tat ca SP da bo qua, khong tao phieu nhap.';
+    }
   }
 
   await deps.enqueue(notifyEnvelope(job, statusMsg));
@@ -231,7 +354,7 @@ export async function processConfirmMapping(deps: ConfirmMappingDeps, job: Worke
   `, [
     job.tenant_id as string,
     job.platform_user_id,
-    isConfirm ? 'mapping_confirmed' : 'mapping_rejected',
+    eventType,
     pending.id,
     JSON.stringify({ invoice_product: pending.invoiceProductName, suggested_sku: pending.suggestedSku })
   ]);

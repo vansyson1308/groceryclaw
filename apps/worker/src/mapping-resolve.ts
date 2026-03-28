@@ -312,7 +312,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
             `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, match.matched_code, item.uom ?? null, item.quantity]);
 
             // Send confirmation question directly via adapter (need message_id synchronously)
-            const confirmText = `SP "${item.product_name}" co phai la "${match.matched_name}" (${match.matched_code}) khong?\nReply 1=Dung, 2=Sai`;
+            const confirmText = `SP "${item.product_name}" co phai la "${match.matched_name}" (${match.matched_code}) khong?\nReply 1=Dung, 2=Sai, 3=Bo qua (KM)`;
             const sendResult = await deps.adapter.sendText(chatId, confirmText);
 
             await deps.exec(`
@@ -333,8 +333,35 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
           }
 
         } else {
-          // Tier 2c: Low confidence or no match — unresolved
-          stillUnresolved.push(item);
+          // Tier 2c: Low confidence or no match — interactive question
+          const chatIdC = job.telegram_chat_id;
+          if (chatIdC) {
+            await deps.exec(`
+              INSERT INTO resolved_invoice_items (
+                tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+              ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending_confirmation', $4, 'mapping_not_found')
+              ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'pending_confirmation', unresolved_reason = 'mapping_not_found';
+            `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+
+            const questionText = `SP "${item.product_name}" khong tim thay trong kho.\nReply 3=Bo qua (KM), hoac gui ma SKU de ghep thu cong.`;
+            const sendResultC = await deps.adapter.sendText(chatIdC, questionText);
+
+            await deps.exec(`
+              INSERT INTO pending_confirmations (
+                tenant_id, canonical_invoice_id, canonical_item_id,
+                platform_user_id, telegram_chat_id, sent_message_id,
+                invoice_product_name, suggested_sku, suggested_name, confidence
+              ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10);
+            `, [
+              job.tenant_id as string, job.canonical_invoice_id as string, item.id,
+              job.platform_user_id, chatIdC, sendResultC.message_id,
+              item.product_name, '', '', 0
+            ]);
+
+            pendingItems.push(item);
+          } else {
+            stillUnresolved.push(item);
+          }
         }
       }
 
@@ -348,28 +375,82 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
         `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
       }
     } else {
-      // No product cache results — mark all as unresolved
+      // No product cache results — send interactive questions
       for (const item of unresolved) {
+        const chatIdNpc = job.telegram_chat_id;
+        if (chatIdNpc) {
+          await deps.exec(`
+            INSERT INTO resolved_invoice_items (
+              tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending_confirmation', $4, 'no_product_cache')
+            ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'pending_confirmation', unresolved_reason = 'no_product_cache';
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+
+          const questionText = `SP "${item.product_name}" khong tim thay trong kho.\nReply 3=Bo qua (KM), hoac gui ma SKU de ghep thu cong.`;
+          const sendResultNpc = await deps.adapter.sendText(chatIdNpc, questionText);
+
+          await deps.exec(`
+            INSERT INTO pending_confirmations (
+              tenant_id, canonical_invoice_id, canonical_item_id,
+              platform_user_id, telegram_chat_id, sent_message_id,
+              invoice_product_name, suggested_sku, suggested_name, confidence
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10);
+          `, [
+            job.tenant_id as string, job.canonical_invoice_id as string, item.id,
+            job.platform_user_id, chatIdNpc, sendResultNpc.message_id,
+            item.product_name, '', '', 0
+          ]);
+
+          pendingItems.push(item);
+        } else {
+          await deps.exec(`
+            INSERT INTO resolved_invoice_items (
+              tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'no_product_cache')
+            ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'no_product_cache';
+          `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+          stillUnresolved.push(item);
+        }
+      }
+    }
+  } else if (unresolved.length > 0) {
+    // No AI key — send interactive questions
+    for (const item of unresolved) {
+      const chatIdNoAi = job.telegram_chat_id;
+      if (chatIdNoAi) {
         await deps.exec(`
           INSERT INTO resolved_invoice_items (
             tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'no_product_cache')
-          ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'no_product_cache';
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending_confirmation', $4, 'mapping_not_found')
+          ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'pending_confirmation', unresolved_reason = 'mapping_not_found';
         `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+
+        const questionText = `SP "${item.product_name}" khong tim thay trong kho.\nReply 3=Bo qua (KM), hoac gui ma SKU de ghep thu cong.`;
+        const sendResultNoAi = await deps.adapter.sendText(chatIdNoAi, questionText);
+
+        await deps.exec(`
+          INSERT INTO pending_confirmations (
+            tenant_id, canonical_invoice_id, canonical_item_id,
+            platform_user_id, telegram_chat_id, sent_message_id,
+            invoice_product_name, suggested_sku, suggested_name, confidence
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10);
+        `, [
+          job.tenant_id as string, job.canonical_invoice_id as string, item.id,
+          job.platform_user_id, chatIdNoAi, sendResultNoAi.message_id,
+          item.product_name, '', '', 0
+        ]);
+
+        pendingItems.push(item);
+      } else {
+        await deps.exec(`
+          INSERT INTO resolved_invoice_items (
+            tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
+          ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
+          ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
+        `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
+        stillUnresolved.push(item);
       }
-      stillUnresolved.push(...unresolved);
     }
-  } else if (unresolved.length > 0) {
-    // No AI key — mark as unresolved
-    for (const item of unresolved) {
-      await deps.exec(`
-        INSERT INTO resolved_invoice_items (
-          tenant_id, canonical_invoice_id, canonical_item_id, status, quantity, unresolved_reason
-        ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'unresolved', $4, 'mapping_not_found')
-        ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
-      `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
-    }
-    stillUnresolved.push(...unresolved);
   }
 
   // Audit log
@@ -413,8 +494,8 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     });
   }
 
-  // Proceed to KiotViet sync if ANY items were resolved
-  if (resolvedCount > 0) {
+  // Proceed to KiotViet sync only if items resolved AND nothing pending
+  if (resolvedCount > 0 && pendingItems.length === 0) {
     await deps.enqueue({
       job_type: 'KIOTVIET_SYNC',
       tenant_id: job.tenant_id,
