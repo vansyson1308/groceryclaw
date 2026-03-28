@@ -238,16 +238,47 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
     Number(process.env.KIOTVIET_TIMEOUT_MS ?? '5000')
   );
 
-  await processKiotvietSync({
-    queryOne: runQueryOne,
-    queryMany: runQueryMany,
-    exec: runSql,
-    adapter,
-    syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
-    maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
-    backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
-    mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? ''
-  }, job);
+  const tenantId = job.tenant_id;
+  if (!tenantId) throw new Error('kiotviet_sync_missing_tenant');
+
+  if (pgPool) {
+    await runTenantScopedTransaction({
+      pool: pgPool,
+      tenantId,
+      applicationName: 'worker:KIOTVIET_SYNC',
+      work: async (client) => {
+        await processKiotvietSync({
+          queryOne: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            if (result.rows.length === 0) return '';
+            const row = result.rows[0] ?? {};
+            return Object.values(row).join('|').trim();
+          },
+          queryMany: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            return result.rows.map((r) => Object.values(r).join('|').trim());
+          },
+          exec: async (sql, params = []) => { await query(client, sql, params); },
+          adapter,
+          syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
+          maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
+          backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
+          mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? ''
+        }, job);
+      }
+    });
+  } else {
+    await processKiotvietSync({
+      queryOne: runQueryOne,
+      queryMany: runQueryMany,
+      exec: runSql,
+      adapter,
+      syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
+      maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
+      backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
+      mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? ''
+    }, job);
+  }
 }
 
 async function processImageInvoiceJob(job: WorkerJobEnvelope): Promise<void> {

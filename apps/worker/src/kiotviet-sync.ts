@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { decryptPayload, type EnvelopeEncrypted, type WorkerJobEnvelope } from '../../../packages/common/dist/index.js';
-import { runTenantScopedTransaction } from './db-session.js';
 import type { KiotvietAdapter } from './kiotviet-adapter.js';
 import { isRetriableKiotvietError } from './kiotviet-adapter.js';
 
@@ -233,34 +232,28 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
 
       const payloadHash = createHash('sha256').update(JSON.stringify(response.raw)).digest('hex');
 
-      await runTenantScopedTransaction({
-        db: { runSql: deps.exec },
-        tenantId: job.tenant_id,
-        jobType: 'KIOTVIET_SYNC',
-        work: async () => {
-          await deps.exec(`
-            INSERT INTO idempotency_keys (tenant_id, key_scope, key_value, status, metadata)
-            VALUES (
-              $1::uuid,
-              'kiotviet_sync',
-              $2,
-              'consumed',
-              $3::jsonb
-            )
-            ON CONFLICT (tenant_id, key_scope, key_value) DO NOTHING;
-          `, [job.tenant_id as string, sideEffectKey, JSON.stringify({ external_reference_id: response.externalReferenceId, payload_hash: payloadHash })]);
+      await deps.exec(`
+        INSERT INTO idempotency_keys (tenant_id, key_scope, key_value, status, metadata)
+        VALUES (
+          $1::uuid,
+          'kiotviet_sync',
+          $2,
+          'consumed',
+          $3::jsonb
+        )
+        ON CONFLICT (tenant_id, key_scope, key_value) DO NOTHING;
+      `, [job.tenant_id as string, sideEffectKey, JSON.stringify({ external_reference_id: response.externalReferenceId, payload_hash: payloadHash })]);
 
-          await deps.exec(`
-            INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, external_reference_id, status, payload)
-            VALUES ($1::uuid, $2::uuid, 'kiotviet', $3, 'success', $4::jsonb);
-          `, [job.tenant_id as string, job.canonical_invoice_id as string, response.externalReferenceId, JSON.stringify(response.raw)]);
+      await deps.exec(`
+        INSERT INTO sync_results (tenant_id, canonical_invoice_id, external_system, external_reference_id, status, payload)
+        VALUES ($1::uuid, $2::uuid, 'kiotviet', $3, 'success', $4::jsonb);
+      `, [job.tenant_id as string, job.canonical_invoice_id as string, response.externalReferenceId, JSON.stringify(response.raw)]);
 
-          await deps.exec(`
-            INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
-            VALUES ($1::uuid, 'system', 'worker', 'kiotviet_sync_success', 'canonical_invoices', $2, $3::jsonb);
-          `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ external_reference_id: response.externalReferenceId })]);
-        }
-      });
+      await deps.exec(`
+        INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
+        VALUES ($1::uuid, 'system', 'worker', 'kiotviet_sync_success', 'canonical_invoices', $2, $3::jsonb);
+      `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ external_reference_id: response.externalReferenceId })]);
+
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown_error';
