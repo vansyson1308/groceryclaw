@@ -123,18 +123,32 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
 
   const unresolved: CanonicalItem[] = [];
 
-  // Tier 1: Exact match from mapping_dictionary
+  // Tier 1: Exact match from mapping_dictionary or verified SKU in product_cache
   for (const item of canonicalItems) {
-    let resolvedSku = item.sku;
-    if (!resolvedSku) {
-      const aliasSku = await deps.queryOne(`
-        SELECT target_sku
-        FROM mapping_dictionary
-        WHERE tenant_id = $1::uuid
-          AND lower(alias_text) = lower($2)
+    let resolvedSku: string | null = null;
+
+    // First check mapping_dictionary (handles aliases from previous AI matches)
+    const aliasSku = await deps.queryOne(`
+      SELECT target_sku
+      FROM mapping_dictionary
+      WHERE tenant_id = $1::uuid
+        AND lower(alias_text) = lower($2)
+      LIMIT 1;
+    `, [job.tenant_id as string, item.product_name]);
+    if (aliasSku.trim()) {
+      resolvedSku = aliasSku.trim();
+    }
+
+    // If no alias match but invoice has SKU, verify it exists in product_cache
+    if (!resolvedSku && item.sku) {
+      const verified = await deps.queryOne(`
+        SELECT sku FROM product_cache
+        WHERE tenant_id = $1::uuid AND sku = $2 AND active = true
         LIMIT 1;
-      `, [job.tenant_id as string, item.product_name]);
-      resolvedSku = aliasSku.trim() || null;
+      `, [job.tenant_id as string, item.sku]);
+      if (verified.trim()) {
+        resolvedSku = verified.trim();
+      }
     }
 
     if (!resolvedSku) {

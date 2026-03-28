@@ -74,7 +74,10 @@ export class HttpKiotvietAdapter implements KiotvietAdapter {
 
       if (res.status === 429) throw new Error('kv_rate_limited');
       if (res.status >= 500) throw new Error('kv_server_error');
-      if (!res.ok) throw new Error('kv_non_retriable');
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`kv_non_retriable:${res.status}:${errBody.slice(0, 200)}`);
+      }
 
       const parsed = await res.json() as { id?: number; code?: string };
       const externalReferenceId = parsed.code ?? String(parsed.id ?? '');

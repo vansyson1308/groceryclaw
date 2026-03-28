@@ -12,6 +12,7 @@ export interface KiotvietSyncDeps {
   readonly maxRetries: number;
   readonly backoffBaseMs: number;
   readonly mekB64?: string;
+  readonly branchId?: number;
 }
 
 function parseSecretRow(line: string): EnvelopeEncrypted | null {
@@ -228,7 +229,7 @@ export async function processKiotvietSync(deps: KiotvietSyncDeps, job: WorkerJob
         canonical_invoice_id: job.canonical_invoice_id,
         correlation_id: job.correlation_id,
         items
-      }, { authToken: secretToken, retailer });
+      }, { authToken: secretToken, retailer, ...(deps.branchId != null ? { branchId: deps.branchId } : {}) });
 
       const payloadHash = createHash('sha256').update(JSON.stringify(response.raw)).digest('hex');
 

@@ -325,7 +325,8 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
           syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
           maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
           backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
-          mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? ''
+          mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? '',
+          ...(process.env.KIOTVIET_BRANCH_ID ? { branchId: Number(process.env.KIOTVIET_BRANCH_ID) } : {})
         }, job);
       }
     });
@@ -338,7 +339,8 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
       syncEnabled: (process.env.WORKER_KIOTVIET_SYNC_ENABLED ?? 'true') === 'true',
       maxRetries: Number(process.env.KIOTVIET_SYNC_MAX_RETRIES ?? '3'),
       backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
-      mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? ''
+      mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? '',
+      ...(process.env.KIOTVIET_BRANCH_ID ? { branchId: Number(process.env.KIOTVIET_BRANCH_ID) } : {})
     }, job);
   }
 }
