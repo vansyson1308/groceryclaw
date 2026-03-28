@@ -382,30 +382,64 @@ async function enqueueLinkedFlow(event: TelegramBotEvent, requestId: string, ten
   const messageId = String(event.message_id);
 
   if (inserted.inserted) {
-    const messageClass = classifyTelegramMessage(event);
-    let jobType: string;
+    // Check if this is a confirmation reply (user responding to AI product match question)
+    let routed = false;
+    if (event.message_type === 'text' && event.text) {
+      const trimmedText = event.text.trim().toLowerCase();
+      const isConfirmPattern = ['1', '2', 'dung', 'đúng', 'sai'].includes(trimmedText);
 
-    if (messageClass === 'excel_invoice') {
-      jobType = 'PROCESS_EXCEL_INVOICE';
-    } else if (messageClass === 'image_invoice') {
-      jobType = 'PROCESS_IMAGE_INVOICE';
-    } else {
-      jobType = 'CHATBOT_REPLY';
+      if (isConfirmPattern || event.reply_to_message_id) {
+        const countRow = await runTenantScopedSql(tenantId, `
+          SELECT COUNT(*)::text FROM pending_confirmations
+          WHERE tenant_id = $1::uuid AND platform_user_id = $2
+            AND status = 'pending' AND expires_at > now();
+        `, [tenantId, String(event.user_id)]);
+        const pendingCount = Number(countRow.trim() || '0');
+
+        if (pendingCount > 0) {
+          await enqueue({
+            job_type: 'CONFIRM_MAPPING',
+            correlation_id: requestId,
+            tenant_id: tenantId,
+            inbound_event_id: inserted.inboundEventId,
+            platform_user_id: String(event.user_id),
+            user_id: userId ?? undefined,
+            message_id: messageId,
+            telegram_chat_id: event.chat_id,
+            message_text: event.text,
+            ...(event.reply_to_message_id ? { reply_to_message_id: event.reply_to_message_id } : {})
+          });
+          routed = true;
+        }
+      }
     }
 
-    await enqueue({
-      job_type: jobType,
-      correlation_id: requestId,
-      tenant_id: tenantId,
-      inbound_event_id: inserted.inboundEventId,
-      platform_user_id: String(event.user_id),
-      user_id: userId ?? undefined,
-      message_id: messageId,
-      telegram_chat_id: event.chat_id,
-      ...(event.document?.file_id ? { file_id: event.document.file_id } : {}),
-      ...(event.photo?.length ? { file_id: event.photo[event.photo.length - 1]!.file_id } : {}),
-      ...(messageClass === 'text_chat' && event.text ? { message_text: event.text } : {})
-    });
+    if (!routed) {
+      const messageClass = classifyTelegramMessage(event);
+      let jobType: string;
+
+      if (messageClass === 'excel_invoice') {
+        jobType = 'PROCESS_EXCEL_INVOICE';
+      } else if (messageClass === 'image_invoice') {
+        jobType = 'PROCESS_IMAGE_INVOICE';
+      } else {
+        jobType = 'CHATBOT_REPLY';
+      }
+
+      await enqueue({
+        job_type: jobType,
+        correlation_id: requestId,
+        tenant_id: tenantId,
+        inbound_event_id: inserted.inboundEventId,
+        platform_user_id: String(event.user_id),
+        user_id: userId ?? undefined,
+        message_id: messageId,
+        telegram_chat_id: event.chat_id,
+        ...(event.document?.file_id ? { file_id: event.document.file_id } : {}),
+        ...(event.photo?.length ? { file_id: event.photo[event.photo.length - 1]!.file_id } : {}),
+        ...(messageClass === 'text_chat' && event.text ? { message_text: event.text } : {})
+      });
+    }
   }
 
   logger.info('gateway_webhook_accepted', {

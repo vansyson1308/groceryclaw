@@ -5,6 +5,7 @@ import { encryptPayload } from '../../packages/common/dist/index.js';
 import { processMapResolve } from '../../apps/worker/dist/mapping-resolve.js';
 import { HttpKiotvietAdapter } from '../../apps/worker/dist/kiotviet-adapter.js';
 import { processKiotvietSync } from '../../apps/worker/dist/kiotviet-sync.js';
+import { InMemoryStubTelegramAdapter } from '../../apps/worker/dist/telegram-adapter.js';
 
 function startKvStub(modeRef) {
   let calls = 0;
@@ -60,6 +61,19 @@ function startKvStub(modeRef) {
   });
 }
 
+function makeJob(overrides = {}) {
+  return {
+    job_type: 'MAP_RESOLVE',
+    tenant_id: '11111111-1111-1111-1111-111111111111',
+    inbound_event_id: '22222222-2222-2222-2222-222222222222',
+    platform_user_id: 'u1',
+    message_id: 'm1',
+    correlation_id: 'c1',
+    canonical_invoice_id: '33333333-3333-3333-3333-333333333333',
+    ...overrides
+  };
+}
+
 test('mapping unresolved does not call kiotviet and enqueues notify placeholder', async () => {
   const queue = [];
   const sql = [];
@@ -69,25 +83,21 @@ test('mapping unresolved does not call kiotviet and enqueues notify placeholder'
     queryMany: async () => [JSON.stringify({ id: 'i1', sku: null, product_name: 'Unknown', quantity: 1, uom: 'ea' })],
     exec: async (s) => { sql.push(s); },
     enqueue: async (p) => { queue.push(p); },
+    adapter: new InMemoryStubTelegramAdapter(),
     mappingEnabled: true
-  }, {
-    job_type: 'MAP_RESOLVE',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  });
+  }, makeJob());
 
   assert.ok(sql.some((s) => s.includes("'unresolved'")));
-  assert.ok(queue.some((q) => q.notification_type === 'GENERIC_INFO' && q.template_vars?.message?.includes('chua the doi chieu')));
+  assert.ok(queue.some((q) => q.notification_type === 'GENERIC_INFO'));
+  // Should not enqueue KIOTVIET_SYNC when nothing resolved
+  assert.ok(!queue.some((q) => q.job_type === 'KIOTVIET_SYNC'));
 });
 
 test('kiotviet sync happy path stores result and idempotency', async () => {
   const modeRef = { mode: 'success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
+  const queue = [];
   const adapter = new HttpKiotvietAdapter(stub.baseUrl, 1000);
 
   const deps = {
@@ -98,23 +108,14 @@ test('kiotviet sync happy path stores result and idempotency', async () => {
     },
     queryMany: async () => ['SKU1|2|15000'],
     exec: async (s) => { sql.push(s); },
+    enqueue: async (p) => { queue.push(p); },
     adapter,
     syncEnabled: true,
     maxRetries: 2,
     backoffBaseMs: 1
   };
 
-  const job = {
-    job_type: 'KIOTVIET_SYNC',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  };
-
-  await processKiotvietSync(deps, job);
+  await processKiotvietSync(deps, makeJob({ job_type: 'KIOTVIET_SYNC' }));
   assert.equal(stub.calls(), 1);
   assert.equal(stub.lastRetailer(), 'taphoatest');
   assert.ok(sql.some((s) => s.includes('INSERT INTO idempotency_keys')));
@@ -127,12 +128,15 @@ test('kiotviet sync happy path stores result and idempotency', async () => {
   assert.equal(body.purchaseOrderDetails[0].quantity, 2);
   assert.equal(body.purchaseOrderDetails[0].price, 15000);
 
+  // Verify success notification enqueued
+  assert.ok(queue.some((q) => q.job_type === 'NOTIFY_USER' && q.template_vars?.message?.includes('thanh cong')));
+
   // replay: existing idempotency key should skip external call
   const depsReplay = {
     ...deps,
     queryOne: async (s) => (s.includes('FROM idempotency_keys') ? '{"already":true}' : '')
   };
-  await processKiotvietSync(depsReplay, job);
+  await processKiotvietSync(depsReplay, makeJob({ job_type: 'KIOTVIET_SYNC' }));
   assert.equal(stub.calls(), 1);
 
   stub.server.close();
@@ -142,7 +146,7 @@ test('kiotviet sync retries 429 then succeeds', async () => {
   const modeRef = { mode: 'rate-then-success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
-  const adapter = new HttpKiotvietAdapter(stub.baseUrl, 1000);
+  const queue = [];
 
   await processKiotvietSync({
     queryOne: async (s) => {
@@ -151,19 +155,12 @@ test('kiotviet sync retries 429 then succeeds', async () => {
     },
     queryMany: async () => ['SKU1|1|10000'],
     exec: async (s) => { sql.push(s); },
-    adapter,
+    enqueue: async (p) => { queue.push(p); },
+    adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 3,
     backoffBaseMs: 1
-  }, {
-    job_type: 'KIOTVIET_SYNC',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  });
+  }, makeJob({ job_type: 'KIOTVIET_SYNC' }));
 
   assert.equal(stub.calls(), 2);
   assert.ok(sql.some((s) => s.includes("'success'")));
@@ -177,6 +174,7 @@ test('kiotviet sync decrypts active tenant secret in-memory and uses token heade
   const encrypted = encryptPayload(JSON.stringify({ token: 'secret-from-db' }), mekB64);
   const secretLine = `${encrypted.encryptedDek.toString('hex')}|${encrypted.encryptedValue.toString('hex')}|${encrypted.dekNonce.toString('hex')}|${encrypted.valueNonce.toString('hex')}`;
 
+  const queue = [];
   await processKiotvietSync({
     queryOne: async (sql) => {
       if (sql.includes('FROM idempotency_keys')) return '';
@@ -186,20 +184,13 @@ test('kiotviet sync decrypts active tenant secret in-memory and uses token heade
     },
     queryMany: async () => ['SKU1|1|5000'],
     exec: async () => {},
+    enqueue: async (p) => { queue.push(p); },
     adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 1,
     backoffBaseMs: 1,
     mekB64
-  }, {
-    job_type: 'KIOTVIET_SYNC',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  });
+  }, makeJob({ job_type: 'KIOTVIET_SYNC' }));
 
   assert.equal(stub.calls(), 1);
   assert.equal(stub.lastAuth(), 'Bearer secret-from-db');
@@ -211,6 +202,7 @@ test('kiotviet sync fails safe when secret is revoked/missing', async () => {
   const modeRef = { mode: 'success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
+  const queue = [];
 
   await processKiotvietSync({
     queryOne: async (query) => {
@@ -221,20 +213,13 @@ test('kiotviet sync fails safe when secret is revoked/missing', async () => {
     },
     queryMany: async () => ['SKU1|1|5000'],
     exec: async (statement) => { sql.push(statement); },
+    enqueue: async (p) => { queue.push(p); },
     adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 1,
     backoffBaseMs: 1,
     mekB64: Buffer.alloc(32, 9).toString('base64')
-  }, {
-    job_type: 'KIOTVIET_SYNC',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  });
+  }, makeJob({ job_type: 'KIOTVIET_SYNC' }));
 
   assert.equal(stub.calls(), 0);
   assert.ok(sql.some((line) => line.includes('missing_active_secret')));
@@ -245,6 +230,7 @@ test('kiotviet sync fails when retailer is missing', async () => {
   const modeRef = { mode: 'success' };
   const stub = await startKvStub(modeRef);
   const sql = [];
+  const queue = [];
 
   await processKiotvietSync({
     queryOne: async (query) => {
@@ -253,19 +239,12 @@ test('kiotviet sync fails when retailer is missing', async () => {
     },
     queryMany: async () => ['SKU1|1|5000'],
     exec: async (statement) => { sql.push(statement); },
+    enqueue: async (p) => { queue.push(p); },
     adapter: new HttpKiotvietAdapter(stub.baseUrl, 1000),
     syncEnabled: true,
     maxRetries: 1,
     backoffBaseMs: 1
-  }, {
-    job_type: 'KIOTVIET_SYNC',
-    tenant_id: '11111111-1111-1111-1111-111111111111',
-    inbound_event_id: '22222222-2222-2222-2222-222222222222',
-    platform_user_id: 'u1',
-    zalo_msg_id: 'm1',
-    correlation_id: 'c1',
-    canonical_invoice_id: '33333333-3333-3333-3333-333333333333'
-  });
+  }, makeJob({ job_type: 'KIOTVIET_SYNC' }));
 
   assert.equal(stub.calls(), 0);
   assert.ok(sql.some((line) => line.includes('missing_retailer')));

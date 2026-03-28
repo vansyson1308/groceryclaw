@@ -62,6 +62,7 @@ export interface TelegramBotEvent {
   readonly photo?: readonly TelegramPhotoSize[];
   readonly caption?: string;
   readonly timestamp: number;
+  readonly reply_to_message_id?: number;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -129,6 +130,14 @@ export function validateTelegramUpdate(
     messageType = 'text';
   }
 
+  let replyToMessageId: number | undefined;
+  if (isObject(msg.reply_to_message)) {
+    const rtm = msg.reply_to_message;
+    if (isPositiveInt(rtm.message_id)) {
+      replyToMessageId = rtm.message_id;
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -143,6 +152,7 @@ export function validateTelegramUpdate(
       ...(photo ? { photo } : {}),
       ...(typeof msg.caption === 'string' ? { caption: msg.caption } : {}),
       timestamp: date,
+      ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
     },
   };
 }

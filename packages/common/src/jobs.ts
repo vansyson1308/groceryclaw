@@ -9,7 +9,8 @@ export type WorkerJobType =
   | 'FLUSH_PENDING_NOTIFICATIONS'
   | 'MAP_RESOLVE'
   | 'KIOTVIET_SYNC'
-  | 'KIOTVIET_PRODUCT_SYNC';
+  | 'KIOTVIET_PRODUCT_SYNC'
+  | 'CONFIRM_MAPPING';
 
 export interface WorkerJobEnvelope {
   readonly job_type: WorkerJobType;
@@ -26,6 +27,7 @@ export interface WorkerJobEnvelope {
   readonly template_vars?: NotificationTemplateVars;
   readonly enqueued_at_ms?: number;
   readonly message_text?: string;
+  readonly reply_to_message_id?: number;
 }
 
 function asNonEmptyString(value: unknown): string | null {
@@ -54,7 +56,7 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
     return { ok: false };
   }
 
-  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'PROCESS_EXCEL_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC', 'KIOTVIET_PRODUCT_SYNC'];
+  const allowed: WorkerJobType[] = ['PROCESS_INBOUND_EVENT', 'PROCESS_IMAGE_INVOICE', 'PROCESS_EXCEL_INVOICE', 'CHATBOT_REPLY', 'NOTIFY_USER', 'FLUSH_PENDING_NOTIFICATIONS', 'MAP_RESOLVE', 'KIOTVIET_SYNC', 'KIOTVIET_PRODUCT_SYNC', 'CONFIRM_MAPPING'];
   if (!allowed.includes(jobType as WorkerJobType)) {
     return { ok: false };
   }
@@ -85,6 +87,9 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
     return { ok: false };
   }
   if ((jobType === 'MAP_RESOLVE' || jobType === 'KIOTVIET_SYNC') && (!tenantId || !canonicalInvoiceId)) {
+    return { ok: false };
+  }
+  if (jobType === 'CONFIRM_MAPPING' && !tenantId) {
     return { ok: false };
   }
 
@@ -131,7 +136,8 @@ export function validateWorkerJobEnvelope(input: unknown): { ok: true; value: Wo
       ...(notificationType ? { notification_type: notificationType as NotificationType } : {}),
       ...(templateVars && isRecord(templateVars) ? { template_vars: templateVars } : {}),
       ...(typeof enqueuedAtMs === 'number' ? { enqueued_at_ms: enqueuedAtMs } : {}),
-      ...(typeof payload.message_text === 'string' ? { message_text: payload.message_text } : {})
+      ...(typeof payload.message_text === 'string' ? { message_text: payload.message_text } : {}),
+      ...(typeof payload.reply_to_message_id === 'number' && Number.isInteger(payload.reply_to_message_id) && payload.reply_to_message_id > 0 ? { reply_to_message_id: payload.reply_to_message_id } : {})
     }
   };
 }

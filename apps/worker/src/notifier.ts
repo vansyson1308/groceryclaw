@@ -400,6 +400,22 @@ export async function processFlushPendingNotificationsJob(deps: NotifierDeps, jo
           AND expires_at <= now();
       `);
 
+      // Expire stale pending confirmations (AI product match questions)
+      await deps.exec(`
+        UPDATE resolved_invoice_items
+        SET status = 'unresolved', unresolved_reason = 'confirmation_expired'
+        WHERE status = 'pending_confirmation'
+          AND canonical_item_id IN (
+            SELECT canonical_item_id FROM pending_confirmations
+            WHERE status = 'pending' AND expires_at <= now()
+          );
+      `);
+      await deps.exec(`
+        UPDATE pending_confirmations
+        SET status = 'expired', resolved_at = now()
+        WHERE status = 'pending' AND expires_at <= now();
+      `);
+
       const rowsRaw = await deps.queryMany(`
         SELECT id::text || '|' || COALESCE(platform_user_id, '') || '|' || message_type || '|' || payload::text
         FROM pending_notifications

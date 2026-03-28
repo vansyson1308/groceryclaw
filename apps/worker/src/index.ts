@@ -27,6 +27,7 @@ import { NotifierRetriableError, processFlushPendingNotificationsJob, processNot
 import { HttpTelegramBotAdapter, InMemoryStubTelegramAdapter } from './telegram-adapter.js';
 import { processExcelInvoice } from './process-excel-invoice.js';
 import { processKiotvietProductSync } from './kiotviet-product-sync.js';
+import { processConfirmMapping } from './process-confirm-mapping.js';
 
 const config = loadBaseConfig({
   serviceName: 'worker',
@@ -246,6 +247,7 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
           },
           exec: async (sql, params = []) => { await query(client, sql, params); },
           enqueue,
+          adapter: createTelegramAdapter(),
           mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
           openaiApiKey: process.env.OPENAI_API_KEY ?? '',
           openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
@@ -258,6 +260,7 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
       queryMany: runQueryMany,
       exec: runSql,
       enqueue,
+      adapter: createTelegramAdapter(),
       mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
       openaiApiKey: process.env.OPENAI_API_KEY ?? '',
       openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
@@ -343,6 +346,42 @@ async function processKiotvietSyncJob(job: WorkerJobEnvelope): Promise<void> {
       backoffBaseMs: Number(process.env.KIOTVIET_SYNC_BACKOFF_MS ?? '200'),
       mekB64: process.env.WORKER_MEK_B64 ?? process.env.ADMIN_MEK_B64 ?? '',
       ...(process.env.KIOTVIET_BRANCH_ID ? { branchId: Number(process.env.KIOTVIET_BRANCH_ID) } : {})
+    }, job);
+  }
+}
+
+async function processConfirmMappingJob(job: WorkerJobEnvelope): Promise<void> {
+  const tenantId = job.tenant_id;
+  if (!tenantId) throw new Error('confirm_mapping_missing_tenant');
+
+  if (pgPool) {
+    await runTenantScopedTransaction({
+      pool: pgPool,
+      tenantId,
+      applicationName: 'worker:CONFIRM_MAPPING',
+      work: async (client) => {
+        await processConfirmMapping({
+          queryOne: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            if (result.rows.length === 0) return '';
+            const row = result.rows[0] ?? {};
+            return Object.values(row).join('|').trim();
+          },
+          queryMany: async (sql, params = []) => {
+            const result = await query(client, sql, params);
+            return result.rows.map((r) => Object.values(r).join('|').trim());
+          },
+          exec: async (sql, params = []) => { await query(client, sql, params); },
+          enqueue
+        }, job);
+      }
+    });
+  } else {
+    await processConfirmMapping({
+      queryOne: runQueryOne,
+      queryMany: runQueryMany,
+      exec: runSql,
+      enqueue
     }, job);
   }
 }
@@ -466,6 +505,8 @@ async function handleEnvelope(rawData: unknown): Promise<void> {
     await processKiotvietSyncJob(job);
   } else if (job.job_type === 'KIOTVIET_PRODUCT_SYNC') {
     await processProductSyncJob(job);
+  } else if (job.job_type === 'CONFIRM_MAPPING') {
+    await processConfirmMappingJob(job);
   } else if (job.job_type === 'FLUSH_PENDING_NOTIFICATIONS') {
     await processFlushPending(job);
   } else {

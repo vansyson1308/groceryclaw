@@ -1,10 +1,12 @@
 import type { WorkerJobEnvelope } from '../../../packages/common/dist/index.js';
+import type { TelegramOutboundAdapter } from './telegram-adapter.js';
 
 export interface MappingDeps {
   readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
   readonly queryMany: (sql: string, params?: readonly unknown[]) => Promise<string[]>;
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
   readonly enqueue: (payload: Record<string, unknown>) => Promise<void>;
+  readonly adapter: TelegramOutboundAdapter;
   readonly mappingEnabled: boolean;
   readonly openaiApiKey?: string;
   readonly openaiModel?: string;
@@ -124,8 +126,8 @@ QUY TẮC:
 - VD: "BB nhân khoai môn" = "Bánh bao nhân khoai môn"
 - VD: "LX Đông Phương 500gr" = "Lạp xưởng Đông Phương 500g"
 - VD: "COCKTAIL 250gr" = "Xúc xích Cocktail 250g"
-- Nếu không chắc chắn (< 70% confident), trả null
-- confidence: 0-100
+- Trả matched_code + matched_name cho MỌI sản phẩm bạn tìm được match, kể cả khi không chắc chắn
+- confidence: 0-100 (phản ánh mức độ chắc chắn thực sự)
 
 TRẢ VỀ JSON array:
 [
@@ -195,6 +197,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
   const canonicalItems = canonicalItemsRaw.map(parseItem).filter((x): x is CanonicalItem => Boolean(x));
 
   const unresolved: CanonicalItem[] = [];
+  let resolvedCount = 0;
 
   // -----------------------------------------------------------------------
   // Tier 1: Exact match from mapping_dictionary or verified SKU
@@ -243,14 +246,17 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
         quantity = EXCLUDED.quantity,
         unresolved_reason = NULL;
     `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, resolvedSku, item.uom ?? null, item.quantity]);
+    resolvedCount += 1;
   }
 
   // -----------------------------------------------------------------------
   // Tier 2: AI matching with keyword-based catalog search
+  // 3 confidence tiers: >=70 auto-resolve, 40-69 pending confirmation, <40 unresolved
   // -----------------------------------------------------------------------
+  const pendingItems: CanonicalItem[] = [];
+  const stillUnresolved: CanonicalItem[] = [];
+
   if (unresolved.length > 0 && deps.openaiApiKey) {
-    // Smart search: extract keywords from unresolved product names,
-    // find relevant candidates in product_cache via ILIKE
     const catalog = await searchCandidateProducts(deps, job.tenant_id, unresolved);
 
     if (catalog.length > 0) {
@@ -262,17 +268,14 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
         catalog
       );
 
-      const stillUnresolved: CanonicalItem[] = [];
-
       for (const item of unresolved) {
         const match = matches.find((m) =>
           m.invoice_product.toLowerCase() === item.product_name.toLowerCase() &&
-          m.matched_code &&
-          m.confidence >= 70
+          m.matched_code
         );
 
-        if (match && match.matched_code) {
-          // Auto-insert into mapping_dictionary for future Tier 1 hits
+        if (match && match.matched_code && match.confidence >= 70) {
+          // Tier 2a: High confidence — auto-resolve
           await deps.exec(`
             INSERT INTO mapping_dictionary (tenant_id, alias_text, target_sku, confidence)
             VALUES ($1::uuid, $2, $3, $4)
@@ -290,12 +293,52 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
               quantity = EXCLUDED.quantity,
               unresolved_reason = NULL;
           `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, match.matched_code, item.uom ?? null, item.quantity]);
+          resolvedCount += 1;
+
+        } else if (match && match.matched_code && match.matched_name && match.confidence >= 40) {
+          // Tier 2b: Medium confidence — pending confirmation via Telegram
+          const chatId = job.telegram_chat_id;
+          if (chatId) {
+            await deps.exec(`
+              INSERT INTO resolved_invoice_items (
+                tenant_id, canonical_invoice_id, canonical_item_id, status, resolved_sku, resolved_unit, quantity
+              ) VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending_confirmation', $4, $5, $6)
+              ON CONFLICT (canonical_item_id) DO UPDATE SET
+                status = 'pending_confirmation',
+                resolved_sku = EXCLUDED.resolved_sku,
+                resolved_unit = EXCLUDED.resolved_unit,
+                quantity = EXCLUDED.quantity,
+                unresolved_reason = NULL;
+            `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, match.matched_code, item.uom ?? null, item.quantity]);
+
+            // Send confirmation question directly via adapter (need message_id synchronously)
+            const confirmText = `SP "${item.product_name}" co phai la "${match.matched_name}" (${match.matched_code}) khong?\nReply 1=Dung, 2=Sai`;
+            const sendResult = await deps.adapter.sendText(chatId, confirmText);
+
+            await deps.exec(`
+              INSERT INTO pending_confirmations (
+                tenant_id, canonical_invoice_id, canonical_item_id,
+                platform_user_id, telegram_chat_id, sent_message_id,
+                invoice_product_name, suggested_sku, suggested_name, confidence
+              ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10);
+            `, [
+              job.tenant_id as string, job.canonical_invoice_id as string, item.id,
+              job.platform_user_id, chatId, sendResult.message_id,
+              item.product_name, match.matched_code, match.matched_name, match.confidence
+            ]);
+
+            pendingItems.push(item);
+          } else {
+            stillUnresolved.push(item);
+          }
+
         } else {
+          // Tier 2c: Low confidence or no match — unresolved
           stillUnresolved.push(item);
         }
       }
 
-      // Mark remaining as unresolved
+      // Mark truly unresolved items
       for (const item of stillUnresolved) {
         await deps.exec(`
           INSERT INTO resolved_invoice_items (
@@ -304,10 +347,6 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
           ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
         `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
       }
-
-      // Replace unresolved list
-      unresolved.length = 0;
-      unresolved.push(...stillUnresolved);
     } else {
       // No product cache results — mark all as unresolved
       for (const item of unresolved) {
@@ -318,6 +357,7 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
           ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'no_product_cache';
         `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
       }
+      stillUnresolved.push(...unresolved);
     }
   } else if (unresolved.length > 0) {
     // No AI key — mark as unresolved
@@ -329,20 +369,37 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
         ON CONFLICT (canonical_item_id) DO UPDATE SET status = 'unresolved', unresolved_reason = 'mapping_not_found';
       `, [job.tenant_id as string, job.canonical_invoice_id as string, item.id, item.quantity]);
     }
+    stillUnresolved.push(...unresolved);
   }
 
+  // Audit log
   await deps.exec(`
     INSERT INTO audit_logs (tenant_id, actor_type, actor_id, event_type, resource_type, resource_id, payload)
     VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
-  `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
+  `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({
+    total: canonicalItems.length,
+    resolved: resolvedCount,
+    pending_confirmation: pendingItems.length,
+    unresolved: stillUnresolved.length
+  })]);
 
-  // Count how many items were resolved (total - unresolved)
-  const resolvedCount = canonicalItems.length - unresolved.length;
+  // -----------------------------------------------------------------------
+  // Summary notification — tell user what happened
+  // -----------------------------------------------------------------------
+  const total = canonicalItems.length;
+  const parts: string[] = [];
+  if (resolvedCount > 0) parts.push(`${resolvedCount} SP da doi chieu`);
+  if (pendingItems.length > 0) parts.push(`${pendingItems.length} SP cho xac nhan`);
+  if (stillUnresolved.length > 0) {
+    const names = stillUnresolved.map((u) => u.product_name).slice(0, 3).join(', ');
+    parts.push(`${stillUnresolved.length} SP chua nhan dien (${names})`);
+  }
 
-  // Notify user about unresolved items
-  if (unresolved.length > 0) {
-    const names = unresolved.map((u) => u.product_name).slice(0, 5).join(', ');
-    const suffix = unresolved.length > 5 ? ` va ${unresolved.length - 5} SP khac` : '';
+  if (parts.length > 0) {
+    let summary = `Hoa don ${total} SP: ${parts.join(', ')}.`;
+    if (pendingItems.length > 0) {
+      summary += ' Vui long tra loi cac cau hoi ben tren de xac nhan.';
+    }
     await deps.enqueue({
       job_type: 'NOTIFY_USER',
       notification_type: 'GENERIC_INFO',
@@ -350,8 +407,9 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       tenant_id: job.tenant_id,
       platform_user_id: job.platform_user_id,
       message_id: job.message_id,
+      inbound_event_id: job.inbound_event_id,
       telegram_chat_id: job.telegram_chat_id,
-      template_vars: { message: `${unresolved.length} SP chua doi chieu: ${names}${suffix}.` }
+      template_vars: { message: summary }
     });
   }
 
