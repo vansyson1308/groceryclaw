@@ -336,7 +336,10 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     VALUES ($1::uuid, 'system', 'worker', 'mapping_resolve', 'canonical_invoices', $2, $3::jsonb);
   `, [job.tenant_id as string, job.canonical_invoice_id as string, JSON.stringify({ unresolved_count: unresolved.length })]);
 
-  // Notify user about unresolved items with product names
+  // Count how many items were resolved (total - unresolved)
+  const resolvedCount = canonicalItems.length - unresolved.length;
+
+  // Notify user about unresolved items
   if (unresolved.length > 0) {
     const names = unresolved.map((u) => u.product_name).slice(0, 5).join(', ');
     const suffix = unresolved.length > 5 ? ` va ${unresolved.length - 5} SP khac` : '';
@@ -348,11 +351,21 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
       platform_user_id: job.platform_user_id,
       message_id: job.message_id,
       telegram_chat_id: job.telegram_chat_id,
-      template_vars: { message: `${unresolved.length} SP chua doi chieu: ${names}${suffix}. Vui long kiem tra lai.` }
+      template_vars: { message: `${unresolved.length} SP chua doi chieu: ${names}${suffix}.` }
     });
-    return;
   }
 
-  // All items resolved — proceed to KiotViet sync
-  await deps.enqueue({ ...job, job_type: 'KIOTVIET_SYNC' });
+  // Proceed to KiotViet sync if ANY items were resolved
+  if (resolvedCount > 0) {
+    await deps.enqueue({
+      job_type: 'KIOTVIET_SYNC',
+      tenant_id: job.tenant_id,
+      canonical_invoice_id: job.canonical_invoice_id,
+      correlation_id: job.correlation_id,
+      platform_user_id: job.platform_user_id,
+      message_id: job.message_id,
+      inbound_event_id: job.inbound_event_id,
+      telegram_chat_id: job.telegram_chat_id
+    });
+  }
 }
