@@ -129,6 +129,10 @@ async function enqueue(payload: Record<string, unknown>): Promise<void> {
   if (queue) {
     await queue.add(String(payload.job_type ?? 'UNKNOWN_JOB'), payload, {
       attempts: Number(process.env.BULLMQ_DEFAULT_ATTEMPTS ?? '4'),
+      backoff: {
+        type: (process.env.BULLMQ_DEFAULT_BACKOFF_TYPE === 'fixed') ? 'fixed' : 'exponential',
+        delay: Number(process.env.BULLMQ_DEFAULT_BACKOFF_MS ?? '500')
+      },
       removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE ?? '1000'),
       removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000')
     });
@@ -518,6 +522,29 @@ async function handleEnvelope(rawData: unknown): Promise<void> {
   }
 }
 
+async function persistNotifierDeadLetter(rawData: unknown, errorCode: string, attemptsMade: number, maxAttempts: number): Promise<void> {
+  const validated = validateWorkerJobEnvelope(rawData);
+  if (!validated.ok || validated.value.job_type !== 'NOTIFY_USER' || !validated.value.tenant_id) {
+    return;
+  }
+
+  await runSql(
+    `INSERT INTO jobs (tenant_id, type, status, payload, attempts, max_attempts, error_message, available_at, completed_at)
+     VALUES ($1::uuid, 'NOTIFY_USER', 'dead_letter', $2::jsonb, $3, $4, $5, now(), now());`,
+    [
+      validated.value.tenant_id,
+      JSON.stringify({
+        platform_user_id: validated.value.platform_user_id,
+        notification_type: validated.value.notification_type,
+        correlation_id: validated.value.correlation_id
+      }),
+      attemptsMade,
+      maxAttempts,
+      errorCode
+    ]
+  );
+}
+
 async function runWithFailureAccounting(rawData: unknown): Promise<void> {
   const queueLagMs = getQueueLagMs(rawData);
   if (queueLagMs !== null) {
@@ -562,6 +589,7 @@ async function startBullMqWorker() {
         const maxAttempts = job.opts?.attempts ?? defaultAttempts;
         const currentAttempt = (job.attemptsMade ?? 0) + 1;
         if (currentAttempt >= maxAttempts && dlqEnabled) {
+          await persistNotifierDeadLetter(job.data, error.errorCode, currentAttempt, maxAttempts);
           logger.error('worker_notifier_dlq', {
             attempts_made: currentAttempt,
             max_attempts: maxAttempts,

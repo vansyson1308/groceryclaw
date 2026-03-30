@@ -350,6 +350,11 @@ async function enqueue(payload: Record<string, unknown>) {
   const withEnqueueTs = ('enqueued_at_ms' in payload) ? payload : { ...payload, enqueued_at_ms: Date.now() };
   if (queue) {
     await queue.add(String(withEnqueueTs.job_type ?? 'UNKNOWN_JOB'), withEnqueueTs, {
+      attempts: Number(process.env.BULLMQ_DEFAULT_ATTEMPTS ?? '4'),
+      backoff: {
+        type: (process.env.BULLMQ_DEFAULT_BACKOFF_TYPE === 'fixed') ? 'fixed' : 'exponential',
+        delay: Number(process.env.BULLMQ_DEFAULT_BACKOFF_MS ?? '500')
+      },
       removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE ?? '1000'),
       removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000')
     });
