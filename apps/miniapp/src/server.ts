@@ -162,12 +162,8 @@ async function resolveTenantId(telegramUserId: number): Promise<string | null> {
   if (!pgPool) return null;
 
   const result = await query(pgPool, `
-    SELECT tu.tenant_id::text
-    FROM platform_users pu
-    JOIN tenant_users tu ON tu.user_id = pu.id
-    WHERE pu.platform_user_id = $1
-      AND tu.status = 'active'
-    ORDER BY tu.created_at ASC
+    SELECT tenant_id::text
+    FROM resolve_membership_by_platform_user_id($1)
     LIMIT 1;
   `, [String(telegramUserId)]);
 
