@@ -4,6 +4,7 @@
     { "path": "packages/common" },
     { "path": "apps/gateway" },
     { "path": "apps/admin" },
-    { "path": "apps/worker" }
+    { "path": "apps/worker" },
+    { "path": "apps/miniapp" }
   ]
 }

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GroceryClaw</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script type="module">
+    import { h, render } from 'https://esm.sh/preact@10.25.4';
+    import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10.25.4/hooks';
+    import htm from 'https://esm.sh/htm@3.1.1';
+
+    const html = htm.bind(h);
+    const tg = window.Telegram?.WebApp;
+
+    // Globals extracted once
+    const params = new URLSearchParams(location.search);
+    const invoiceId = params.get('invoice');
+    const initData = tg?.initData || '';
+
+    function formatPrice(n) {
+      if (n == null) return '-';
+      return Number(n).toLocaleString('vi-VN') + 'd';
+    }
+
+    async function apiCall(method, path, body) {
+      const opts = {
+        method,
+        headers: { 'X-Telegram-Init-Data': initData },
+      };
+      if (body) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      return fetch(path, opts);
+    }
+
+    function ItemCheck({ status }) {
+      if (status === 'resolved') return html`<div class="check checked">&#10003;</div>`;
+      if (status === 'skipped') return html`<div class="check skip">-</div>`;
+      return html`<div class="check"></div>`;
+    }
+
+    function EditableSellPrice({ item, invoiceId: invId }) {
+      const [editing, setEditing] = useState(false);
+      const [value, setValue] = useState(item.sell_price ?? item.base_price ?? '');
+      const [saving, setSaving] = useState(false);
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        if (editing && inputRef.current) inputRef.current.focus();
+      }, [editing]);
+
+      async function save() {
+        const numVal = Number(value);
+        if (isNaN(numVal) || numVal < 0) { setEditing(false); return; }
+        setSaving(true);
+        try {
+          const res = await apiCall('PUT', '/api/invoices/' + invId + '/items/' + item.item_id + '/sell-price',
+            { sell_price: numVal });
+          if (res.ok) {
+            const d = await res.json();
+            setValue(d.sell_price);
+          }
+        } catch {}
+        setSaving(false);
+        setEditing(false);
+      }
+
+      if (!editing) {
+        return html`<span class="editable-price" onClick=${() => setEditing(true)}>Ban: <b>${formatPrice(value)}</b> &#9998;</span>`;
+      }
+
+      return html`<span class="price-edit">
+        <input ref=${inputRef} type="number" class="price-input" value=${value}
+          onInput=${e => setValue(e.target.value)}
+          onBlur=${save}
+          onKeyDown=${e => e.key === 'Enter' && save()}
+          disabled=${saving} />
+        <span class="price-unit">d</span>
+      </span>`;
+    }
+
+    function InvoiceItem({ item, invoiceId: invId }) {
+      return html`
+        <div class="item">
+          <${ItemCheck} status=${item.status} />
+          <div class="item-body">
+            <div class="item-name">${item.product_name}</div>
+            <div class="item-details">
+              <span>SL: <b>${item.quantity}</b></span>
+              <span>Nhap: <b>${formatPrice(item.unit_price)}</b></span>
+              ${item.status === 'resolved' && html`
+                <${EditableSellPrice} item=${item} invoiceId=${invId} />
+              `}
+              ${item.status !== 'resolved' && item.sell_price != null && html`
+                <span style="color:var(--link)">Ban: <b>${formatPrice(item.sell_price)}</b></span>
+              `}
+            </div>
+            ${item.resolved_name && item.resolved_name !== item.product_name && html`
+              <div class="suggestion-banner">
+                <div class="label">Doi chieu voi</div>
+                <div class="name">${item.resolved_name} (${item.resolved_sku})</div>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function PendingItem({ item, actionLoading, onAction, onSearch, onScan }) {
+      const isLoading = actionLoading === item.item_id;
+      return html`
+        <div class="item">
+          <div class="check" style="border-color:#f57c00;color:#f57c00">?</div>
+          <div class="item-body">
+            <div class="item-name">${item.product_name}</div>
+            <div class="item-details">
+              <span>SL: <b>${item.quantity}</b></span>
+              <span>Nhap: <b>${formatPrice(item.unit_price)}</b></span>
+            </div>
+            ${item.suggested_name && html`
+              <div class="suggestion-banner">
+                <div class="label">Goi y (${item.confidence}%)</div>
+                <div class="name">${item.suggested_name} (${item.suggested_sku})</div>
+              </div>
+            `}
+            <div class="action-row">
+              ${item.suggested_name && html`
+                <button class="action-btn primary ${isLoading ? 'loading' : ''}"
+                  disabled=${!!actionLoading}
+                  onClick=${() => onAction(item.item_id, 'confirm')}>Dung</button>
+              `}
+              <button class="action-btn ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onSearch(item)}>Khac</button>
+              <button class="action-btn ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onScan(item)}>Quet</button>
+              <button class="action-btn ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onAction(item.item_id, 'skip')}>Bo qua</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function UnresolvedItem({ item, actionLoading, onAction, onSearch, onScan }) {
+      const isLoading = actionLoading === item.item_id;
+      return html`
+        <div class="item">
+          <div class="check" style="border-color:var(--destructive);color:var(--destructive)">!</div>
+          <div class="item-body">
+            <div class="item-name">${item.product_name}</div>
+            <div class="item-details">
+              <span>SL: <b>${item.quantity}</b></span>
+              <span>Nhap: <b>${formatPrice(item.unit_price)}</b></span>
+            </div>
+            <div class="action-row">
+              <button class="action-btn primary ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onSearch(item)}>Tim SP</button>
+              <button class="action-btn ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onScan(item)}>Quet</button>
+              <button class="action-btn ${isLoading ? 'loading' : ''}"
+                disabled=${!!actionLoading}
+                onClick=${() => onAction(item.item_id, 'skip')}>Bo qua</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function SearchModal({ item, onClose, onSelect }) {
+      const [query, setQuery] = useState('');
+      const [results, setResults] = useState([]);
+      const [searching, setSearching] = useState(false);
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, []);
+
+      useEffect(() => {
+        if (query.trim().length < 2) { setResults([]); return; }
+        const timer = setTimeout(async () => {
+          setSearching(true);
+          try {
+            const res = await apiCall('GET', '/api/products/search?q=' + encodeURIComponent(query.trim()) + '&limit=10');
+            if (res.ok) {
+              const d = await res.json();
+              setResults(d.results || []);
+            }
+          } catch {}
+          setSearching(false);
+        }, 300);
+        return () => clearTimeout(timer);
+      }, [query]);
+
+      return html`
+        <div class="modal-overlay" onClick=${onClose}>
+          <div class="modal" onClick=${e => e.stopPropagation()}>
+            <div class="modal-header">
+              <h2>Tim san pham</h2>
+              <button class="modal-close" onClick=${onClose}>&#x2715;</button>
+            </div>
+            <div class="modal-item-name">Cho: ${item.product_name}</div>
+            <input ref=${inputRef} class="search-input" type="text"
+              placeholder="Ten san pham..."
+              value=${query}
+              onInput=${e => setQuery(e.target.value)} />
+            <div class="search-results">
+              ${searching && html`<div class="loading">Dang tim...</div>`}
+              ${results.map(r => html`
+                <div class="search-result" key=${r.sku} onClick=${() => onSelect(r.sku)}>
+                  <div class="result-name">${r.product_name}</div>
+                  <div class="result-meta">${r.sku}${r.unit ? ' - ' + r.unit : ''}${r.base_price != null ? ' - ' + formatPrice(r.base_price) : ''}</div>
+                </div>
+              `)}
+              ${!searching && query.trim().length >= 2 && results.length === 0 && html`
+                <div class="empty">Khong tim thay san pham.</div>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function Section({ title, className, children }) {
+      if (!children || (Array.isArray(children) && children.length === 0)) return null;
+      return html`
+        <div class="section">
+          <div class="section-title ${className}">${title}</div>
+          ${children}
+        </div>
+      `;
+    }
+
+    function App() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [actionLoading, setActionLoading] = useState(null);
+      const [searchTarget, setSearchTarget] = useState(null);
+
+      const refreshData = useCallback(async () => {
+        if (!invoiceId) return;
+        try {
+          const r = await fetch('/api/invoices/' + invoiceId, {
+            headers: { 'X-Telegram-Init-Data': initData }
+          });
+          if (r.ok) setData(await r.json());
+        } catch {}
+      }, []);
+
+      const handleAction = useCallback(async (itemId, action, sku) => {
+        setActionLoading(itemId);
+        try {
+          const res = await apiCall('POST', '/api/invoices/' + invoiceId + '/items/' + itemId + '/action',
+            { action, ...(sku ? { sku } : {}) });
+          if (!res.ok) {
+            const e = await res.json();
+            tg?.showAlert?.(e.error || 'Loi');
+            return;
+          }
+          const result = await res.json();
+          await refreshData();
+          if (result.sync_triggered) {
+            tg?.showAlert?.('Dang tao phieu nhap KiotViet...');
+          }
+        } catch {
+          tg?.showAlert?.('Loi mang, vui long thu lai');
+        } finally {
+          setActionLoading(null);
+        }
+      }, [refreshData]);
+
+      const handleSearchSelect = useCallback(async (sku) => {
+        if (!searchTarget) return;
+        const itemId = searchTarget.item_id;
+        setSearchTarget(null);
+        await handleAction(itemId, 'manual_sku', sku);
+      }, [searchTarget, handleAction]);
+
+      const handleBarcodeScan = useCallback((item) => {
+        if (!tg?.showScanQrPopup) {
+          setSearchTarget(item);
+          return;
+        }
+        tg.showScanQrPopup({ text: 'Quet ma vach san pham' }, async (data) => {
+          tg.closeScanQrPopup();
+          if (!data) return;
+          try {
+            const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(data));
+            if (res.ok) {
+              const product = await res.json();
+              await handleAction(item.item_id, 'manual_sku', product.sku);
+            } else {
+              tg.showAlert('Khong tim thay SP voi ma: ' + data);
+            }
+          } catch {
+            tg.showAlert('Loi mang, vui long thu lai');
+          }
+        });
+      }, [handleAction]);
+
+      useEffect(() => {
+        if (tg) {
+          tg.ready();
+          tg.expand();
+          tg.BackButton.show();
+          tg.BackButton.onClick(() => tg.close());
+        }
+
+        if (!invoiceId) {
+          setError('Khong tim thay hoa don.');
+          setLoading(false);
+          return;
+        }
+
+        fetch('/api/invoices/' + invoiceId, {
+          headers: { 'X-Telegram-Init-Data': initData }
+        })
+          .then(r => {
+            if (!r.ok) throw new Error('Loi ' + r.status);
+            return r.json();
+          })
+          .then(d => { setData(d); setLoading(false); })
+          .catch(e => { setError(e.message); setLoading(false); });
+      }, []);
+
+      // Telegram MainButton — show when all items processed and there are resolved items
+      useEffect(() => {
+        if (!tg || !data) return;
+        const canSubmit = data.pending.length === 0 && data.unrecognized.length === 0 && data.recognized.length > 0;
+        if (canSubmit) {
+          tg.MainButton.setText('Gui KiotViet (' + data.recognized.length + ' SP)');
+          tg.MainButton.show();
+          function onSubmit() {
+            tg.MainButton.showProgress();
+            tg.MainButton.disable();
+            apiCall('POST', '/api/invoices/' + invoiceId + '/submit')
+              .then(r => r.json())
+              .then(d => {
+                if (d.ok) tg.showAlert('Dang tao phieu nhap KiotViet...');
+                else tg.showAlert(d.error || 'Loi');
+              })
+              .catch(() => tg.showAlert('Loi mang'))
+              .finally(() => { tg.MainButton.hideProgress(); tg.MainButton.enable(); });
+          }
+          tg.MainButton.onClick(onSubmit);
+          return () => { tg.MainButton.offClick(onSubmit); tg.MainButton.hide(); };
+        } else {
+          tg.MainButton.hide();
+        }
+      }, [data]);
+
+      if (loading) return html`<div class="loading">Dang tai...</div>`;
+      if (error) return html`<div class="error-msg">${error}</div>`;
+      if (!data) return html`<div class="empty">Khong co du lieu.</div>`;
+
+      const total = data.recognized.length + data.pending.length + data.unrecognized.length + data.skipped.length;
+      const resolvedCount = data.recognized.length;
+
+      return html`
+        <div class="header">
+          <span class="badge">${resolvedCount}/${total} SP</span>
+          <h1>Nhap hang</h1>
+          <div class="meta">
+            Hoa don ${data.invoice.invoice_number || '#'} - ${data.invoice.invoice_date || ''}
+            ${data.invoice.supplier_code ? html` - ${data.invoice.supplier_code}` : ''}
+          </div>
+        </div>
+
+        <${Section} title="SP nhan dien duoc (${data.recognized.length})" className="resolved">
+          ${data.recognized.map(item => html`<${InvoiceItem} item=${item} invoiceId=${invoiceId} key=${item.item_id} />`)}
+        <//>
+
+        ${data.pending.length > 0 && html`
+          <${Section} title="SP cho xac nhan (${data.pending.length})" className="pending">
+            ${data.pending.map(item => html`
+              <${PendingItem} item=${item} key=${item.item_id}
+                actionLoading=${actionLoading}
+                onAction=${handleAction}
+                onSearch=${setSearchTarget}
+                onScan=${handleBarcodeScan} />
+            `)}
+          <//>
+        `}
+
+        ${data.unrecognized.length > 0 && html`
+          <${Section} title="SP chua nhan dien (${data.unrecognized.length})" className="unresolved">
+            ${data.unrecognized.map(item => html`
+              <${UnresolvedItem} item=${item} key=${item.item_id}
+                actionLoading=${actionLoading}
+                onAction=${handleAction}
+                onSearch=${setSearchTarget}
+                onScan=${handleBarcodeScan} />
+            `)}
+          <//>
+        `}
+
+        ${data.skipped.length > 0 && html`
+          <${Section} title="SP da bo qua (${data.skipped.length})" className="skipped">
+            ${data.skipped.map(item => html`<${InvoiceItem} item=${item} invoiceId=${invoiceId} key=${item.item_id} />`)}
+          <//>
+        `}
+
+        ${searchTarget && html`
+          <${SearchModal}
+            item=${searchTarget}
+            onClose=${() => setSearchTarget(null)}
+            onSelect=${handleSearchSelect} />
+        `}
+      `;
+    }
+
+    render(html`<${App} />`, document.getElementById('app'));
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>

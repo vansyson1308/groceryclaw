@@ -81,11 +81,12 @@ export class TelegramBotClient {
     });
   }
 
-  async sendMessage(chatId: number, text: string, parseMode?: 'HTML' | 'MarkdownV2'): Promise<TelegramSendMessageResult> {
+  async sendMessage(chatId: number, text: string, parseMode?: 'HTML' | 'MarkdownV2', replyMarkup?: Record<string, unknown>): Promise<TelegramSendMessageResult> {
     return this.callApi<TelegramSendMessageResult>('sendMessage', {
       chat_id: chatId,
       text,
       ...(parseMode ? { parse_mode: parseMode } : {}),
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     });
   }
 

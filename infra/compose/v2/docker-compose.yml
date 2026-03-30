@@ -161,6 +161,8 @@ services:
       WORKER_IMAGE_MAX_BYTES: ${WORKER_IMAGE_MAX_BYTES:-10485760}
       KIOTVIET_BRANCH_ID: ${KIOTVIET_BRANCH_ID:-}
       WORKER_CHATBOT_ENABLED: ${WORKER_CHATBOT_ENABLED:-false}
+      WORKER_MINIAPP_ENABLED: ${WORKER_MINIAPP_ENABLED:-false}
+      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:-}
       WORKER_NOTIFIER_ENABLED: ${WORKER_NOTIFIER_ENABLED:-true}
       NOTIFIER_MAX_MESSAGE_LENGTH: ${NOTIFIER_MAX_MESSAGE_LENGTH:-500}
       ZALO_STUB_BASE_URL: ${ZALO_STUB_BASE_URL:-http://127.0.0.1:18081}
@@ -186,6 +188,56 @@ services:
       retries: 5
       start_period: 10s
 
+  miniapp:
+    build:
+      context: ../../..
+      dockerfile: apps/miniapp/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MINIAPP_HOST: "0.0.0.0"
+      MINIAPP_PORT: "3003"
+      DB_APP_URL: ${DB_APP_URL:-postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/compose/v2/.env}@redis:6379
+      BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - v2_private
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - v2_caddy_data:/data
+      - v2_caddy_config:/config
+    depends_on:
+      miniapp:
+        condition: service_healthy
+    networks:
+      - v2_private
+
 networks:
   v2_private:
     driver: bridge
@@ -193,3 +245,5 @@ networks:
 volumes:
   v2_postgres_data:
   v2_redis_data:
+  v2_caddy_data:
+  v2_caddy_config:

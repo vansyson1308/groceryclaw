@@ -124,13 +124,14 @@ export async function processKiotvietProductSync(deps: ProductSyncDeps, job: Wor
     for (const product of page.data) {
       if (!product.code) continue;
       await deps.exec(`
-        INSERT INTO product_cache (tenant_id, sku, product_name, barcode, unit, active, updated_at)
-        VALUES ($1::uuid, $2, $3, $4, $5, $6, now())
+        INSERT INTO product_cache (tenant_id, sku, product_name, barcode, unit, active, base_price, updated_at)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, now())
         ON CONFLICT (tenant_id, sku) DO UPDATE SET
           product_name = EXCLUDED.product_name,
           barcode = EXCLUDED.barcode,
           unit = EXCLUDED.unit,
           active = EXCLUDED.active,
+          base_price = EXCLUDED.base_price,
           updated_at = now();
       `, [
         job.tenant_id,
@@ -138,7 +139,8 @@ export async function processKiotvietProductSync(deps: ProductSyncDeps, job: Wor
         product.name ?? product.code,
         product.barCode ?? null,
         product.unit ?? null,
-        product.isActive !== false
+        product.isActive !== false,
+        product.basePrice ?? null
       ]);
       totalSynced++;
     }

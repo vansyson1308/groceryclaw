@@ -250,7 +250,9 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
           adapter: createTelegramAdapter(),
           mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
           openaiApiKey: process.env.OPENAI_API_KEY ?? '',
-          openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
+          openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini',
+          miniappEnabled: process.env.WORKER_MINIAPP_ENABLED === 'true',
+          miniappDomain: process.env.MINIAPP_DOMAIN ?? ''
         }, job);
       }
     });
@@ -263,7 +265,9 @@ async function processMapResolveJob(job: WorkerJobEnvelope): Promise<void> {
       adapter: createTelegramAdapter(),
       mappingEnabled: (process.env.WORKER_MAPPING_ENABLED ?? 'true') === 'true',
       openaiApiKey: process.env.OPENAI_API_KEY ?? '',
-      openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini'
+      openaiModel: process.env.OPENAI_CHATBOT_MODEL ?? 'gpt-4o-mini',
+      miniappEnabled: process.env.WORKER_MINIAPP_ENABLED === 'true',
+      miniappDomain: process.env.MINIAPP_DOMAIN ?? ''
     }, job);
   }
 }

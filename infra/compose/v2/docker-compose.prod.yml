@@ -100,6 +100,8 @@ services:
       OPENAI_OCR_MODEL: "gpt-4o"
       OPENAI_TIMEOUT_MS: "60000"
       WORKER_CHATBOT_ENABLED: "false"
+      WORKER_MINIAPP_ENABLED: ${WORKER_MINIAPP_ENABLED:-false}
+      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:-}
       NOTIFIER_RATE_LIMIT_ENABLED: "true"
       NOTIFIER_DLQ_ENABLED: "true"
     deploy:
@@ -111,3 +113,38 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+  miniapp:
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MINIAPP_HOST: "0.0.0.0"
+      MINIAPP_PORT: "3003"
+      DB_APP_URL: "postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379"
+      BULLMQ_QUEUE_NAME: ${BULLMQ_QUEUE_NAME:-process-inbound}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env.prod}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    restart: unless-stopped
+    environment:
+      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:?set MINIAPP_DOMAIN in .env.prod}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

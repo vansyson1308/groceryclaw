@@ -10,6 +10,8 @@ export interface MappingDeps {
   readonly mappingEnabled: boolean;
   readonly openaiApiKey?: string;
   readonly openaiModel?: string;
+  readonly miniappEnabled?: boolean;
+  readonly miniappDomain?: string;
 }
 
 interface CanonicalItem {
@@ -481,17 +483,30 @@ export async function processMapResolve(deps: MappingDeps, job: WorkerJobEnvelop
     if (pendingItems.length > 0) {
       summary += ' Vui long tra loi cac cau hoi ben tren de xac nhan.';
     }
-    await deps.enqueue({
-      job_type: 'NOTIFY_USER',
-      notification_type: 'GENERIC_INFO',
-      correlation_id: job.correlation_id,
-      tenant_id: job.tenant_id,
-      platform_user_id: job.platform_user_id,
-      message_id: job.message_id,
-      inbound_event_id: job.inbound_event_id,
-      telegram_chat_id: job.telegram_chat_id,
-      template_vars: { message: summary }
-    });
+
+    const chatId = job.telegram_chat_id;
+    if (deps.miniappEnabled && deps.miniappDomain && chatId) {
+      // Send summary with Web App button
+      const miniAppUrl = `https://${deps.miniappDomain}/?invoice=${job.canonical_invoice_id}`;
+      await deps.adapter.sendMessageWithMarkup(chatId, summary, {
+        inline_keyboard: [[{
+          text: '\ud83d\udccb Xem hoa don',
+          web_app: { url: miniAppUrl }
+        }]]
+      });
+    } else {
+      await deps.enqueue({
+        job_type: 'NOTIFY_USER',
+        notification_type: 'GENERIC_INFO',
+        correlation_id: job.correlation_id,
+        tenant_id: job.tenant_id,
+        platform_user_id: job.platform_user_id,
+        message_id: job.message_id,
+        inbound_event_id: job.inbound_event_id,
+        telegram_chat_id: job.telegram_chat_id,
+        template_vars: { message: summary }
+      });
+    }
   }
 
   // Proceed to KiotViet sync only if items resolved AND nothing pending
