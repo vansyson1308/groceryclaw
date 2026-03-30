@@ -356,7 +356,9 @@ async function enqueue(payload: Record<string, unknown>) {
         delay: Number(process.env.BULLMQ_DEFAULT_BACKOFF_MS ?? '500')
       },
       removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE ?? '1000'),
-      removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000')
+      removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL ?? '1000'),
+      attempts: Number(process.env.BULLMQ_JOB_ATTEMPTS ?? '3'),
+      backoff: { type: 'exponential', delay: 2000 }
     });
     return;
   }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { WorkerJobEnvelope } from '../../../packages/common/dist/index.js';
 import { runTenantScopedTransaction } from './db-session.js';
-import type { TelegramOutboundAdapter } from './telegram-adapter.js';
+import { TelegramSendError, type TelegramOutboundAdapter } from './telegram-adapter.js';
 
 export interface ImageInvoiceDeps {
   readonly queryOne: (sql: string, params?: readonly unknown[]) => Promise<string>;
@@ -277,6 +277,11 @@ export async function processImageInvoice(deps: ImageInvoiceDeps, job: WorkerJob
       canonical_invoice_id: result.invoiceId
     });
   } catch (error) {
+    // Retriable Telegram errors (network blips) → re-throw for BullMQ retry, no notification yet
+    if (error instanceof TelegramSendError && error.kind === 'RETRIABLE') {
+      throw error;
+    }
+    // Non-retriable or non-Telegram errors → notify user immediately
     await deps.enqueue({
       job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
       correlation_id: job.correlation_id, platform_user_id: job.platform_user_id,

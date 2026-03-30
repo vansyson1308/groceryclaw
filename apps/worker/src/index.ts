@@ -611,8 +611,30 @@ async function startBullMqWorker() {
   });
 
   worker.on('failed', (...args: unknown[]) => {
+    const job = args[0] as { data?: Record<string, unknown>; attemptsMade?: number; opts?: { attempts?: number } } | null;
     const err = args[1] instanceof Error ? args[1] : new Error('unknown');
-    logger.error('worker_bullmq_job_failed', { reason: err.message });
+    const attemptsMade = (job?.attemptsMade ?? 0) + 1;
+    const maxAttempts = job?.opts?.attempts ?? 1;
+    const isFinal = attemptsMade >= maxAttempts;
+    logger.error('worker_bullmq_job_failed', {
+      reason: err.message,
+      attempt: attemptsMade,
+      max_attempts: maxAttempts,
+      final: isFinal,
+      job_type: job?.data?.job_type ?? 'unknown'
+    });
+
+    // On final failure for retriable errors, send PROCESSING_FAILED notification
+    if (isFinal && job?.data?.job_type === 'PROCESS_IMAGE_INVOICE' && job.data.platform_user_id) {
+      enqueue({
+        job_type: 'NOTIFY_USER', notification_type: 'PROCESSING_FAILED',
+        correlation_id: job.data.correlation_id, platform_user_id: job.data.platform_user_id,
+        message_id: job.data.message_id, tenant_id: job.data.tenant_id,
+        inbound_event_id: job.data.inbound_event_id, telegram_chat_id: job.data.telegram_chat_id
+      }).catch((notifyErr) => {
+        logger.error('worker_final_failure_notify_failed', { error: (notifyErr as Error).message });
+      });
+    }
   });
 
   worker.on('error', (...args: unknown[]) => {
