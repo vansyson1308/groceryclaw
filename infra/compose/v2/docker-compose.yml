@@ -206,6 +206,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      - "${MINIAPP_HOST_PORT:-127.0.0.1:3003}:3003"
     networks:
       - v2_private
     healthcheck:
@@ -221,23 +223,6 @@ services:
       retries: 5
       start_period: 10s
 
-  caddy:
-    image: caddy:2-alpine
-    environment:
-      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:-localhost}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - v2_caddy_data:/data
-      - v2_caddy_config:/config
-    depends_on:
-      miniapp:
-        condition: service_healthy
-    networks:
-      - v2_private
-
 networks:
   v2_private:
     driver: bridge
@@ -245,5 +230,3 @@ networks:
 volumes:
   v2_postgres_data:
   v2_redis_data:
-  v2_caddy_data:
-  v2_caddy_config:

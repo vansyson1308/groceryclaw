@@ -134,17 +134,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  caddy:
-    restart: unless-stopped
-    environment:
-      MINIAPP_DOMAIN: ${MINIAPP_DOMAIN:?set MINIAPP_DOMAIN in .env.prod}
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
