@@ -43,9 +43,8 @@ export function validateInitData(
 
   // HMAC validation: secret = HMAC_SHA256("WebAppData", botToken)
   const secretKeyHex = createHmac('sha256', 'WebAppData').update(botToken).digest('hex');
-  // Node.js createHmac accepts binary string as key
-  const secretKeyBinary = Buffer.from(secretKeyHex, 'hex').toString('binary');
-  const computedHash = createHmac('sha256', secretKeyBinary).update(dataCheckString).digest('hex');
+  const secretKey = Buffer.from(secretKeyHex, 'hex') as unknown as string;
+  const computedHash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
   if (computedHash !== hash) {
     return { ok: false, error: 'invalid_hash' };
