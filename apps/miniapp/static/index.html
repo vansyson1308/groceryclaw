@@ -247,7 +247,8 @@
         try {
           const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(trimmed));
           if (res.ok) {
-            onSubmit(trimmed);
+            const product = await res.json();
+            onSubmit(product.sku);
           } else {
             setError('Khong tim thay SP voi ma: ' + trimmed);
           }
@@ -354,24 +355,11 @@
 
       const [barcodeTarget, setBarcodeTarget] = useState(null);
 
-      const handleBarcodeSubmit = useCallback(async (code) => {
+      const handleBarcodeSubmit = useCallback(async (sku) => {
         if (!barcodeTarget) return;
         const itemId = barcodeTarget.item_id;
         setBarcodeTarget(null);
-        setActionLoading(itemId);
-        try {
-          const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(code));
-          if (res.ok) {
-            const product = await res.json();
-            await handleAction(itemId, 'manual_sku', product.sku);
-          } else {
-            tg?.showAlert?.('Khong tim thay SP voi ma: ' + code);
-          }
-        } catch {
-          tg?.showAlert?.('Loi mang, vui long thu lai');
-        } finally {
-          setActionLoading(null);
-        }
+        await handleAction(itemId, 'manual_sku', sku);
       }, [barcodeTarget, handleAction]);
 
       useEffect(() => {
