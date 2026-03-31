@@ -137,7 +137,7 @@
                 onClick=${() => onSearch(item)}>Khac</button>
               <button class="action-btn ${isLoading ? 'loading' : ''}"
                 disabled=${!!actionLoading}
-                onClick=${() => onScan(item)}>Quet</button>
+                onClick=${() => onScan(item)}>Ma vach</button>
               <button class="action-btn ${isLoading ? 'loading' : ''}"
                 disabled=${!!actionLoading}
                 onClick=${() => onAction(item.item_id, 'skip')}>Bo qua</button>
@@ -164,7 +164,7 @@
                 onClick=${() => onSearch(item)}>Tim SP</button>
               <button class="action-btn ${isLoading ? 'loading' : ''}"
                 disabled=${!!actionLoading}
-                onClick=${() => onScan(item)}>Quet</button>
+                onClick=${() => onScan(item)}>Ma vach</button>
               <button class="action-btn ${isLoading ? 'loading' : ''}"
                 disabled=${!!actionLoading}
                 onClick=${() => onAction(item.item_id, 'skip')}>Bo qua</button>
@@ -229,6 +229,73 @@
       `;
     }
 
+    function BarcodeInputModal({ item, onClose, onSubmit }) {
+      const [code, setCode] = useState('');
+      const [searching, setSearching] = useState(false);
+      const [error, setError] = useState('');
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, []);
+
+      async function handleLookup() {
+        const trimmed = code.trim();
+        if (!trimmed) return;
+        setSearching(true);
+        setError('');
+        try {
+          const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(trimmed));
+          if (res.ok) {
+            onSubmit(trimmed);
+          } else {
+            setError('Khong tim thay SP voi ma: ' + trimmed);
+          }
+        } catch {
+          setError('Loi mang, vui long thu lai');
+        }
+        setSearching(false);
+      }
+
+      function handleQrScan() {
+        if (!tg?.showScanQrPopup) return;
+        tg.showScanQrPopup({ text: 'Quet ma QR san pham' }, (data) => {
+          tg.closeScanQrPopup();
+          if (data) setCode(data);
+        });
+      }
+
+      return html`
+        <div class="modal-overlay" onClick=${onClose}>
+          <div class="modal barcode-modal" onClick=${e => e.stopPropagation()}>
+            <div class="modal-header">
+              <h2>Nhap ma vach</h2>
+              <button class="modal-close" onClick=${onClose}>&#x2715;</button>
+            </div>
+            <div class="modal-item-name">Cho: ${item.product_name}</div>
+            <div class="barcode-input-row">
+              <input ref=${inputRef} class="search-input barcode-input" type="text"
+                inputmode="numeric" pattern="[0-9]*"
+                placeholder="VD: 8936013254944"
+                value=${code}
+                onInput=${e => { setCode(e.target.value); setError(''); }}
+                onKeyDown=${e => e.key === 'Enter' && handleLookup()}
+                disabled=${searching} />
+            </div>
+            <div class="barcode-actions">
+              <button class="action-btn primary ${searching ? 'loading' : ''}"
+                disabled=${!code.trim() || searching}
+                onClick=${handleLookup}>Tim</button>
+              ${tg?.showScanQrPopup && html`
+                <button class="action-btn" onClick=${handleQrScan}>QR</button>
+              `}
+            </div>
+            ${error && html`<div class="barcode-error">${error}</div>`}
+          </div>
+        </div>
+      `;
+    }
+
     function Section({ title, className, children }) {
       if (!children || (Array.isArray(children) && children.length === 0)) return null;
       return html`
@@ -285,27 +352,27 @@
         await handleAction(itemId, 'manual_sku', sku);
       }, [searchTarget, handleAction]);
 
-      const handleBarcodeScan = useCallback((item) => {
-        if (!tg?.showScanQrPopup) {
-          setSearchTarget(item);
-          return;
-        }
-        tg.showScanQrPopup({ text: 'Quet ma vach san pham' }, async (data) => {
-          tg.closeScanQrPopup();
-          if (!data) return;
-          try {
-            const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(data));
-            if (res.ok) {
-              const product = await res.json();
-              await handleAction(item.item_id, 'manual_sku', product.sku);
-            } else {
-              tg.showAlert('Khong tim thay SP voi ma: ' + data);
-            }
-          } catch {
-            tg.showAlert('Loi mang, vui long thu lai');
+      const [barcodeTarget, setBarcodeTarget] = useState(null);
+
+      const handleBarcodeSubmit = useCallback(async (code) => {
+        if (!barcodeTarget) return;
+        const itemId = barcodeTarget.item_id;
+        setBarcodeTarget(null);
+        setActionLoading(itemId);
+        try {
+          const res = await apiCall('GET', '/api/products/barcode/' + encodeURIComponent(code));
+          if (res.ok) {
+            const product = await res.json();
+            await handleAction(itemId, 'manual_sku', product.sku);
+          } else {
+            tg?.showAlert?.('Khong tim thay SP voi ma: ' + code);
           }
-        });
-      }, [handleAction]);
+        } catch {
+          tg?.showAlert?.('Loi mang, vui long thu lai');
+        } finally {
+          setActionLoading(null);
+        }
+      }, [barcodeTarget, handleAction]);
 
       useEffect(() => {
         if (tg) {
@@ -386,7 +453,7 @@
                 actionLoading=${actionLoading}
                 onAction=${handleAction}
                 onSearch=${setSearchTarget}
-                onScan=${handleBarcodeScan} />
+                onScan=${setBarcodeTarget} />
             `)}
           <//>
         `}
@@ -398,7 +465,7 @@
                 actionLoading=${actionLoading}
                 onAction=${handleAction}
                 onSearch=${setSearchTarget}
-                onScan=${handleBarcodeScan} />
+                onScan=${setBarcodeTarget} />
             `)}
           <//>
         `}
@@ -414,6 +481,13 @@
             item=${searchTarget}
             onClose=${() => setSearchTarget(null)}
             onSelect=${handleSearchSelect} />
+        `}
+
+        ${barcodeTarget && html`
+          <${BarcodeInputModal}
+            item=${barcodeTarget}
+            onClose=${() => setBarcodeTarget(null)}
+            onSubmit=${handleBarcodeSubmit} />
         `}
       `;
     }

@@ -284,6 +284,37 @@ body {
   margin-top: 2px;
 }
 
+/* Barcode input modal */
+.barcode-modal {
+  max-height: 50vh;
+}
+
+.barcode-input-row {
+  margin: 8px 0;
+}
+
+.barcode-input {
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.barcode-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.barcode-actions .action-btn {
+  flex: 1;
+}
+
+.barcode-error {
+  color: var(--destructive);
+  font-size: 13px;
+  margin-top: 8px;
+  text-align: center;
+}
+
 /* Editable price */
 .editable-price {
   cursor: pointer;
