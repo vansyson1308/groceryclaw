@@ -65,6 +65,17 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - [x] DEVPOST_SUBMISSION.md, BUILT_DURING_HACKATHON.md, draft PR vansyson1308/groceryclaw#25 open
 - [ ] Owner checkpoint B hand-off (final message)
 
+## Final test run (2026-09-25, commit 1175e6b + this update)
+
+| Run | Tests | Pass | Fail | Cancelled | Skipped | Note |
+|---|---|---|---|---|---|---|
+| Baseline `a9f3cdb`, no DB | 156 | 131 | 11 | 2 | 12 | pre-existing failures |
+| This branch, no DB | 223 | 185 | 11 | 2 | 25 | the same 11 pre-existing failures; +67 tests; the 13 new DB tests skip without `DATABASE_URL` |
+| This branch, with Postgres 16 (`DATABASE_URL`) | 226 | 195 | 21 | 5 | 5 | all failures pre-existing (identical on baseline code against the same DB) |
+| `oss/kiotviet-mcp` (`npm test`) | 4 | 4 | 0 | 0 | 0 | |
+
+ShopVoice-only suites (mcp-http 12, mcp-tools 16, mcp-speech 13, alexa-sim 7, shopvoice-seed 6, db/mcp-tools-db 6, db/shopvoice-rls 7): **67/67 pass**.
+
 ## Definition of Done (spec §8) — evidence
 
 | Item | State | Evidence |
