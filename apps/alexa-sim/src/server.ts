@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,7 @@ export interface SimConfig {
   readonly turnsPerMinute: number;
   readonly anchorDate: string;
   readonly shopTimezone: string;
+  readonly originVerifySecret: string;
 }
 
 export function loadSimConfig(env: Record<string, string | undefined>): SimConfig {
@@ -47,7 +48,8 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     accessCode: env.SIM_ACCESS_CODE ?? '',
     turnsPerMinute: Number.parseInt(env.SIM_TURNS_PER_MINUTE ?? '30', 10) || 30,
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
-    shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'Asia/Ho_Chi_Minh'
+    shopTimezone: env.SIM_SHOP_TIMEZONE ?? 'Asia/Ho_Chi_Minh',
+    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? ''
   };
 }
 
@@ -206,6 +208,15 @@ export function createSimHandler(deps: SimDeps) {
           send(res, 200, { status: 'ok', service: 'alexa-sim' });
           return;
         }
+        if (config.originVerifySecret) {
+          const given = req.headers['x-origin-verify'];
+          const value = Array.isArray(given) ? given[0] ?? '' : given ?? '';
+          const ok = timingSafeEqual(createHash('sha256').update(value).digest(), createHash('sha256').update(config.originVerifySecret).digest());
+          if (!ok) {
+            send(res, 403, { error: 'forbidden' });
+            return;
+          }
+        }
         if (req.method === 'GET' && url.pathname === '/readyz') {
           try {
             const tools = await toolbox.listTools();
@@ -264,7 +275,7 @@ async function main(): Promise<void> {
   const fallbackBrain = new RulesBrain();
   const brain: Brain = config.brain === 'bedrock' ? new BedrockBrain(config.bedrockModelId, config.awsRegion) : fallbackBrain;
   const speech: SpeechClient = config.tts === 'polly' ? new PollySpeech(config.pollyVoice, config.awsRegion, config.pollyEngine) : new BrowserSpeech();
-  const toolbox = new McpToolbox(config.mcpUrl, config.mcpToken);
+  const toolbox = new McpToolbox(config.mcpUrl, config.mcpToken, config.originVerifySecret ? { 'x-origin-verify': config.originVerifySecret } : {});
   const staticDir = fileURLToPath(new URL('../static/', import.meta.url));
   const handler = createSimHandler({ config, logger, toolbox, brain, fallbackBrain, speech, staticDir });
   const server = createServer((req, res) => {

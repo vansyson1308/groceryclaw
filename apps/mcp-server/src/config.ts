@@ -15,6 +15,8 @@ export interface McpServerConfig {
   readonly maxBodyBytes: number;
   readonly tokenCacheSeconds: number;
   readonly jsonResponses: boolean;
+  /** When set, every request except /healthz must carry X-Origin-Verify with this value (added by CloudFront). */
+  readonly originVerifySecret: string;
 }
 
 function int(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -51,6 +53,7 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     maxSessions: int(env.MCP_MAX_SESSIONS, 500, 1, 100_000),
     maxBodyBytes: int(env.MCP_MAX_BODY_BYTES, 262_144, 1024, 4_194_304),
     tokenCacheSeconds: int(env.MCP_TOKEN_CACHE_SECONDS, 30, 0, 3600),
-    jsonResponses: bool(env.MCP_JSON_RESPONSES, true)
+    jsonResponses: bool(env.MCP_JSON_RESPONSES, true),
+    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? ''
   };
 }

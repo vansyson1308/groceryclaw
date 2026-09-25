@@ -196,3 +196,17 @@ test('DELETE closes the session', async () => {
     await srv.close();
   }
 });
+
+test('X-Origin-Verify gate: only requests carrying the CloudFront secret get through', async () => {
+  const srv = await startMcpServer({ env: { ORIGIN_VERIFY_SECRET: 'cf-secret-123' } });
+  try {
+    assert.equal((await fetch(`${srv.url}/healthz`)).status, 200, 'health stays open for load balancer checks');
+    assert.equal((await fetch(`${srv.url}/readyz`)).status, 403);
+    assert.equal((await rawInit(srv.url)).status, 403);
+    const ok = await fetch(`${srv.url}/readyz`, { headers: { 'x-origin-verify': 'cf-secret-123' } });
+    assert.equal(ok.status, 200);
+    assert.equal((await fetch(`${srv.url}/readyz`, { headers: { 'x-origin-verify': 'wrong' } })).status, 403);
+  } finally {
+    await srv.close();
+  }
+});

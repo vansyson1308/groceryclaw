@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
@@ -35,6 +35,15 @@ const SECURITY_HEADERS: Record<string, string> = {
   'referrer-policy': 'no-referrer',
   'cache-control': 'no-store'
 };
+
+/** Constant-time check of the X-Origin-Verify header that CloudFront adds (empty secret = disabled). */
+export function originVerified(value: string | undefined, secret: string): boolean {
+  if (!secret) return true;
+  if (!value) return false;
+  const a = createHash('sha256').update(value).digest();
+  const b = createHash('sha256').update(secret).digest();
+  return timingSafeEqual(a, b);
+}
 
 export function hashBearerToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
@@ -264,6 +273,10 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       try {
         if (url.pathname === '/healthz' && req.method === 'GET') {
           sendJson(res, 200, { status: 'ok', service: 'mcp-server' });
+          return;
+        }
+        if (!originVerified(header(req, 'x-origin-verify'), config.originVerifySecret)) {
+          sendJson(res, 403, { error: 'forbidden' });
           return;
         }
         if (url.pathname === '/readyz' && req.method === 'GET') {

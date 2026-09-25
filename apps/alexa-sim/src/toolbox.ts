@@ -24,13 +24,13 @@ export class McpToolbox implements Toolbox {
   private transport: StreamableHTTPClientTransport | null = null;
   private tools: ToolSpec[] | null = null;
 
-  constructor(private readonly url: string, private readonly token: string) {}
+  constructor(private readonly url: string, private readonly token: string, private readonly extraHeaders: Record<string, string> = {}) {}
 
   private async connect(): Promise<Client> {
     if (this.client) return this.client;
     const client = new Client({ name: 'shopvoice-sim', version: '0.1.0' });
     const transport = new StreamableHTTPClientTransport(new URL(this.url), {
-      requestInit: { headers: { authorization: `Bearer ${this.token}` } }
+      requestInit: { headers: { ...this.extraHeaders, authorization: `Bearer ${this.token}` } }
     });
     // Same exactOptionalPropertyTypes gap as the server transport (FRICTION_LOG F4).
     await client.connect(transport as unknown as Transport);

@@ -42,10 +42,11 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - [x] Local latency (same host, Postgres, 160 calls): client p95 12.8 ms, server p95 8 ms (`docs/hackathon/evidence/latency-local-postgres.json`). Deployed p95 still to measure.
 
 ### Phase 5: AWS
-- [ ] CDK in infra/aws, deploy.sh / teardown.sh
-- [ ] Deployed + Inspector evidence (blocked B2)
-- [ ] p95 latency measurement
-- [ ] AWS_SERVICES.md
+- [x] CDK in infra/aws (EC2 + docker compose + 2x CloudFront + SSM + IAM + CloudWatch Logs), `cdk synth` OK; deploy.sh / teardown.sh / smoke.sh
+- [x] AWS compose layout rehearsed locally in containers (origin-verify gate enforced, e2e 5/5 with Bedrock->rules fallback since creds are invalid)
+- [ ] Deployed + Inspector evidence: **blocked on B2 (AWS credentials)**
+- [~] p95 latency: local 12.8 ms client / 8 ms server; deployed number pending B2
+- [x] AWS_SERVICES.md
 
 ### Phase 6: open source
 - [ ] oss/kiotviet-mcp package

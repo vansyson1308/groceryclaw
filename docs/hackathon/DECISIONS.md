@@ -41,3 +41,24 @@ The default anchor is today in Asia/Ho_Chi_Minh. Set `DEMO_ANCHOR_DATE=YYYY-MM-D
 
 **D12. MCP SDK: `@modelcontextprotocol/sdk@1.30.1` (latest v1, 2026-09-23).**
 The installed `dist/esm/types.js` has `LATEST_PROTOCOL_VERSION = '2025-11-25'`, so the spec's protocol version is the SDK default. The split v2 packages (`@modelcontextprotocol/server@2.1.0`) exist, but the spec names `@modelcontextprotocol/sdk` and v1 is the stable line.
+
+## 2026-09-25 (Phase 4–5)
+
+**D13. AWS hosting: EC2 plus docker compose behind CloudFront, not App Runner or RDS.**
+- App Runner stopped accepting new customers on 2026-04-30 (AWS Support; Terraform AWS provider issue #47162).
+- RDS for PostgreSQL gives no true superuser. Changing `BYPASSRLS` (migration 004 runs `ALTER ROLE groceryclaw_bootstrap_owner BYPASSRLS`) needs one, so the existing migrations would fail on RDS.
+- The spec explicitly allows "a small EC2 with docker compose if credits are tight". This choice runs the exact same Postgres, RLS and role setup that CI and the local tests use, and costs about $20/month.
+- CloudFront provides HTTPS without a custom domain. The origin is protected by a secret `X-Origin-Verify` header that both apps enforce.
+- ECS Express Mode is the AWS-recommended successor to App Runner and is the upgrade path once managed Postgres can be used.
+
+**D14. The default Bedrock model is Amazon Nova 2 Lite through the US cross-region inference profile (`us.amazon.nova-2-lite-v1:0`).** It is configurable with `BEDROCK_MODEL_ID`. Not verified live yet (B2).
+
+**D15. The Bedrock agent never sees the reorder confirmation token.**
+- The simulator host stores it, replaces it with `[held by host]` in the tool results given to the model, and injects it into `confirm_reorder` only when the owner's current utterance is affirmative.
+- This is defence in depth on top of the MCP server's own 5-minute hashed token.
+
+**D16. The simulator falls back to an offline rules brain if a Bedrock call fails.**
+- A failure (credentials, throttling) makes that turn fall back to the rules brain, flagged as `brainFallback: true`, so a live demo never dies.
+- The rules brain produces only the same MCP tool calls, then speaks the tools' own text.
+
+**D17. Speech input uses the Web Speech API. Amazon Transcribe streaming is deferred to the stretch list.**

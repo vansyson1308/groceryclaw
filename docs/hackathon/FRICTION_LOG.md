@@ -44,3 +44,11 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Actual:** `npm ci` inside the build fails with `npm error Exit handler never called!` (no egress from the default bridge network). `docker build --network host` works.
 - **Severity:** low (environment-specific; CI and AWS CodeBuild are unaffected).
 - **Workaround:** `scripts/aws/deploy.sh` passes `--network host` when `DOCKER_BUILD_NETWORK=host`.
+
+## F6. Docker Hub rate limits and blocked apt mirrors in the agent sandbox
+
+- **Task:** build the three images of `infra/aws/compose.aws.yml` locally to rehearse the EC2 boot.
+- **Actual:** `docker.io/library/node:22-bookworm-slim` HEAD returns `429 Too Many Requests` (anonymous Docker Hub pulls). `deb.debian.org` over plain HTTP returns `403` through the egress proxy.
+- **Severity:** medium (it blocks a full local rehearsal of the AWS layout).
+- **Workaround:** the compose file is validated with `docker compose config`. The same processes were run natively against Postgres 16 (e2e 5/5), and the `mcp-server` image built and passed a container smoke test before the rate limit hit.
+- **Suggestion (for AWS):** mirror base images to **Amazon ECR Public** (`public.ecr.aws/docker/library/node:22-bookworm-slim`) to avoid Docker Hub limits on EC2 and CodeBuild too.

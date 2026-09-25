@@ -4,7 +4,7 @@
 // p50/p95/max per tool and overall. Optionally reads server-side latency from
 // voice_audit_log when --database-url is given.
 //
-// Usage: node scripts/demo/latency_probe.mjs --mcp-url http://127.0.0.1:8090/mcp --token <bearer> [--rounds 20] [--database-url postgres://...] [--json-out file]
+// Usage: node scripts/demo/latency_probe.mjs --mcp-url http://127.0.0.1:8090/mcp --token <bearer> [--rounds 20] [--pace-ms 0] [--database-url postgres://...] [--json-out file]
 import { writeFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -37,6 +37,8 @@ if (isMain) {
   const url = arg('--mcp-url', 'http://127.0.0.1:8090/mcp');
   const token = arg('--token', process.env.MCP_DEMO_TOKEN ?? '');
   const rounds = Number(arg('--rounds', '20'));
+  // Stay under the server's per-tenant rate limit (default 120/min) on deployed stacks.
+  const paceMs = Number(arg('--pace-ms', '0'));
   if (!token) throw new Error('--token (or MCP_DEMO_TOKEN) is required');
 
   const client = new Client({ name: 'latency-probe', version: '1.0.0' });
@@ -51,6 +53,7 @@ if (isMain) {
       const ms = performance.now() - t0;
       if (res.isError) throw new Error(`${name} failed: ${res.content?.[0]?.text}`);
       if (r > 0) samples.get(name).push(ms); // round 0 = warm-up
+      if (paceMs > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     }
   }
   await client.close();
