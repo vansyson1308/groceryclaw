@@ -25,15 +25,16 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - [x] RLS isolation tests `tests/v2/db/shopvoice-rls.test.mjs` (7/7 pass against local PG)
 
 ### Phase 2: MCP server
-- [ ] `apps/mcp-server` workspace, tsconfig ref, Dockerfile, compose service
-- [ ] Streamable HTTP `/mcp`, protocol `2025-11-25` verified by test
-- [ ] Bearer auth per tenant, Origin validation, `/healthz`, `/readyz`
+- [x] `apps/mcp-server` workspace, tsconfig ref, Dockerfile (image builds + container smoke OK), compose service
+- [x] Streamable HTTP `/mcp`, protocol `2025-11-25` verified by test (`tests/v2/mcp-http.test.mjs`)
+- [x] Bearer auth per tenant (hashed tokens, session bound to tenant), Origin validation, rate limits, `/healthz`, `/readyz`
 
 ### Phase 3: tools
-- [ ] Read tools: get_low_stock, get_stock_level, get_sales_summary, get_top_movers, get_invoice_status, suggest_reorder
-- [ ] create_reorder_draft / confirm_reorder (5-minute token)
-- [ ] morning_briefing prompt, shop://profile resource (+ get_daily_briefing)
-- [ ] ≤35-word speech + outputSchema + annotations on every tool; audit log
+- [x] Read tools: get_low_stock, get_stock_level, get_sales_summary, get_top_movers, get_invoice_status, suggest_reorder
+- [x] create_reorder_draft / confirm_reorder (5-minute token, hashed, never spoken, redacted in audit)
+- [x] morning_briefing prompt, shop://profile resource (+ get_daily_briefing stretch tool)
+- [x] ≤35-word speech + outputSchema + annotations on every tool; audit log (`voice_audit_log`)
+- Tests: mcp-http 11, mcp-tools 16, mcp-speech 13 (no DB); db/mcp-tools-db 6 + db/shopvoice-rls 7 (Postgres)
 
 ### Phase 4: Alexa+ simulator
 - [ ] apps/alexa-sim UI + /api/turn + Bedrock agent (fake fallback) + Polly (fake fallback)
@@ -76,6 +77,11 @@ Measured in an isolated worktree, no `DATABASE_URL`, `node --test --test-timeout
 **156 tests: 131 pass, 11 fail, 2 cancelled, 12 skipped.** Pre-existing failures (not touched by ShopVoice work):
 canary-rollout (404 + hang without timeout), gateway-webhook (7), webhook-auth, worker-notifier, sql-parameterization-hotpaths.
 Note: plain `npm test` on main hangs on canary-rollout (child servers not cleaned up after the 404 assertion).
+
+With `DATABASE_URL` set (local PG, migrated through 017), full run: **217 tests: 187 pass, 21 fail, 4 cancelled, 5 skipped**.
+All 21 failures + 4 cancellations are pre-existing: the same admin-auth/endpoints/secrets, real-tenant-transaction,
+rls-runtime-role and invite-roundtrip tests fail identically on baseline code against the same DB (stale `zalo_users`,
+admin audit-log path), plus the no-DB baseline failures above. Every ShopVoice test passes.
 
 ## Unverified / notes
 

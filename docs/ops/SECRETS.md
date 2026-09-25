@@ -45,3 +45,10 @@
 ## CI/CD secrets
 - Configure CI secrets in **GitHub Secrets** when needed.
 - CI workflow in this repo does not require runtime secrets and must not echo secret values.
+
+## ShopVoice MCP server secrets
+- **MCP bearer tokens** (per tenant): minted with `node scripts/v2/create_mcp_token.mjs <tenant-uuid> [label]` or by `npm run db:v2:seed -- --demo`. The plaintext token is printed **once**; only its SHA-256 hash is stored (`mcp_access_tokens.token_hash`). Tokens are resolved by the SECURITY DEFINER function `resolve_mcp_access_token(hash)`.
+- **Revocation:** `UPDATE mcp_access_tokens SET status='revoked', revoked_at=now() WHERE id = '<token id>';`. The server caches token lookups for `MCP_TOKEN_CACHE_SECONDS` (default 30s), so a revoked token stops working within that window.
+- **`MCP_DEMO_TOKEN`**: optional fixed demo token (for reproducible demo recordings). Keep it in the local `.env` or the deployment secret store only, never in git.
+- **Reorder confirmation tokens** are short-lived (`MCP_CONFIRM_TTL_SECONDS`, default 300s), stored hashed, and redacted from `voice_audit_log.args_redacted`.
+- The MCP server never logs bearer tokens; the shared logger redacts `authorization` and `*token*` keys.

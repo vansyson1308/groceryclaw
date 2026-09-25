@@ -164,3 +164,19 @@
 1. **Webhook signature specification from Zalo is still externally unresolved in-doc** (exact header names, signing base, algorithm details, timestamp/nonce inclusion). Safe default: block production unless Mode 1 is verified; allow Mode 2 only in staging or approved exception with compensating controls.
 2. **Provider retry semantics are not confirmed** (which HTTP statuses trigger retries). Safe default: design idempotent ingress; treat 5xx/timeouts as retriable and keep 200 for authenticated valid payloads.
 3. **Exact OA interaction policy details remain checklist items** (confirmed reply-window duration, allowed message types/list interactions, exact outbound limits). Safe default: enforce conservative 48h window and 80 msg/min global limiter until verified.
+
+## I) ShopVoice (Alexa+ MCP) — 2026-09 hackathon addendum
+
+- **What:** a new public surface, `apps/mcp-server`. It is an MCP server over Streamable HTTP (MCP spec 2025-11-25) that exposes voice-first, read-mostly shop tools and a two-step reorder. It is backed by the same RLS-scoped Postgres through `runTenantScopedTransaction`.
+- **First third-party runtime SDK — `@modelcontextprotocol/sdk` (pinned 1.30.1) plus `zod` (pinned 4.6.5):**
+  - *Why not hand-roll it:* MCP carries a lot of protocol surface: version negotiation, JSON-RPC batching rules, session headers, SSE resumability, `outputSchema` validation, and pagination. A hand-rolled implementation would drift from the spec and fail conformance tools such as MCP Inspector. The official SDK is MIT-licensed, maintained by the spec authors, and already negotiates `2025-11-25`.
+  - *Containment:* only `apps/mcp-server` (and the `apps/alexa-sim` MCP client) depend on it. Gateway, worker and admin are unchanged, and there is still no web framework: HTTP stays on raw `node:http` and requests are handed to `StreamableHTTPServerTransport.handleRequest`.
+  - *Types:* the app uses real `@types/node` 22 (scoped to the workspace, `"types": ["node"]`) instead of `types-node-compat.d.ts`, because the SDK's declarations need the real Node types.
+- **Security boundary:**
+  - Per-tenant bearer tokens are stored as SHA-256 hashes and resolved by the SECURITY DEFINER `resolve_mcp_access_token`, which is owned by `groceryclaw_bootstrap_owner`.
+  - Each MCP session is bound to the tenant that created it.
+  - `Origin` is validated against an allow-list, with localhost allowed only outside production.
+  - Rate limits apply per tenant and to per-IP auth failures.
+  - Writes are two-step: `create_reorder_draft` returns a 5-minute token, and only `confirm_reorder` changes status.
+  - `voice_audit_log` is append-only.
+- **Non-goals:** no KiotViet write-through yet (a confirmed draft stays `confirmed`), and no OAuth 2.1 authorization server yet (static per-tenant tokens are the MVP).

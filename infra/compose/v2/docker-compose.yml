@@ -223,6 +223,43 @@ services:
       retries: 5
       start_period: 10s
 
+  mcp-server:
+    build:
+      context: ../../..
+      dockerfile: apps/mcp-server/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8090"
+      MCP_DB_URL: ${MCP_DB_URL:-postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-groceryclaw_v2}}
+      MCP_DATA_BACKEND: ${MCP_DATA_BACKEND:-postgres}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      MCP_ALLOW_LOCALHOST_ORIGINS: ${MCP_ALLOW_LOCALHOST_ORIGINS:-true}
+      MCP_RATE_LIMIT_PER_MINUTE: ${MCP_RATE_LIMIT_PER_MINUTE:-120}
+      MCP_CONFIRM_TTL_SECONDS: ${MCP_CONFIRM_TTL_SECONDS:-300}
+      MCP_DEMO_TOKEN: ${MCP_DEMO_TOKEN:-}
+      DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${MCP_HOST_PORT:-127.0.0.1:8090}:8090"
+    networks:
+      - v2_private
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 networks:
   v2_private:
     driver: bridge

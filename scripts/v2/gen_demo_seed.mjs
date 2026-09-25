@@ -87,6 +87,17 @@ export const PRODUCTS = [
   ['ICECREAM', 'Ice Cream Cone', 'piece', 12000, 10, 24, 'SUP-SNACK', false]
 ];
 
+// Three recent supplier invoices: synced (dry goods, 2 days ago),
+// mapped but not synced (beverages, this morning), arrived only (snacks, yesterday).
+export const INVOICES = [
+  { id: 'c0ffee00-0000-4000-8000-00000000e001', ev: 'c0ffee00-0000-4000-8000-00000000d001', supplier: 'SUP-DRY', number: 'MDG-24817', daysAgo: 2, state: 'synced',
+    items: [['NOODLE-SHRIMP', 300, 3100], ['FISHSAUCE-500', 24, 29600], ['OIL-1L', 24, 40600], ['RICE-5KG', 8, 109200]] },
+  { id: 'c0ffee00-0000-4000-8000-00000000e002', ev: 'c0ffee00-0000-4000-8000-00000000d002', supplier: 'SUP-BEV', number: 'SRB-10442', daysAgo: 0, state: 'mapped',
+    items: [['WATER-500', 96, 3900], ['GREENTEA-450', 48, 7800], ['BEER-330', 96, 12500], ['LEMON-330', 48, 7800]] },
+  { id: 'c0ffee00-0000-4000-8000-00000000e003', ev: 'c0ffee00-0000-4000-8000-00000000d003', supplier: 'SUP-SNACK', number: 'SSS-3391', daysAgo: 1, state: 'arrived',
+    items: [['CHIPS-POTATO', 48, 9400], ['CHIPS-PRAWN', 48, 6200], ['COOKIES', 12, 31200]] }
+];
+
 // mulberry32 — tiny deterministic PRNG.
 export function prng(seed) {
   let a = seed >>> 0;
@@ -204,15 +215,7 @@ export function renderSeedSql(catalogue = buildCatalogue()) {
   push();
   push('-- Three recent supplier invoices: synced (dry goods, 2 days ago),');
   push('-- mapped but not synced (beverages, this morning), arrived only (snacks, yesterday).');
-  const invoices = [
-    { id: 'c0ffee00-0000-4000-8000-00000000e001', ev: 'c0ffee00-0000-4000-8000-00000000d001', supplier: 'SUP-DRY', number: 'MDG-24817', daysAgo: 2, state: 'synced',
-      items: [['NOODLE-SHRIMP', 300, 3100], ['FISHSAUCE-500', 24, 29600], ['OIL-1L', 24, 40600], ['RICE-5KG', 8, 109200]] },
-    { id: 'c0ffee00-0000-4000-8000-00000000e002', ev: 'c0ffee00-0000-4000-8000-00000000d002', supplier: 'SUP-BEV', number: 'SRB-10442', daysAgo: 0, state: 'mapped',
-      items: [['WATER-500', 96, 3900], ['GREENTEA-450', 48, 7800], ['BEER-330', 96, 12500], ['LEMON-330', 48, 7800]] },
-    { id: 'c0ffee00-0000-4000-8000-00000000e003', ev: 'c0ffee00-0000-4000-8000-00000000d003', supplier: 'SUP-SNACK', number: 'SSS-3391', daysAgo: 1, state: 'arrived',
-      items: [['CHIPS-POTATO', 48, 9400], ['CHIPS-PRAWN', 48, 6200], ['COOKIES', 12, 31200]] }
-  ];
-  invoices.forEach((inv, invIndex) => {
+  INVOICES.forEach((inv, invIndex) => {
     const total = inv.items.reduce((sum, [, qty, cost]) => sum + qty * cost, 0);
     push('INSERT INTO inbound_events (id, tenant_id, user_id, message_id, event_type, payload, status)');
     push(`VALUES (${q(inv.ev)}, ${t}, ${q(DEMO_USER_ID)}, ${q(`demo-${inv.number}`)}, 'image', '{"source":"demo_seed"}'::jsonb, 'completed')`);
@@ -239,6 +242,76 @@ export function renderSeedSql(catalogue = buildCatalogue()) {
   push();
   push('COMMIT;');
   return `${lines.join('\n')}\n`;
+}
+
+export function todayInTimezone(timeZone = 'Asia/Ho_Chi_Minh', now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+function shiftDate(date, days) {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function isoDow(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  return ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7) + 1;
+}
+
+/**
+ * The same demo data as the SQL seed, as a plain object for the MCP server's
+ * in-memory store (tests, CI without Postgres, offline demos). Quantities use
+ * integer arithmetic so they match Postgres numeric rounding exactly.
+ */
+export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
+  const today = anchorDate || todayInTimezone();
+  const catalogue = buildCatalogue();
+  const multipliers = WEEKDAY_MULTIPLIERS.map((m) => Math.round(m * 100));
+  const todayTenths = Math.round(TODAY_FRACTION * 10);
+  const sales = [];
+  for (const p of catalogue) {
+    p.noise.forEach((noise, i) => {
+      const idx = i + 1;
+      const date = shiftDate(today, -(SALES_DAYS - idx));
+      const numer = p.base * multipliers[isoDow(date) - 1] * noise * (idx === SALES_DAYS ? todayTenths : 10);
+      const qty = Math.max(0, Math.round(numer / 100_000));
+      sales.push({ date, sku: p.sku, qty, revenueVnd: qty * p.price });
+    });
+  }
+  const supplierNames = new Map(SUPPLIERS.map((s) => [s.code, s.name]));
+  const productNames = new Map(PRODUCTS.map((p) => [p[0], p[1]]));
+  const invoices = INVOICES.map((inv) => {
+    const date = shiftDate(today, -inv.daysAgo);
+    return {
+      id: inv.id,
+      invoiceNumber: inv.number,
+      supplierCode: inv.supplier,
+      supplierName: supplierNames.get(inv.supplier) ?? null,
+      invoiceDate: date,
+      receivedAt: new Date(`${date}T08:30:00+07:00`).toISOString(),
+      totalVnd: inv.items.reduce((sum, [, qty, cost]) => sum + qty * cost, 0),
+      lineCount: inv.items.length,
+      resolvedCount: inv.state === 'arrived' ? 0 : inv.items.length,
+      synced: inv.state === 'synced',
+      productNames: inv.items.map(([sku]) => productNames.get(sku) ?? sku)
+    };
+  });
+  return {
+    tenants: {
+      [DEMO_TENANT_ID]: {
+        profile: { shopName: 'Corner Mart Demo', displayCurrency: 'USD', vndPerDisplayUnit: 25000, timezone: 'Asia/Ho_Chi_Minh', locale: 'en-US' },
+        today,
+        products: catalogue.map((p) => ({
+          sku: p.sku, name: p.name, unit: p.unit, barcode: p.barcode, onHand: p.onHand, minQty: p.minQty,
+          reorderQty: p.reorderQty, packSize: p.pack, unitCostVnd: p.unitCost, supplierCode: p.supplier, leadTimeDays: p.lead
+        })),
+        sales,
+        suppliers: SUPPLIERS.map((s) => ({ code: s.code, name: s.name, leadTimeDays: s.lead })),
+        invoices
+      }
+    },
+    tokens
+  };
 }
 
 const isMain = import.meta.url === `file://${process.argv[1]}`;

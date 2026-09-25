@@ -28,3 +28,19 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Severity:** high for AWS-dependent milestones.
 - **Workaround:** interfaces plus deterministic fakes; real clients activate when credentials exist.
 - **Suggestion:** for the hackathon, a short-lived sandbox credential or a Bedrock playground API key would lower the barrier.
+
+## F4. `StreamableHTTPServerTransport` is not assignable to `Transport` under `exactOptionalPropertyTypes`
+
+- **Task:** `await server.connect(new StreamableHTTPServerTransport({...}))` in a strict TypeScript project (`exactOptionalPropertyTypes: true`, which this repo uses).
+- **Expected:** it compiles, since the class `implements Transport`.
+- **Actual:** `TS2379: Argument of type 'StreamableHTTPServerTransport' is not assignable to parameter of type 'Transport' with 'exactOptionalPropertyTypes: true'`. The getters `onclose`/`onerror`/`onmessage` return `T | undefined`, but the interface declares optional properties without `| undefined`.
+- **Severity:** low (it's types only; runtime is fine).
+- **Workaround:** `server.connect(transport as unknown as Transport)`, with a comment (`apps/mcp-server/src/http.ts`).
+- **Suggestion:** declare `onclose?: (() => void) | undefined` and so on in `Transport`, and run the SDK's own type tests with `exactOptionalPropertyTypes`.
+
+## F5. Docker builds in the agent sandbox need `--network host` for npm
+
+- **Task:** `docker build -f apps/mcp-server/Dockerfile .`
+- **Actual:** `npm ci` inside the build fails with `npm error Exit handler never called!` (no egress from the default bridge network). `docker build --network host` works.
+- **Severity:** low (environment-specific; CI and AWS CodeBuild are unaffected).
+- **Workaround:** `scripts/aws/deploy.sh` passes `--network host` when `DOCKER_BUILD_NETWORK=host`.

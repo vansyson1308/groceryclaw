@@ -13,6 +13,8 @@
     "test": "npm run build && node --test tests/v2/*.test.mjs tests/v2/db/*.test.mjs tests/v2/integration/*.test.mjs",
     "start:gateway": "npm run build --workspace @groceryclaw/gateway && node apps/gateway/dist/server.js",
     "start:admin": "npm run build --workspace @groceryclaw/admin && node apps/admin/dist/server.js",
+    "start:mcp": "npm run build --workspace @groceryclaw/mcp-server && node apps/mcp-server/dist/server.js",
+    "mcp:token": "node scripts/v2/create_mcp_token.mjs",
     "lint": "node tools/v2/lint.mjs",
     "format:check": "node tools/v2/format-check.mjs",
     "typecheck": "tsc -b tsconfig.build.json",
