@@ -62,7 +62,22 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - [x] demo/video pipeline (script.md, narration.json, cards/narrate/record/assemble, build.sh) rendered end to end: 151.5 s, 1920x1080 h264+aac (offline voices; Polly re-render needs B2). VIDEO_RUNBOOK.md written.
 
 ### Phase 9: submission
-- [ ] DEVPOST_SUBMISSION.md, BUILT_DURING_HACKATHON.md, PR opened
+- [x] DEVPOST_SUBMISSION.md, BUILT_DURING_HACKATHON.md, draft PR vansyson1308/groceryclaw#25 open
+- [ ] Owner checkpoint B hand-off (final message)
+
+## Definition of Done (spec §8) — evidence
+
+| Item | State | Evidence |
+|---|---|---|
+| typecheck / lint pass | ✅ | `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run sql:guard` all pass |
+| `npm test` passes | ⚠️ partially | Every ShopVoice test passes (numbers in "Final test run"). The pre-existing failures on `main` remain: stale Zalo/`zalo_users` tests and a leaking canary test. They are identical on baseline code, out of scope, and listed in BLOCKERS B3. |
+| New tests `tests/v2/mcp-*.test.mjs`: each tool's happy path, tenant isolation, token expiry, invalid input, ≤35 words | ✅ | mcp-http, mcp-tools, mcp-speech, db/mcp-tools-db, db/shopvoice-rls |
+| MCP Inspector against the **deployed** URL | ⏳ B2 | Local run done (`docs/hackathon/evidence/inspector-local-*`); `scripts/demo/inspector_evidence.mjs --label deployed` is ready |
+| e2e voice flow (5 utterances) | ✅ local / ⏳ deployed | 5/5 on memory and Postgres backends and on the AWS compose layout in containers; `scripts/aws/smoke.sh` for the deployed run |
+| p95 tool latency < 800 ms | ✅ local / ⏳ deployed | 12.8 ms client, 8 ms server (local) |
+| No secrets in the repo; `.env.example` + `docs/ops/SECRETS.md` updated | ✅ | Tokens only hashed in the DB; tests use obvious fake tokens |
+| README "ShopVoice (Alexa+ MCP)" + quickstart + `start:mcp`, `start:alexa-sim`, `--demo` | ✅ | Quickstart B verified verbatim; A verified piecewise (Docker Hub limits in the sandbox) |
+| Demo video rendered, < 3:00 | ✅ (placeholder voices) | 151.5 s, 1080p h264 |
 
 ## Codebase map (recon)
 
