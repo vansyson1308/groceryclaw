@@ -6,6 +6,7 @@
     { "path": "apps/admin" },
     { "path": "apps/worker" },
     { "path": "apps/miniapp" },
-    { "path": "apps/mcp-server" }
+    { "path": "apps/mcp-server" },
+    { "path": "apps/alexa-sim" }
   ]
 }

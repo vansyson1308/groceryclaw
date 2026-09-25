@@ -37,8 +37,9 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - Tests: mcp-http 11, mcp-tools 16, mcp-speech 13 (no DB); db/mcp-tools-db 6 + db/shopvoice-rls 7 (Postgres)
 
 ### Phase 4: Alexa+ simulator
-- [ ] apps/alexa-sim UI + /api/turn + Bedrock agent (fake fallback) + Polly (fake fallback)
-- [ ] scripts/demo/e2e_voice_flow.mjs
+- [x] apps/alexa-sim UI (push-to-talk Web Speech API, typed fallback, tool-call panel, confirmation/confirmed cards, no Amazon marks) + /api/turn + BedrockBrain (Converse tool use, default `us.amazon.nova-2-lite-v1:0`) with RulesBrain fallback + Polly with browser-voice fallback. Host holds confirmation tokens (never in model context) and blocks confirm without a "yes".
+- [x] scripts/demo/e2e_voice_flow.mjs: 5/5 PASS locally (memory backend and Postgres backend), rules brain. **Unverified with Bedrock** (B2).
+- [x] Local latency (same host, Postgres, 160 calls): client p95 12.8 ms, server p95 8 ms (`docs/hackathon/evidence/latency-local-postgres.json`). Deployed p95 still to measure.
 
 ### Phase 5: AWS
 - [ ] CDK in infra/aws, deploy.sh / teardown.sh

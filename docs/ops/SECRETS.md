@@ -52,3 +52,9 @@
 - **`MCP_DEMO_TOKEN`**: optional fixed demo token (for reproducible demo recordings). Keep it in the local `.env` or the deployment secret store only, never in git.
 - **Reorder confirmation tokens** are short-lived (`MCP_CONFIRM_TTL_SECONDS`, default 300s), stored hashed, and redacted from `voice_audit_log.args_redacted`.
 - The MCP server never logs bearer tokens; the shared logger redacts `authorization` and `*token*` keys.
+
+## ShopVoice simulator secrets
+- **`SIM_MCP_TOKEN`**: the MCP bearer token the simulator uses to reach the MCP server (the demo tenant's token).
+- **AWS credentials** for Bedrock and Polly: locally, use `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `infra/compose/v2/.env` (git-ignored). On AWS, use the task role created by `infra/aws` (no static keys). The minimum IAM permissions are `bedrock:InvokeModel` on the configured model/inference profile and `polly:SynthesizeSpeech`.
+- **`SIM_ACCESS_CODE`**: a passcode protecting `/api/*` on a public deployment, so strangers can't spend Bedrock/Polly credits. Share it with judges out of band.
+- The Bedrock agent never sees reorder confirmation tokens: the simulator host holds them and injects them into `confirm_reorder` only after the owner says yes.
