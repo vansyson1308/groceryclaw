@@ -1,0 +1,28 @@
+flowchart LR
+  owner(["Shop owner<br/>(hands full, voice)"])
+  alexa["Alexa+<br/>(MCP integration, Preview)"]
+  subgraph sim["apps/alexa-sim — voice simulator"]
+    ui["Push-to-talk UI<br/>Web Speech API"]
+    agent["Agent loop<br/>host holds reorder tokens"]
+  end
+  bedrock["Amazon Bedrock<br/>Nova 2 Lite · Converse tool use"]
+  polly["Amazon Polly<br/>neural voice"]
+  cf["Amazon CloudFront<br/>HTTPS + X-Origin-Verify"]
+  subgraph ec2["Amazon EC2 · docker compose"]
+    mcp["apps/mcp-server<br/>MCP 2025-11-25 · Streamable HTTP<br/>9 voice-first tools · prompt · resource"]
+    pg[("PostgreSQL 16 + RLS<br/>stock · sales · reorder drafts<br/>voice_audit_log")]
+  end
+  ssm["SSM Parameter Store<br/>tokens & secrets"]
+  kv["KiotViet POS API<br/>(kiotviet-mcp OSS)"]
+
+  owner -- speaks --> alexa
+  owner -- speaks --> ui
+  ui --> agent
+  agent -- tools as toolSpecs --> bedrock
+  agent -- reply text --> polly
+  alexa -- "MCP over HTTPS · Bearer per tenant" --> cf
+  agent -- "MCP client" --> mcp
+  cf --> mcp
+  mcp -- "runTenantScopedTransaction" --> pg
+  ssm -. boot .-> ec2
+  mcp -. "stretch / OSS" .-> kv

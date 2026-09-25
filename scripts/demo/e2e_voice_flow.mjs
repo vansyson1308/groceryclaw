@@ -40,7 +40,7 @@ async function waitFor(url, timeoutMs = 20_000) {
   throw new Error(`timeout waiting for ${url}`);
 }
 
-async function startLocalStack() {
+export async function startLocalStack() {
   const token = `sv_e2e_${randomBytes(24).toString('base64url')}`;
   const mcpPort = 18190 + Math.floor(Math.random() * 100);
   const simPort = mcpPort + 200;

@@ -54,10 +54,12 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 - [x] SDK example PR draft: `docs/hackathon/oss/typescript-sdk-example/` (patch applies cleanly, example verified against SDK 1.30.1). Owner opens it.
 
 ### Phase 7: hardening
-- [ ] DoD §8, rate limiting, safe spoken errors, README section + diagram
+- [x] Rate limiting (per tenant + per-IP auth failures), safe spoken errors, origin-verify gate
+- [x] README section "ShopVoice (Alexa+ MCP)" with quickstart A (Docker+Postgres) and B (no DB, verified verbatim) + Mermaid + PNG diagram (`docs/hackathon/architecture.png`)
+- [~] DoD §8: see "Definition of Done" below
 
 ### Phase 8: video
-- [ ] demo/video pipeline rendered, ffprobe duration < 3:00, VIDEO_RUNBOOK.md
+- [x] demo/video pipeline (script.md, narration.json, cards/narrate/record/assemble, build.sh) rendered end to end: 151.5 s, 1920x1080 h264+aac (offline voices; Polly re-render needs B2). VIDEO_RUNBOOK.md written.
 
 ### Phase 9: submission
 - [ ] DEVPOST_SUBMISSION.md, BUILT_DURING_HACKATHON.md, PR opened
