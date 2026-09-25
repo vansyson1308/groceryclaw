@@ -1,0 +1,57 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Four items are running low: White Sandwich Bread, under a day left; Fresh Milk 1L, under a day left; Chicken Eggs 10-pack, under a day left; and 1 more. Want a reorder draft?"
+    }
+  ],
+  "structuredContent": {
+    "total_low": 4,
+    "items": [
+      {
+        "sku": "BREAD-WHITE",
+        "name": "White Sandwich Bread",
+        "unit": "loaf",
+        "on_hand": 6,
+        "min_qty": 20,
+        "avg_daily_sales": 10.3,
+        "days_of_cover": 0.6,
+        "below_min": true,
+        "supplier_code": "SUP-FRESH"
+      },
+      {
+        "sku": "MILK-1L",
+        "name": "Fresh Milk 1L",
+        "unit": "carton",
+        "on_hand": 13,
+        "min_qty": 28,
+        "avg_daily_sales": 15.4,
+        "days_of_cover": 0.8,
+        "below_min": true,
+        "supplier_code": "SUP-DAIRY"
+      },
+      {
+        "sku": "EGG-10",
+        "name": "Chicken Eggs 10-pack",
+        "unit": "tray",
+        "on_hand": 11,
+        "min_qty": 24,
+        "avg_daily_sales": 12.2,
+        "days_of_cover": 0.9,
+        "below_min": true,
+        "supplier_code": "SUP-DAIRY"
+      },
+      {
+        "sku": "COLA-330",
+        "name": "Cola 330ml Can",
+        "unit": "can",
+        "on_hand": 47,
+        "min_qty": 108,
+        "avg_daily_sales": 38.4,
+        "days_of_cover": 1.2,
+        "below_min": true,
+        "supplier_code": "SUP-BEV"
+      }
+    ]
+  }
+}

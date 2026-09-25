@@ -1,0 +1,9 @@
+{
+  "contents": [
+    {
+      "uri": "shop://profile",
+      "mimeType": "application/json",
+      "text": "{\"shop_name\":\"Corner Mart Demo\",\"display_currency\":\"USD\",\"vnd_per_display_unit\":25000,\"timezone\":\"Asia/Ho_Chi_Minh\",\"locale\":\"en-US\"}"
+    }
+  ]
+}

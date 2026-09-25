@@ -44,13 +44,14 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 ### Phase 5: AWS
 - [x] CDK in infra/aws (EC2 + docker compose + 2x CloudFront + SSM + IAM + CloudWatch Logs), `cdk synth` OK; deploy.sh / teardown.sh / smoke.sh
 - [x] AWS compose layout rehearsed locally in containers (origin-verify gate enforced, e2e 5/5 with Bedrock->rules fallback since creds are invalid)
-- [ ] Deployed + Inspector evidence: **blocked on B2 (AWS credentials)**
+- [x] MCP Inspector 2.8.0 evidence **against local server** (Postgres backend): connected + "MCP 2025-11-25" screenshot, tools list, tool result, CLI JSON for tools/list, tools/call, resources/read, prompts/get (`docs/hackathon/evidence/inspector-*-local-*`). Reusable: `scripts/demo/inspector_evidence.mjs --label deployed`.
+- [ ] Deployed + Inspector evidence against the public URL: **blocked on B2 (AWS credentials)**
 - [~] p95 latency: local 12.8 ms client / 8 ms server; deployed number pending B2
 - [x] AWS_SERVICES.md
 
 ### Phase 6: open source
-- [ ] oss/kiotviet-mcp package
-- [ ] SDK example PR draft in docs/hackathon/oss/
+- [x] oss/kiotviet-mcp: standalone MIT package (KiotViet Public API client + 7 voice-first tools + two-step PO + stdio/HTTP CLI + demo shop), 4/4 tests, verified with Inspector CLI. Owner creates the public repo (B6).
+- [x] SDK example PR draft: `docs/hackathon/oss/typescript-sdk-example/` (patch applies cleanly, example verified against SDK 1.30.1). Owner opens it.
 
 ### Phase 7: hardening
 - [ ] DoD §8, rate limiting, safe spoken errors, README section + diagram

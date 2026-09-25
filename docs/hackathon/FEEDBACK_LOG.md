@@ -14,3 +14,10 @@ Running notes per tool/API/SDK, used to fill the Devpost "product feedback" fiel
 
 - **Used for:** the Converse API with tool use (agent brain) and Polly neural TTS in `apps/alexa-sim`.
 - **Status:** not yet exercised with real credentials (BLOCKERS.md B2). Code runs against deterministic fakes behind interfaces.
+
+## MCP Inspector (`@modelcontextprotocol/inspector` 2.8.0)
+
+- **Used for:** protocol-conformance evidence. The CLI covered `tools/list`, `tools/call`, `resources/read` and `prompts/get`, and the web UI was driven by Playwright for screenshots (`scripts/demo/inspector_evidence.mjs`).
+- **Worked well:** the web UI shows the negotiated protocol version (`MCP 2025-11-25`) next to the connection. Structured output is rendered separately from the text content. The schema-portability lint is genuinely useful.
+- **Needs work:** see friction F7 (CLI argument parsing for stdio) and F8 (nullable warnings). `npx ... --web` spawns a child process that survives SIGTERM to `npx`, so scripts must kill the process group.
+- **Would use again:** yes.

@@ -52,3 +52,20 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Severity:** medium (it blocks a full local rehearsal of the AWS layout).
 - **Workaround:** the compose file is validated with `docker compose config`. The same processes were run natively against Postgres 16 (e2e 5/5), and the `mcp-server` image built and passed a container smoke test before the rate limit hit.
 - **Suggestion (for AWS):** mirror base images to **Amazon ECR Public** (`public.ecr.aws/docker/library/node:22-bookworm-slim`) to avoid Docker Hub limits on EC2 and CodeBuild too.
+
+## F7. MCP Inspector 2.x CLI: argument order matters for stdio servers
+
+- **Task:** list the tools of a stdio server that needs a flag and an env var.
+- **Steps:** `mcp-inspector --cli -e KIOTVIET_MCP_DEMO=1 node dist/cli.js --method tools/list`, then `mcp-inspector --cli node dist/cli.js --demo --method tools/list`.
+- **Expected:** both work, like the 1.x `npx @modelcontextprotocol/inspector --cli <cmd> <args>` examples.
+- **Actual:** with `-e` before the target: `No servers found in config file`. With `--demo`: the flag is not forwarded to the server. Only `--cli node dist/cli.js -e KEY=VALUE --method ...` works.
+- **Severity:** low.
+- **Workaround:** env switch `KIOTVIET_MCP_DEMO=1`, with the documented argument order.
+- **Suggestion:** support `--` to separate server args, and make the error name the argument that was misparsed.
+
+## F8. MCP Inspector schema-portability warnings for zod `.nullable()` outputs
+
+- **Task:** conformance check with `mcp-inspector --cli ... --method tools/list`.
+- **Actual:** `Schema portability: 0 errors, 19 warnings`. All come from nullable output fields, which the SDK's zod-to-JSON-Schema conversion emits as `type: ["string","null"]`, even when written as `z.union([z.string(), z.null()])`.
+- **Severity:** low (valid JSON Schema; input schemas are clean).
+- **Suggestion:** an SDK option to emit `anyOf` for nullables, as the Inspector suggests.

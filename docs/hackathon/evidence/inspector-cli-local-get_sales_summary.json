@@ -1,0 +1,33 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "So far today: $304 from 482 items. That's 68% of last Friday's full day, $448."
+    }
+  ],
+  "structuredContent": {
+    "period": {
+      "start": "2026-09-25",
+      "end": "2026-09-25",
+      "label": "today",
+      "partial": true
+    },
+    "currency": "USD",
+    "revenue_vnd": 7612000,
+    "revenue": 304.48,
+    "units": 482,
+    "comparison": {
+      "period": {
+        "start": "2026-09-18",
+        "end": "2026-09-18",
+        "label": "last Friday",
+        "partial": false
+      },
+      "revenue_vnd": 11211000,
+      "revenue": 448.44,
+      "units": 683,
+      "change_pct": -32,
+      "percent_of_comparison": 68
+    }
+  }
+}

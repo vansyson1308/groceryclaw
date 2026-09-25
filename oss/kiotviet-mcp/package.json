@@ -1,0 +1,42 @@
+{
+  "name": "kiotviet-mcp",
+  "version": "0.1.0",
+  "description": "Voice-first MCP server for KiotViet shops: low stock, stock levels, sales, top movers and two-step purchase orders over the Model Context Protocol (stdio or Streamable HTTP).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "kiotviet-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "kiotviet",
+    "retail",
+    "grocery",
+    "voice",
+    "alexa"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test test/*.test.mjs",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3"
+  }
+}
