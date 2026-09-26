@@ -28,7 +28,8 @@ docker compose --env-file infra/compose/v2/.env -f infra/compose/v2/docker-compo
 
 Webhook ingress test:
 ```bash
-curl -i -X POST http://127.0.0.1:8080/webhooks/zalo \
+curl -i -X POST http://127.0.0.1:8080/webhooks/telegram \
   -H "content-type: application/json" \
-  --data @tests/fixtures/zalo_webhook_valid.json
+  -H "x-telegram-bot-api-secret-token: ${TELEGRAM_WEBHOOK_SECRET}" \
+  --data @tests/fixtures/telegram_update_valid.json
 ```

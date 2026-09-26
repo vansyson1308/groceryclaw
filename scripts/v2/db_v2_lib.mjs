@@ -57,12 +57,27 @@ function shell(dbName = targetDb()) {
   throw new Error('No SQL execution method found. Install psql or docker, or set DB_V2_PSQL_CMD.');
 }
 
+// Migrations 014-016 were authored without migrate markers. Rather than edit
+// them (which would change checksums on databases that already applied them),
+// accept the legacy "---- rollback" separator, or treat the whole file as up.
+const LEGACY_ROLLBACK_MARKER = '---- rollback';
+
 export function splitMigration(content, fileName) {
   const markerUp = '-- migrate:up';
   const markerDown = '-- migrate:down';
 
   const upPos = content.indexOf(markerUp);
   const downPos = content.indexOf(markerDown);
+  if (upPos === -1 && downPos === -1) {
+    const legacyPos = content.indexOf(LEGACY_ROLLBACK_MARKER);
+    if (legacyPos === -1) {
+      return { up: content.trim(), down: '' };
+    }
+    return {
+      up: content.slice(0, legacyPos).trim(),
+      down: content.slice(legacyPos + LEGACY_ROLLBACK_MARKER.length).trim()
+    };
+  }
   if (upPos === -1 || downPos === -1 || downPos <= upPos) {
     throw new Error(`Migration ${fileName} must contain -- migrate:up and -- migrate:down sections.`);
   }

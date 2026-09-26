@@ -5,7 +5,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { startService } from './service-harness.mjs';
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
@@ -43,47 +43,33 @@ function startJwksServer(jwk) {
   });
 }
 
-function startAdmin(port, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('node', ['apps/admin/dist/server.js'], {
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        ADMIN_HOST: '127.0.0.1',
-        ADMIN_PORT: String(port),
-        ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
-        ADMIN_SECRETS_ENABLED: 'true',
-        ...extraEnv
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM');
-      reject(new Error('admin start timeout'));
-    }, 4000);
-
-    proc.stdout.on('data', () => {
-      clearTimeout(timeout);
-      resolve(proc);
-    });
-
-    proc.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      if (text.includes('Error')) {
-        clearTimeout(timeout);
-        reject(new Error(text));
-      }
-    });
+function startAdmin(t, port, extraEnv = {}) {
+  return startService(t, {
+    script: 'apps/admin/dist/server.js',
+    env: {
+      NODE_ENV: 'test',
+      ADMIN_HOST: '127.0.0.1',
+      ADMIN_PORT: String(port),
+      ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
+      ADMIN_SECRETS_ENABLED: 'true',
+      // Always use the fake ADMIN_DB_CMD adapter, even when the runner has a real DB configured.
+      DATABASE_URL: '',
+      DB_ADMIN_URL: '',
+      DB_APP_URL: '',
+      POSTGRES_URL: '',
+      ...extraEnv
+    },
+    readyUrl: `http://127.0.0.1:${port}/healthz`
   });
 }
 
-test('admin secret rotate/revoke/list hides plaintext and audits', async () => {
+test('admin secret rotate/revoke/list hides plaintext and audits', async (t) => {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   jwk.kid = 'kid-1';
 
   const jwks = await startJwksServer(jwk);
+  t.after(() => jwks.server.close());
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-admin-secrets-'));
   const stateFile = path.join(dir, 'admin-state.json');
   const auditFile = path.join(dir, 'admin-audit.log');
@@ -91,7 +77,7 @@ test('admin secret rotate/revoke/list hides plaintext and audits', async () => {
 
   const port = 3500 + Math.floor(Math.random() * 500);
   const metricsPort = 19500 + Math.floor(Math.random() * 500);
-  const proc = await startAdmin(port, {
+  await startAdmin(t, port, {
     ADMIN_METRICS_PORT: String(metricsPort),
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
@@ -147,6 +133,4 @@ test('admin secret rotate/revoke/list hides plaintext and audits', async () => {
   assert.match(audit, /secret_revoke/);
   assert.doesNotMatch(audit, /kv-secret-token/);
 
-  proc.kill('SIGTERM');
-  jwks.server.close();
 });

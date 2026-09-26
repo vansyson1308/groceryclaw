@@ -261,7 +261,13 @@ async function consumeInviteCode(platformUserId: string, inviteCode: string, tel
     }
   }
 
-  return { ok: false };
+  const out = await runSql(`
+    SELECT ok::text, COALESCE(tenant_id::text, ''), COALESCE(role_assigned, '')
+    FROM consume_invite_code($1, $2, $3)
+    LIMIT 1;
+  `, [platformUserId, inviteCode, telegramChatId ?? null]);
+  const [okRaw = 'false', tenantIdVal = '', roleAssigned = ''] = (out.split('\n')[0] ?? '').split('|').map((part) => part.trim());
+  return { ok: okRaw === 't' || okRaw === 'true', ...(tenantIdVal ? { tenantId: tenantIdVal } : {}), ...(roleAssigned ? { roleAssigned } : {}) };
 }
 
 async function recordInboundInteraction(tenantId: string, platformUserId: string): Promise<string | undefined> {

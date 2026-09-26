@@ -5,7 +5,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { startService } from './service-harness.mjs';
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
@@ -43,52 +43,38 @@ function startJwksServer(jwk) {
   });
 }
 
-function startAdmin(port, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('node', ['apps/admin/dist/server.js'], {
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        ADMIN_HOST: '127.0.0.1',
-        ADMIN_PORT: String(port),
-        ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
-        ...extraEnv
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM');
-      reject(new Error('admin start timeout'));
-    }, 4000);
-
-    proc.stdout.on('data', () => {
-      clearTimeout(timeout);
-      resolve(proc);
-    });
-
-    proc.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      if (text.includes('Error')) {
-        clearTimeout(timeout);
-        reject(new Error(text));
-      }
-    });
+function startAdmin(t, port, extraEnv = {}) {
+  return startService(t, {
+    script: 'apps/admin/dist/server.js',
+    env: {
+      NODE_ENV: 'test',
+      ADMIN_HOST: '127.0.0.1',
+      ADMIN_PORT: String(port),
+      ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
+      // Always use the fake ADMIN_DB_CMD adapter, even when the runner has a real DB configured.
+      DATABASE_URL: '',
+      DB_ADMIN_URL: '',
+      DB_APP_URL: '',
+      POSTGRES_URL: '',
+      ...extraEnv
+    },
+    readyUrl: `http://127.0.0.1:${port}/healthz`
   });
 }
 
-test('admin tenant + invite endpoints enforce auth/rbac and avoid plaintext storage', async () => {
+test('admin tenant + invite endpoints enforce auth/rbac and avoid plaintext storage', async (t) => {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   jwk.kid = 'kid-1';
 
   const jwks = await startJwksServer(jwk);
+  t.after(() => jwks.server.close());
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-admin-endpoints-'));
   const stateFile = path.join(dir, 'admin-state.json');
   const auditFile = path.join(dir, 'admin-audit.log');
   writeFileSync(stateFile, JSON.stringify({ tenants: {}, invites: {} }), 'utf8');
 
-  const proc = await startAdmin(3321, {
+  await startAdmin(t, 3321, {
     ADMIN_METRICS_PORT: '19321',
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
@@ -175,6 +161,4 @@ test('admin tenant + invite endpoints enforce auth/rbac and avoid plaintext stor
   assert.match(auditLog, /invite_create/);
   assert.doesNotMatch(auditLog, new RegExp(inviteBody.code));
 
-  proc.kill('SIGTERM');
-  jwks.server.close();
 });

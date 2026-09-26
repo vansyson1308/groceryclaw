@@ -7,9 +7,9 @@ const checks = [
     file: 'apps/gateway/src/server.ts',
     banned: [
       'SET last_interaction_at = now()\n    WHERE platform_user_id = ${sqlQuote(',
-      'COALESCE((SELECT id FROM zalo_users WHERE platform_user_id = ${sqlQuote('
+      'COALESCE((SELECT id FROM platform_users WHERE platform_user_id = ${sqlQuote('
     ],
-    required: ['WHERE platform_user_id = $1', 'ON CONFLICT (tenant_id, zalo_msg_id) DO NOTHING']
+    required: ['WHERE platform_user_id = $1', 'ON CONFLICT (tenant_id, message_id) DO NOTHING']
   },
   {
     file: 'apps/admin/src/server.ts',

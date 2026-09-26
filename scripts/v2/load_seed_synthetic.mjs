@@ -10,6 +10,7 @@ const tenantCount = readInt('LOAD_TENANT_COUNT', 50);
 const usersPerTenant = readInt('LOAD_USERS_PER_TENANT', 10);
 const includeSecrets = (process.env.LOAD_SEED_INCLUDE_SECRETS ?? 'true') === 'true';
 const secretType = process.env.LOAD_SECRET_TYPE ?? 'kiotviet_token';
+const loadUserIdBase = readInt('LOAD_USER_ID_BASE', 900000000);
 
 function sqlQuote(value) {
   return `'${value.replace(/'/g, "''")}'`;
@@ -27,10 +28,11 @@ for (let t = 0; t < tenantCount; t += 1) {
   tenantRows += `(${sqlQuote(tenantId)}::uuid, ${sqlQuote(`Load Tenant ${t}`)}, ${sqlQuote(tenantCode)}, 'v2', 'active', '{"load":true}'::jsonb),\n`;
 
   for (let u = 0; u < usersPerTenant; u += 1) {
-    const platformUserId = `load_tenant_${t}_user_${u}`;
-    const zaloUserId = randomUUID();
-    userRows += `(${sqlQuote(zaloUserId)}::uuid, ${sqlQuote(platformUserId)}, ${sqlQuote(`Load user ${t}-${u}`)}, now(), now()),\n`;
-    membershipRows += `(${sqlQuote(randomUUID())}::uuid, ${sqlQuote(tenantId)}::uuid, ${sqlQuote(zaloUserId)}::uuid, 'staff', 'active'),\n`;
+    // Telegram user ids are numeric; tests/load/k6/webhook_load.js derives the same ids.
+    const platformUserId = String(loadUserIdBase + t * 1000 + u);
+    const userId = randomUUID();
+    userRows += `(${sqlQuote(userId)}::uuid, ${sqlQuote(platformUserId)}, 'telegram', ${sqlQuote(`Load user ${t}-${u}`)}, now(), now()),\n`;
+    membershipRows += `(${sqlQuote(randomUUID())}::uuid, ${sqlQuote(tenantId)}::uuid, ${sqlQuote(userId)}::uuid, 'staff', 'active'),\n`;
   }
 
   if (includeSecrets) {
@@ -52,16 +54,16 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   config = EXCLUDED.config;
 
-INSERT INTO zalo_users (id, platform_user_id, display_name, last_interaction_at, updated_at)
+INSERT INTO platform_users (id, platform_user_id, platform, display_name, last_interaction_at, updated_at)
 VALUES
 ${trim(userRows)}
-ON CONFLICT (platform_user_id) DO UPDATE SET
+ON CONFLICT (platform, platform_user_id) DO UPDATE SET
   last_interaction_at = EXCLUDED.last_interaction_at;
 
-INSERT INTO tenant_users (id, tenant_id, zalo_user_id, role, status)
+INSERT INTO tenant_users (id, tenant_id, user_id, role, status)
 VALUES
 ${trim(membershipRows)}
-ON CONFLICT (tenant_id, zalo_user_id) DO UPDATE SET
+ON CONFLICT (tenant_id, user_id) DO UPDATE SET
   status = EXCLUDED.status;
 ${includeSecrets ? `
 INSERT INTO secret_versions (id, tenant_id, secret_type, version, encrypted_dek, encrypted_value, dek_nonce, value_nonce, status, created_at)

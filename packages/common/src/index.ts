@@ -14,6 +14,7 @@ export * from './envelope-crypto.js';
 
 export * from './pg-lite.js';
 export * from './pg.js';
+export * from './product-search.js';
 export * from './redis.js';
 export * from './bullmq-lite.js';
 export * from './http-security.js';

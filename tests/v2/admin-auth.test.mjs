@@ -5,7 +5,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { startService } from './service-harness.mjs';
 import { authenticateRequest, loadAdminAuthConfig } from '../../apps/admin/dist/auth.js';
 import { isAllowedByRole } from '../../apps/admin/dist/rbac.js';
 
@@ -45,45 +45,31 @@ function startJwksServer(jwks) {
   });
 }
 
-function startAdmin(port, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('node', ['apps/admin/dist/server.js'], {
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        ADMIN_HOST: '127.0.0.1',
-        ADMIN_PORT: String(port),
-        ...extraEnv
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM');
-      reject(new Error('admin start timeout'));
-    }, 4000);
-
-    proc.stdout.on('data', () => {
-      clearTimeout(timeout);
-      resolve(proc);
-    });
-
-    proc.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      if (text.includes('Error')) {
-        clearTimeout(timeout);
-        reject(new Error(text));
-      }
-    });
+function startAdmin(t, port, extraEnv = {}) {
+  return startService(t, {
+    script: 'apps/admin/dist/server.js',
+    env: {
+      NODE_ENV: 'test',
+      ADMIN_HOST: '127.0.0.1',
+      ADMIN_PORT: String(port),
+      // Always use the fake ADMIN_DB_CMD adapter, even when the runner has a real DB configured.
+      DATABASE_URL: '',
+      DB_ADMIN_URL: '',
+      DB_APP_URL: '',
+      POSTGRES_URL: '',
+      ...extraEnv
+    },
+    readyUrl: `http://127.0.0.1:${port}/healthz`
   });
 }
 
-test('OIDC authentication verifies JWT and extracts role', async () => {
+test('OIDC authentication verifies JWT and extracts role', async (t) => {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   jwk.kid = 'kid-1';
 
   const jwks = await startJwksServer(jwk);
+  t.after(() => jwks.server.close());
   const cfg = loadAdminAuthConfig({
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
@@ -110,7 +96,6 @@ test('OIDC authentication verifies JWT and extracts role', async () => {
   assert.equal(principal?.subject, 'user-1');
   assert.equal(principal?.role, 'read_only');
 
-  jwks.server.close();
 });
 
 test('RBAC hierarchy and method guard', () => {
@@ -120,16 +105,17 @@ test('RBAC hierarchy and method guard', () => {
   assert.equal(isAllowedByRole('read_only', 'read_only', 'POST'), false);
 });
 
-test('admin protected endpoint returns 401 without auth, 200 with token, 403 missing role, and break-glass audit path', async () => {
+test('admin protected endpoint returns 401 without auth, 200 with token, 403 missing role, and break-glass audit path', async (t) => {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   jwk.kid = 'kid-1';
   const jwks = await startJwksServer(jwk);
+  t.after(() => jwks.server.close());
 
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-admin-'));
   const auditFile = path.join(dir, 'audit.sql.log');
 
-  const proc = await startAdmin(3320, {
+  await startAdmin(t, 3320, {
     ADMIN_METRICS_PORT: '19320',
     ADMIN_ENABLED: 'true',
     ADMIN_OIDC_ISSUER: 'https://issuer.example',
@@ -183,6 +169,4 @@ test('admin protected endpoint returns 401 without auth, 200 with token, 403 mis
   const auditLog = readFileSync(auditFile, 'utf8');
   assert.match(auditLog, /break_glass_access/);
 
-  proc.kill('SIGTERM');
-  jwks.server.close();
 });

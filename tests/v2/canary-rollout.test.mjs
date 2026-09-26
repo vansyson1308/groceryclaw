@@ -5,7 +5,7 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { freePort, startService } from './service-harness.mjs';
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
@@ -41,81 +41,33 @@ function startJwksServer(jwk) {
   });
 }
 
-function waitForReady(proc, url, timeoutMs = 6000) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      proc.removeListener('exit', onExit);
-      fn(value);
-    };
-
-    const onExit = (code, signal) => {
-      finish(reject, new Error(`process exited before ready (code=${code ?? 'null'} signal=${signal ?? 'null'})`));
-    };
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM');
-      finish(reject, new Error(`process start timeout waiting for ${url}`));
-    }, timeoutMs);
-
-    proc.on('exit', onExit);
-
-    const startedAt = Date.now();
-    const poll = async () => {
-      if (settled) return;
-      try {
-        const resp = await fetch(url);
-        if (resp.ok) {
-          finish(resolve);
-          return;
-        }
-      } catch {
-        // Keep polling until timeout/exit.
-      }
-
-      if (Date.now() - startedAt >= timeoutMs) return;
-      setTimeout(poll, 75);
-    };
-
-    void poll();
-
-    proc.stderr.on('data', (chunk) => {
-      const text = String(chunk);
-      if (/error/i.test(text)) {
-        finish(reject, new Error(text));
-      }
-    });
-  });
-}
-
 function queueTypes(queueFile) {
-  const lines = readFileSync(queueFile, 'utf8').split('\n').map((x) => x.trim()).filter(Boolean);
-  return lines.map((line) => {
-    const payload = JSON.parse(line);
-    return payload.job_type;
-  });
+  return readFileSync(queueFile, 'utf8').split('\n').map((x) => x.trim()).filter(Boolean)
+    .map((line) => JSON.parse(line).job_type);
 }
 
-test('canary flip and rollback toggle gateway routing by processing_mode', async () => {
+test('processing_mode canary flip and rollback via admin API; gateway keeps linked tenants on the Telegram pipeline', async (t) => {
+  // The Telegram rewrite (fd7eef7) removed the gateway's legacy/V2 split: linked
+  // tenants always take the V2 pipeline, and processing_mode is only stored.
+  // This drill checks the admin flip/rollback and that routing is unaffected.
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   jwk.kid = 'kid-1';
   const jwks = await startJwksServer(jwk);
+  t.after(() => jwks.server.close());
 
+  const tenantId = '11111111-1111-1111-1111-111111111111';
   const dir = mkdtempSync(path.join(tmpdir(), 'groceryclaw-canary-'));
   const stateFile = path.join(dir, 'shared-state.json');
   const queueFile = path.join(dir, 'queue.log');
 
   writeFileSync(stateFile, JSON.stringify({
     linked: true,
-    tenant_id: '11111111-1111-1111-1111-111111111111',
+    tenant_id: tenantId,
     processing_mode: 'legacy',
     tenants: {
-      '11111111-1111-1111-1111-111111111111': {
-        id: '11111111-1111-1111-1111-111111111111',
+      [tenantId]: {
+        id: tenantId,
         name: 'Tenant Drill',
         processing_mode: 'legacy',
         status: 'active',
@@ -126,18 +78,15 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
     secrets: {}
   }), 'utf8');
 
-  const adminPort = 3600 + Math.floor(Math.random() * 200);
-  const gatewayPort = 3800 + Math.floor(Math.random() * 200);
-  const adminMetricsPort = 19600 + Math.floor(Math.random() * 200);
-  const gatewayMetricsPort = 19800 + Math.floor(Math.random() * 200);
-
-  const adminProc = spawn('node', ['apps/admin/dist/server.js'], {
+  const adminPort = await freePort();
+  const gatewayPort = await freePort();
+  await startService(t, {
+    script: 'apps/admin/dist/server.js',
     env: {
-      ...process.env,
       NODE_ENV: 'test',
       ADMIN_HOST: '127.0.0.1',
       ADMIN_PORT: String(adminPort),
-      ADMIN_METRICS_PORT: String(adminMetricsPort),
+      ADMIN_METRICS_PORT: String(await freePort()),
       ADMIN_ENABLED: 'true',
       ADMIN_TENANT_ENDPOINTS_ENABLED: 'true',
       ADMIN_SECRETS_ENABLED: 'true',
@@ -146,32 +95,35 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
       ADMIN_OIDC_JWKS_URI: jwks.uri,
       ADMIN_OIDC_ROLES_CLAIM: 'roles',
       ADMIN_DB_CMD: 'node tests/v2/integration/fake-admin-db.mjs',
-      FAKE_ADMIN_STATE_FILE: stateFile
+      FAKE_ADMIN_STATE_FILE: stateFile,
+      DATABASE_URL: '',
+      DB_ADMIN_URL: ''
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    readyUrl: `http://127.0.0.1:${adminPort}/healthz`
   });
-  await waitForReady(adminProc, `http://127.0.0.1:${adminPort}/healthz`);
 
-  const gatewayProc = spawn('node', ['apps/gateway/dist/server.js'], {
+  await startService(t, {
+    script: 'apps/gateway/dist/server.js',
     env: {
-      ...process.env,
       NODE_ENV: 'test',
       GATEWAY_HOST: '127.0.0.1',
       GATEWAY_PORT: String(gatewayPort),
-      GATEWAY_METRICS_PORT: String(gatewayMetricsPort),
-      V2_GATEWAY_WEBHOOK_ENABLED: 'true',
+      GATEWAY_METRICS_HOST: '127.0.0.1',
+      GATEWAY_METRICS_PORT: String(await freePort()),
       V2_ONBOARDING_ENABLED: 'true',
-      WEBHOOK_VERIFY_MODE: 'mode2',
-      WEBHOOK_MODE2_TOKEN: 'test-token',
-      WEBHOOK_MODE2_ALLOW_IN_PRODUCTION: 'true',
+      TELEGRAM_MODE: 'webhook',
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_WEBHOOK_SECRET: 'test-token',
       GATEWAY_DB_CMD: 'node tests/v2/integration/fake-db.mjs',
-      GATEWAY_QUEUE_CMD: `node tests/v2/integration/fake-queue.mjs`,
+      GATEWAY_QUEUE_CMD: 'node tests/v2/integration/fake-queue.mjs',
       FAKE_DB_STATE_FILE: stateFile,
-      FAKE_QUEUE_FILE: queueFile
+      FAKE_QUEUE_FILE: queueFile,
+      DATABASE_URL: '',
+      DB_APP_URL: '',
+      POSTGRES_URL: ''
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    readyUrl: `http://127.0.0.1:${gatewayPort}/healthz`
   });
-  await waitForReady(gatewayProc, `http://127.0.0.1:${gatewayPort}/healthz`);
 
   const now = Math.floor(Date.now() / 1000);
   const opsToken = signJwt(privateKey, {
@@ -183,52 +135,47 @@ test('canary flip and rollback toggle gateway routing by processing_mode', async
     roles: ['ops']
   });
 
-  async function hitGateway(msgId) {
-    const resp = await fetch(`http://127.0.0.1:${gatewayPort}/webhooks/zalo`, {
+  let messageId = 1000;
+  async function sendInvoice() {
+    messageId += 1;
+    const resp = await fetch(`http://127.0.0.1:${gatewayPort}/webhooks/telegram`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-webhook-token': 'test-token'
-      },
+      headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'test-token' },
       body: JSON.stringify({
-        platform_user_id: 'linked_user_1',
-        zalo_msg_id: msgId,
-        message_type: 'file',
-        attachments: [{ type: 'file', url: 'https://example.zalo.me/invoice.xml', name: 'invoice.xml' }],
-        text: 'invoice attached'
+        update_id: messageId,
+        message: {
+          message_id: messageId,
+          date: now,
+          chat: { id: 555001, type: 'private' },
+          from: { id: 555001, is_bot: false, first_name: 'Owner' },
+          document: { file_id: `file-${messageId}`, file_unique_id: `u-${messageId}`, file_name: 'invoice.xlsx' },
+          caption: 'invoice attached'
+        }
       })
     });
     assert.equal(resp.status, 200);
+    return queueTypes(queueFile).at(-1);
   }
 
-  await hitGateway('legacy-msg-1');
-  let types = queueTypes(queueFile);
-  assert.equal(types.includes('LEGACY_FORWARD_INBOUND'), true);
+  async function setMode(mode) {
+    const resp = await fetch(`http://127.0.0.1:${adminPort}/tenants/${tenantId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${opsToken}` },
+      body: JSON.stringify({ processing_mode: mode })
+    });
+    assert.equal(resp.status, 200);
+    assert.equal((await resp.json()).processing_mode, mode);
+    const stored = JSON.parse(readFileSync(stateFile, 'utf8')).tenants[tenantId].processing_mode;
+    assert.equal(stored, mode);
+  }
 
-  const toV2 = await fetch(`http://127.0.0.1:${adminPort}/tenants/11111111-1111-1111-1111-111111111111`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${opsToken}` },
-    body: JSON.stringify({ processing_mode: 'v2' })
-  });
-  assert.equal(toV2.status, 200);
+  assert.equal(await sendInvoice(), 'PROCESS_EXCEL_INVOICE');
 
-  await hitGateway('v2-msg-1');
-  types = queueTypes(queueFile);
-  assert.equal(types.includes('PROCESS_INBOUND_EVENT'), true);
+  await setMode('v2');
+  assert.equal(await sendInvoice(), 'PROCESS_EXCEL_INVOICE');
 
-  const rollback = await fetch(`http://127.0.0.1:${adminPort}/tenants/11111111-1111-1111-1111-111111111111`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${opsToken}` },
-    body: JSON.stringify({ processing_mode: 'legacy' })
-  });
-  assert.equal(rollback.status, 200);
+  await setMode('legacy');
+  assert.equal(await sendInvoice(), 'PROCESS_EXCEL_INVOICE');
 
-  await hitGateway('legacy-msg-2');
-  types = queueTypes(queueFile);
-  const legacyCount = types.filter((x) => x === 'LEGACY_FORWARD_INBOUND').length;
-  assert.equal(legacyCount >= 2, true);
-
-  gatewayProc.kill('SIGTERM');
-  adminProc.kill('SIGTERM');
-  jwks.server.close();
+  assert.equal(queueTypes(queueFile).length, 3);
 });

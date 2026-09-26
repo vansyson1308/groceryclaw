@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NotifierOutboundRateLimiter, InMemoryTokenBucketRateLimiter } from '../../packages/common/dist/index.js';
-import { InMemoryStubZaloAdapter, ZaloSendError } from '../../apps/worker/dist/zalo-adapter.js';
+import { InMemoryStubTelegramAdapter, TelegramSendError } from '../../apps/worker/dist/telegram-adapter.js';
 import { NotifierRetriableError, processFlushPendingNotificationsJob, processNotifyUserJob } from '../../apps/worker/dist/notifier.js';
 
 function makeDeps(overrides = {}) {
@@ -52,7 +52,7 @@ function makeDeps(overrides = {}) {
     queryMany: async () => state.pending
       .filter((item) => item.status === 'pending')
       .map((item) => `${item.id}|${item.platform_user_id}|${item.message_type}|${JSON.stringify(item.payload)}`),
-    adapter: new InMemoryStubZaloAdapter(),
+    adapter: new InMemoryStubTelegramAdapter(),
     enabled: true,
     interactionWindowEnforced: true,
     flushEnabled: true,
@@ -87,8 +87,8 @@ test('closed window defers notification with pending row and no outbound send', 
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: null,
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm1',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm1',
     correlation_id: 'c1',
     notification_type: 'INVOICE_PROCESSED',
     template_vars: { invoice_number: 'INV-1' }
@@ -109,8 +109,8 @@ test('flush sends pending exactly once and marks sent (idempotent)', async () =>
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: 'in-1',
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm1',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm1',
     correlation_id: 'c1'
   });
 
@@ -119,8 +119,8 @@ test('flush sends pending exactly once and marks sent (idempotent)', async () =>
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: 'in-2',
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm2',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm2',
     correlation_id: 'c2'
   });
 
@@ -137,8 +137,8 @@ test('coalescing and backlog cap keep latest pending rows', async () => {
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: null,
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm1',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm1',
     correlation_id: 'c1',
     notification_type: 'INVOICE_PROCESSED',
     template_vars: { invoice_number: 'INV-1' }
@@ -162,8 +162,8 @@ test('open window sends outbound and does not defer', async () => {
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: null,
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm1',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm1',
     correlation_id: 'c1',
     notification_type: 'WELCOME_LINKED',
     template_vars: {}
@@ -176,7 +176,7 @@ test('open window sends outbound and does not defer', async () => {
 test('retriable send errors throw NotifierRetriableError for retry', async () => {
   const retriableAdapter = {
     sendText: async () => {
-      throw new ZaloSendError('RETRIABLE', 'zalo_http_429', 50);
+      throw new TelegramSendError('RETRIABLE', 'telegram_http_429', 50);
     }
   };
   const { deps, state } = makeDeps({ adapter: retriableAdapter });
@@ -188,8 +188,8 @@ test('retriable send errors throw NotifierRetriableError for retry', async () =>
       tenant_id: '11111111-1111-1111-1111-111111111111',
       inbound_event_id: null,
       platform_user_id: 'user-1',
-      zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      zalo_msg_id: 'm1',
+      user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      message_id: 'm1',
       correlation_id: 'c1',
       notification_type: 'WELCOME_LINKED',
       template_vars: {}
@@ -201,7 +201,7 @@ test('retriable send errors throw NotifierRetriableError for retry', async () =>
 test('terminal send errors do not retry and move pending to failed_terminal with job record', async () => {
   const terminalAdapter = {
     sendText: async () => {
-      throw new ZaloSendError('TERMINAL', 'zalo_http_400');
+      throw new TelegramSendError('TERMINAL', 'telegram_http_400');
     }
   };
   const { deps, state } = makeDeps({ adapter: terminalAdapter });
@@ -213,8 +213,8 @@ test('terminal send errors do not retry and move pending to failed_terminal with
     tenant_id: '11111111-1111-1111-1111-111111111111',
     inbound_event_id: 'in-1',
     platform_user_id: 'user-1',
-    zalo_user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    zalo_msg_id: 'm1',
+    user_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    message_id: 'm1',
     correlation_id: 'c1'
   });
 

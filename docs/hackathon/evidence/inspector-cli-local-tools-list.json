@@ -1,0 +1,1209 @@
+{
+  "tools": [
+    {
+      "name": "get_low_stock",
+      "title": "What is running low",
+      "description": "Lists products at or below their minimum stock level, most urgent first (fewest days of cover = on hand / average daily sales over 14 days). Use for \"what's running low?\" or \"what do I need to order?\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 10,
+            "description": "Max items in structured output (speech always mentions at most 3).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total_low": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "on_hand": {
+                  "type": "number"
+                },
+                "min_qty": {
+                  "type": "number"
+                },
+                "avg_daily_sales": {
+                  "type": "number"
+                },
+                "days_of_cover": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "below_min": {
+                  "type": "boolean"
+                },
+                "supplier_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "sku",
+                "name",
+                "unit",
+                "on_hand",
+                "min_qty",
+                "avg_daily_sales",
+                "days_of_cover",
+                "below_min",
+                "supplier_code"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "total_low",
+          "items"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "What is running low",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_stock_level",
+      "title": "Stock level for one product",
+      "description": "How many units of one product are on hand, with days of cover. Accepts a spoken product name (fuzzy matched) or a barcode. If several products match, the answer asks which one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80,
+            "description": "Product name as spoken, e.g. \"fresh milk\", or a barcode."
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "found",
+              "ambiguous",
+              "not_found"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "on_hand": {
+                    "type": "number"
+                  },
+                  "min_qty": {
+                    "type": "number"
+                  },
+                  "avg_daily_sales": {
+                    "type": "number"
+                  },
+                  "days_of_cover": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "below_min": {
+                    "type": "boolean"
+                  },
+                  "supplier_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "sku",
+                  "name",
+                  "unit",
+                  "on_hand",
+                  "min_qty",
+                  "avg_daily_sales",
+                  "days_of_cover",
+                  "below_min",
+                  "supplier_code"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sku",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "status",
+          "query",
+          "product",
+          "candidates"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Stock level for one product",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_sales_summary",
+      "title": "Sales summary",
+      "description": "Revenue and units sold for a period (today, yesterday, this week, last week, last 7/30 days, or a custom date range), compared by default with the same weekday last week (single days) or the previous period. Use compare_weekday for \"compared to last Friday\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "default": "today",
+            "type": "string",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_week",
+              "last_7_days",
+              "last_30_days",
+              "custom"
+            ]
+          },
+          "start_date": {
+            "description": "Required when period is \"custom\".",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "description": "Custom period end (defaults to start_date).",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "compare_to": {
+            "default": "auto",
+            "type": "string",
+            "enum": [
+              "auto",
+              "same_weekday_last_week",
+              "previous_period",
+              "none"
+            ]
+          },
+          "compare_weekday": {
+            "description": "Compare with the most recent such weekday before the period, e.g. \"friday\" for \"vs last Friday\".",
+            "type": "string",
+            "enum": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday"
+            ]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "partial": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "label",
+              "partial"
+            ],
+            "additionalProperties": false
+          },
+          "currency": {
+            "type": "string"
+          },
+          "revenue_vnd": {
+            "type": "number"
+          },
+          "revenue": {
+            "type": "number"
+          },
+          "units": {
+            "type": "number"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "partial": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "label",
+                      "partial"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "revenue_vnd": {
+                    "type": "number"
+                  },
+                  "revenue": {
+                    "type": "number"
+                  },
+                  "units": {
+                    "type": "number"
+                  },
+                  "change_pct": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "percent_of_comparison": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "period",
+                  "revenue_vnd",
+                  "revenue",
+                  "units",
+                  "change_pct",
+                  "percent_of_comparison"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "period",
+          "currency",
+          "revenue_vnd",
+          "revenue",
+          "units",
+          "comparison"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Sales summary",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_top_movers",
+      "title": "Best and slowest sellers",
+      "description": "Top or bottom N products by units or revenue in a period. Use direction \"bottom\" for slow movers (includes products with no sales).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "default": "last_7_days",
+            "type": "string",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_week",
+              "last_7_days",
+              "last_30_days",
+              "custom"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "metric": {
+            "default": "units",
+            "type": "string",
+            "enum": [
+              "units",
+              "revenue"
+            ]
+          },
+          "direction": {
+            "default": "top",
+            "type": "string",
+            "enum": [
+              "top",
+              "bottom"
+            ]
+          },
+          "limit": {
+            "default": 3,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "partial": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "label",
+              "partial"
+            ],
+            "additionalProperties": false
+          },
+          "metric": {
+            "type": "string",
+            "enum": [
+              "units",
+              "revenue"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "top",
+              "bottom"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rank": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "units": {
+                  "type": "number"
+                },
+                "revenue_vnd": {
+                  "type": "number"
+                },
+                "revenue": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "rank",
+                "sku",
+                "name",
+                "unit",
+                "units",
+                "revenue_vnd",
+                "revenue"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "period",
+          "metric",
+          "direction",
+          "currency",
+          "items"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Best and slowest sellers",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_invoice_status",
+      "title": "Supplier invoice status",
+      "description": "Latest supplier invoices and whether each has arrived, been matched to products (mapped), or been synced to KiotViet. Filter by supplier name or a product on the invoice, e.g. \"Sunrise Beverages\" or \"drinks\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "supplier": {
+            "description": "Supplier name, category or product word to filter by.",
+            "type": "string",
+            "maxLength": 80
+          },
+          "limit": {
+            "default": 3,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "invoices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoice_number": {
+                  "type": "string"
+                },
+                "supplier_code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "invoice_date": {
+                  "type": "string"
+                },
+                "total_vnd": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "line_count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "unmatched_lines": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "arrived",
+                    "mapped",
+                    "synced"
+                  ]
+                }
+              },
+              "required": [
+                "invoice_number",
+                "supplier_code",
+                "supplier_name",
+                "invoice_date",
+                "total_vnd",
+                "total",
+                "line_count",
+                "unmatched_lines",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "query",
+          "matched",
+          "currency",
+          "invoices"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Supplier invoice status",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "suggest_reorder",
+      "title": "Suggest a reorder",
+      "description": "Per supplier, what to reorder now: items at/below minimum or about to run out before the next delivery. Suggested quantity = (supplier lead time + 7 days) x average daily sales - on hand, rounded up to the pack size. Read-only: it does not create an order.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "supplier": {
+            "description": "Only suggest for this supplier (name or code).",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "item_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total_vnd": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "suppliers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "supplier_code": {
+                  "type": "string"
+                },
+                "supplier_name": {
+                  "type": "string"
+                },
+                "lead_time_days": {
+                  "type": "number"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "sku": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "unit": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "on_hand": {
+                        "type": "number"
+                      },
+                      "avg_daily_sales": {
+                        "type": "number"
+                      },
+                      "days_of_cover": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "suggested_qty": {
+                        "type": "number"
+                      },
+                      "pack_size": {
+                        "type": "number"
+                      },
+                      "line_cost_vnd": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "sku",
+                      "name",
+                      "unit",
+                      "on_hand",
+                      "avg_daily_sales",
+                      "days_of_cover",
+                      "suggested_qty",
+                      "pack_size",
+                      "line_cost_vnd"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "total_vnd": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "supplier_code",
+                "supplier_name",
+                "lead_time_days",
+                "lines",
+                "total_vnd",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "item_count",
+          "currency",
+          "total_vnd",
+          "total",
+          "suppliers"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Suggest a reorder",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "create_reorder_draft",
+      "title": "Draft a reorder (step 1 of 2)",
+      "description": "Creates purchase-order drafts (one per supplier) and returns a confirmation_token valid for 5 minutes. Nothing is ordered yet: read the spoken summary to the user and call confirm_reorder with the token ONLY after they explicitly say yes. Give items by spoken name (\"milk\", \"eggs\") with optional quantities, or omit items to draft all current suggestions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "product": {
+                  "type": "string",
+                  "minLength": 2,
+                  "maxLength": 80
+                },
+                "qty": {
+                  "description": "Units to order; defaults to the suggested quantity.",
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "product"
+              ]
+            }
+          },
+          "supplier": {
+            "description": "When items is omitted, only draft suggestions for this supplier.",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft_created",
+              "needs_clarification",
+              "nothing_to_order"
+            ]
+          },
+          "confirmation_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total_vnd": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "drafts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "draft_id": {
+                  "type": "string"
+                },
+                "supplier_code": {
+                  "type": "string"
+                },
+                "supplier_name": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "sku": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "unit": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "qty": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "sku",
+                      "name",
+                      "unit",
+                      "qty"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "total_vnd": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "draft_id",
+                "supplier_code",
+                "supplier_name",
+                "lines",
+                "total_vnd",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "clarifications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "ambiguous",
+                    "not_found"
+                  ]
+                },
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "sku": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "sku",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "query",
+                "status",
+                "candidates"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "status",
+          "confirmation_token",
+          "expires_at",
+          "expires_in_seconds",
+          "currency",
+          "total_vnd",
+          "total",
+          "drafts",
+          "clarifications"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Draft a reorder (step 1 of 2)",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "confirm_reorder",
+      "title": "Confirm a reorder (step 2 of 2)",
+      "description": "Confirms the purchase-order drafts created by create_reorder_draft. Requires the confirmation_token from that call; tokens expire after 5 minutes. Only call after the user explicitly confirms (e.g. \"yes, confirm\"). Confirming twice has no further effect.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "confirmation_token": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "confirmation_token"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "already_confirmed",
+              "expired",
+              "not_found"
+            ]
+          },
+          "confirmed_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total_vnd": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "drafts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "draft_id": {
+                  "type": "string"
+                },
+                "supplier_code": {
+                  "type": "string"
+                },
+                "supplier_name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "draft_id",
+                "supplier_code",
+                "supplier_name",
+                "status",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "status",
+          "confirmed_count",
+          "currency",
+          "total_vnd",
+          "total",
+          "drafts"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Confirm a reorder (step 2 of 2)",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "get_daily_briefing",
+      "title": "Morning briefing",
+      "description": "Three-sentence morning summary: yesterday's sales vs the same weekday last week, how many items are low, and supplier invoices not yet synced. Good for an Alexa+ morning routine.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "yesterday_revenue": {
+            "type": "number"
+          },
+          "yesterday_change_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "low_stock_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "most_urgent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoices_pending_sync": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "currency",
+          "yesterday_revenue",
+          "yesterday_change_pct",
+          "low_stock_count",
+          "most_urgent",
+          "invoices_pending_sync"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Morning briefing",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

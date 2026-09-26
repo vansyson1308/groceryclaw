@@ -12,6 +12,7 @@
 
 ## Muc luc
 
+- [ShopVoice (Alexa+ MCP)](#shopvoice-alexa-mcp)
 - [GroceryClaw lam gi?](#groceryclaw-lam-gi)
 - [Kien truc tong quan](#kien-truc-tong-quan)
 - [Chon che do nao? Legacy hay V2?](#chon-che-do-nao-legacy-hay-v2)
@@ -23,6 +24,82 @@
 - [Xu ly su co thuong gap](#xu-ly-su-co-thuong-gap)
 - [Danh cho developer](#danh-cho-developer)
 - [Tai lieu tham khao](#tai-lieu-tham-khao)
+
+## ShopVoice (Alexa+ MCP)
+
+**ShopVoice** lets a busy grocery owner run the shop by voice: *"What's running low?"*, *"How were sales today compared to last Friday?"*, *"Reorder milk and eggs"* → *"Yes, confirm"*, *"Did the Sunrise Beverages invoice arrive?"*. It is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) backed by GroceryClaw's tenant-isolated Postgres. Alexa+ connects to it the way it connects to any MCP integration. The repo also ships a voice simulator, powered by Amazon Bedrock and Polly, for people without Alexa+ Preview access. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon; see `docs/hackathon/`.
+
+![ShopVoice architecture](docs/hackathon/architecture.png)
+
+```mermaid
+flowchart LR
+  owner(["Shop owner (voice)"]) --> alexa["Alexa+"] & sim["apps/alexa-sim<br/>Bedrock agent + Polly"]
+  alexa -- "MCP over HTTPS (CloudFront)" --> mcp["apps/mcp-server<br/>MCP 2025-11-25"]
+  sim -- "MCP client" --> mcp
+  mcp -- "runTenantScopedTransaction (RLS)" --> pg[("Postgres 16<br/>stock · sales · drafts · audit")]
+```
+
+| Piece | Where |
+|---|---|
+| MCP server entry point (Streamable HTTP on `/mcp`) | `apps/mcp-server/src/server.ts`, `apps/mcp-server/src/http.ts` |
+| Tools, prompt, resource (voice-first contract) | `apps/mcp-server/src/tools.ts`, `apps/mcp-server/src/mcp.ts` |
+| MCP client config (voice simulator → MCP) | `apps/alexa-sim/src/toolbox.ts` (`SIM_MCP_URL`, `SIM_MCP_TOKEN`) |
+| Bedrock agent + Polly | `apps/alexa-sim/src/brain.ts`, `apps/alexa-sim/src/speech.ts` |
+| Data (migration 017 + demo seed) | `db/v2/migrations/017_v2_inventory_sales.sql`, `db/v2/seed/002_demo_shop_seed.sql` |
+| AWS deployment (CDK) | `infra/aws/`, `scripts/aws/deploy.sh` |
+| Open-source extraction | `oss/kiotviet-mcp/` |
+
+**Tools:**
+- Read: `get_low_stock`, `get_stock_level`, `get_sales_summary`, `get_top_movers`, `get_invoice_status`, `suggest_reorder`, `get_daily_briefing`.
+- Write, in two steps: `create_reorder_draft` returns a token valid for 5 minutes, and `confirm_reorder` uses it.
+- Also a `morning_briefing` prompt and a `shop://profile` resource.
+
+Every tool returns a spoken answer of 35 words or fewer, plus `structuredContent` that matches its `outputSchema`. Every call is logged to `voice_audit_log`.
+
+### 5-minute quickstart
+
+**A. Docker + Postgres** (full stack; needs Docker and `psql`):
+
+```bash
+cp infra/compose/v2/.env.example infra/compose/v2/.env
+# edit infra/compose/v2/.env: set POSTGRES_SUPERUSER(_PASSWORD), APP_DB_USER/APP_DB_PASSWORD, REDIS_PASSWORD,
+# and MCP_DEMO_TOKEN (any random string of 32+ characters, e.g. `openssl rand -hex 24`)
+make v2-up
+export DATABASE_URL=postgresql://<POSTGRES_SUPERUSER>:<POSTGRES_SUPERUSER_PASSWORD>@localhost:5432/groceryclaw_v2
+export MCP_DEMO_TOKEN=<same token as in .env>
+npm ci && npm run db:v2:migrate && npm run db:v2:seed -- --demo
+# The MCP server runs at http://127.0.0.1:8090/mcp and the simulator at http://127.0.0.1:8091
+# Without Docker for the apps: MCP_DB_URL=postgresql://<APP_DB_USER>:<APP_DB_PASSWORD>@localhost:5432/groceryclaw_v2 npm run start:mcp
+```
+
+**B. No database, 1 minute** (in-memory copy of the same demo shop):
+
+```bash
+npm ci && npm run build
+export MCP_DEMO_TOKEN=$(openssl rand -hex 24)
+MCP_DATA_BACKEND=memory node apps/mcp-server/dist/server.js &
+SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js
+# open http://localhost:8091 and hold the mic button (or type)
+```
+
+Check it with the official Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8090/mcp --transport http \
+  --header "Authorization: Bearer $MCP_DEMO_TOKEN" --method tools/list
+```
+
+Or run the scripted voice flow: `npm run demo:e2e`. It sends the 5 demo utterances end to end and asserts which tools were called.
+
+**Using real AWS for the simulator:** set `SIM_BRAIN=bedrock` and `SIM_TTS=polly`, and provide AWS credentials allowed to call Bedrock (default model `us.amazon.nova-2-lite-v1:0`) and Polly. **Deploying to AWS:** `scripts/aws/deploy.sh --show-secrets`; tear down with `scripts/aws/teardown.sh`. See `docs/hackathon/AWS_SERVICES.md`.
+
+**Security:**
+- Per-tenant bearer tokens are stored hashed. Mint one with `npm run mcp:token -- <tenant-uuid>`.
+- Sessions are bound to their tenant.
+- `Origin` is validated.
+- Per-tenant rate limits apply.
+- Every query runs inside `runTenantScopedTransaction`, so RLS applies.
+- Reorders need an explicit "yes", and the Bedrock agent never sees the confirmation token.
 
 ---
 
@@ -720,3 +797,7 @@ npm run secrets:revoke -- --secret-id <id>
 ```
 
 Chi tiet: `docs/saas_v2/SECURITY_CHECKLIST.md`
+
+## License
+
+MIT, see [`LICENSE`](LICENSE). The standalone `oss/kiotviet-mcp` package is also MIT licensed.

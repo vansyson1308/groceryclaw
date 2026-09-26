@@ -51,7 +51,7 @@ async function setupFixture() {
     await query(adminPool, 'DELETE FROM secret_versions');
     await query(adminPool, 'DELETE FROM invite_codes');
     await query(adminPool, 'DELETE FROM tenant_users');
-    await query(adminPool, 'DELETE FROM zalo_users');
+    await query(adminPool, 'DELETE FROM platform_users');
     await query(adminPool, 'DELETE FROM tenants');
 
     await query(

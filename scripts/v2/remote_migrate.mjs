@@ -21,6 +21,13 @@ if (!DB_URL) {
 function splitMigration(content, fileName) {
   const upPos = content.indexOf('-- migrate:up');
   const downPos = content.indexOf('-- migrate:down');
+  if (upPos === -1 && downPos === -1) {
+    // Legacy migrations (014-016) have no markers; see db_v2_lib.mjs splitMigration.
+    const legacyPos = content.indexOf('---- rollback');
+    return legacyPos === -1
+      ? { up: content.trim(), down: '' }
+      : { up: content.slice(0, legacyPos).trim(), down: content.slice(legacyPos + '---- rollback'.length).trim() };
+  }
   if (upPos === -1 || downPos === -1 || downPos <= upPos) {
     throw new Error(`Migration ${fileName} must contain -- migrate:up and -- migrate:down`);
   }

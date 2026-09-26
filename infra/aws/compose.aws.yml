@@ -1,0 +1,90 @@
+# ShopVoice on a single EC2 host (see infra/aws/lib/shopvoice-stack.ts).
+# Env comes from infra/aws/runtime.env, rendered from SSM Parameter Store at boot.
+x-logging: &awslogs
+  driver: awslogs
+  options:
+    awslogs-group: ${LOG_GROUP}
+    awslogs-region: ${AWS_REGION}
+    tag: "{{.Name}}"
+
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: groceryclaw_v2
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?missing}
+      APP_DB_USER: app_user
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?missing}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../compose/v2/postgres-init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d groceryclaw_v2"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *awslogs
+
+  ops:
+    build:
+      context: ../..
+      dockerfile: infra/aws/ops.Dockerfile
+    profiles: ["ops"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/groceryclaw_v2
+      MCP_DEMO_TOKEN: ${MCP_DEMO_TOKEN:?missing}
+      DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *awslogs
+
+  mcp-server:
+    build:
+      context: ../..
+      dockerfile: apps/mcp-server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      MCP_PORT: "8090"
+      MCP_DB_URL: postgresql://app_user:${APP_DB_PASSWORD}@postgres:5432/groceryclaw_v2
+      MCP_TRUST_PROXY: "true"
+      # MCP Inspector runs on the judge's localhost; bearer auth still applies.
+      MCP_ALLOW_LOCALHOST_ORIGINS: "true"
+      ORIGIN_VERIFY_SECRET: ${ORIGIN_VERIFY_SECRET:?missing}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    logging: *awslogs
+
+  alexa-sim:
+    build:
+      context: ../..
+      dockerfile: apps/alexa-sim/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SIM_PORT: "8091"
+      SIM_MCP_URL: http://mcp-server:8090/mcp
+      SIM_MCP_TOKEN: ${MCP_DEMO_TOKEN}
+      SIM_BRAIN: bedrock
+      SIM_TTS: polly
+      SIM_ACCESS_CODE: ${SIM_ACCESS_CODE:?missing}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID}
+      POLLY_VOICE_ID: ${POLLY_VOICE_ID}
+      AWS_REGION: ${AWS_REGION}
+      ORIGIN_VERIFY_SECRET: ${ORIGIN_VERIFY_SECRET}
+      DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE:-}
+    depends_on:
+      - mcp-server
+    ports:
+      - "8091:8091"
+    logging: *awslogs
+
+volumes:
+  pgdata:

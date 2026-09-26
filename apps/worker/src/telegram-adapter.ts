@@ -26,9 +26,10 @@ export class HttpTelegramBotAdapter implements TelegramOutboundAdapter {
   private readonly fileBaseUrl: string;
   private readonly timeoutMs: number;
 
-  constructor(botToken: string, timeoutMs: number) {
-    this.baseUrl = `https://api.telegram.org/bot${botToken}`;
-    this.fileBaseUrl = `https://api.telegram.org/file/bot${botToken}`;
+  constructor(botToken: string, timeoutMs: number, apiBaseUrl = 'https://api.telegram.org') {
+    const root = apiBaseUrl.replace(/\/+$/, '');
+    this.baseUrl = `${root}/bot${botToken}`;
+    this.fileBaseUrl = `${root}/file/bot${botToken}`;
     this.timeoutMs = timeoutMs;
   }
 

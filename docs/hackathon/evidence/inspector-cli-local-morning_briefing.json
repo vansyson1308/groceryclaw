@@ -1,0 +1,11 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "Give me my morning shop briefing. Call get_daily_briefing and speak its answer. Then ask if I want to hear what is running low or draft a reorder. Keep every spoken answer under 35 words."
+      }
+    }
+  ]
+}

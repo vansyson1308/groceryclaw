@@ -15,7 +15,7 @@ test('runtime role cannot bypass tenant RLS and tables are FORCE RLS', { skip: !
     BEGIN;
       DELETE FROM jobs;
       DELETE FROM tenant_users;
-      DELETE FROM zalo_users;
+      DELETE FROM platform_users;
       DELETE FROM tenants;
       INSERT INTO tenants (id, name, status, processing_mode)
       VALUES

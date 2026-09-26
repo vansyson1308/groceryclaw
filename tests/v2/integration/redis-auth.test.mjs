@@ -1,50 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { createHmac } from 'node:crypto';
 import { Queue, loadRedisConfig, redisPing } from '../../../packages/common/dist/index.js';
+import { freePort, startService } from '../service-harness.mjs';
 
 const redisUrl = process.env.REDIS_URL;
 const redisUrlWrong = process.env.REDIS_URL_WRONG;
 const run = Boolean(redisUrl && redisUrlWrong);
 
-const validPayload = JSON.parse(readFileSync('tests/fixtures/zalo_webhook_valid.json', 'utf8'));
-
-function signBody(body) {
-  return createHmac('sha256', 'test-secret').update(body).digest('hex');
-}
-
-function startGateway(port, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const logs = [];
-    const proc = spawn('node', ['apps/gateway/dist/server.js'], {
-      env: {
-        ...process.env,
-        GATEWAY_HOST: '127.0.0.1',
-        GATEWAY_PORT: String(port),
-        V2_GATEWAY_WEBHOOK_ENABLED: 'true',
-        V2_ONBOARDING_ENABLED: 'true',
-        WEBHOOK_VERIFY_MODE: 'mode1',
-        WEBHOOK_SIGNATURE_SECRET: 'test-secret',
-        ...extraEnv
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGTERM');
-      reject(new Error('gateway start timeout'));
-    }, 6000);
-
-    proc.stdout.on('data', (chunk) => {
-      logs.push(chunk.toString());
-      clearTimeout(timeout);
-      resolve({ proc, logs });
-    });
-    proc.stderr.on('data', (chunk) => logs.push(chunk.toString()));
-  });
-}
+const WEBHOOK_SECRET = 'redis-auth-webhook-secret';
+const validUpdate = JSON.parse(readFileSync('tests/fixtures/telegram_update_valid.json', 'utf8'));
 
 test('redis auth enabled: enqueue succeeds and ping works', { skip: !run }, async () => {
   const redisConfig = loadRedisConfig({ env: { REDIS_URL: redisUrl } });
@@ -55,32 +20,49 @@ test('redis auth enabled: enqueue succeeds and ping works', { skip: !run }, asyn
   await queue.add('PROCESS_INBOUND_EVENT', { ok: true, probe: 'redis-auth' });
 });
 
-test('wrong redis password fails fast and gateway returns controlled error without leaking secret', { skip: !run }, async () => {
+test('wrong redis password fails fast and gateway returns controlled error without leaking secret', { skip: !run }, async (t) => {
   const badPassword = 'wrongpass-leak-check';
   const url = new URL(redisUrlWrong);
   url.password = badPassword;
 
-  const { proc, logs } = await startGateway(3391, {
-    NODE_ENV: 'development',
-    REDIS_URL: url.toString()
+  const port = await freePort();
+  const gateway = await startService(t, {
+    script: 'apps/gateway/dist/server.js',
+    env: {
+      NODE_ENV: 'development',
+      GATEWAY_HOST: '127.0.0.1',
+      GATEWAY_PORT: String(port),
+      GATEWAY_METRICS_HOST: '127.0.0.1',
+      GATEWAY_METRICS_PORT: String(await freePort()),
+      V2_ONBOARDING_ENABLED: 'true',
+      TELEGRAM_MODE: 'webhook',
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      DATABASE_URL: '',
+      DB_APP_URL: '',
+      POSTGRES_URL: '',
+      REDIS_URL: url.toString()
+    },
+    readyUrl: `http://127.0.0.1:${port}/healthz`
+  });
+  let logs = '';
+  gateway.stdout.on('data', (chunk) => { logs += chunk; });
+  gateway.stderr.on('data', (chunk) => { logs += chunk; });
+
+  // An unlinked user's message is enqueued (onboarding prompt) without touching the DB,
+  // so the queue write is what hits the wrong Redis password.
+  const r = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-telegram-bot-api-secret-token': WEBHOOK_SECRET
+    },
+    body: JSON.stringify(validUpdate)
   });
 
-  try {
-    const body = JSON.stringify({ ...validPayload, zalo_msg_id: 'redis-auth-failure-msg' });
-    const r = await fetch('http://127.0.0.1:3391/webhooks/zalo', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-zalo-signature': signBody(body)
-      },
-      body
-    });
-
-    assert.equal(r.status, 500);
-    const text = logs.join('\n');
-    assert.match(text, /queue_auth_error|gateway_webhook_failed/);
-    assert.doesNotMatch(text, new RegExp(badPassword));
-  } finally {
-    proc.kill('SIGTERM');
-  }
+  assert.equal(r.status, 500);
+  assert.deepEqual(await r.json(), { error: 'internal_error' });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.match(logs, /queue_auth_error|gateway_webhook_failed/);
+  assert.doesNotMatch(logs, new RegExp(badPassword));
 });

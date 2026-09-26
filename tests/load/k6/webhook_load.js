@@ -3,11 +3,12 @@ import { check, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 
 const gatewayBaseUrl = __ENV.LOAD_GATEWAY_URL || 'http://127.0.0.1:8080';
-const mode2Token = __ENV.LOAD_MODE2_TOKEN || 'replace-me-local-mode2';
+const webhookSecret = __ENV.LOAD_TELEGRAM_WEBHOOK_SECRET || '';
 const tenantCount = Number(__ENV.LOAD_TENANT_COUNT || '50');
 const userPerTenant = Number(__ENV.LOAD_USERS_PER_TENANT || '10');
 const duplicateEvery = Number(__ENV.LOAD_DUPLICATE_EVERY || '7');
 const sleepSeconds = Number(__ENV.LOAD_SLEEP_SECONDS || '0.05');
+const userIdBase = Number(__ENV.LOAD_USER_ID_BASE || '900000000');
 
 const ackMs = new Trend('gateway_ack_ms', true);
 const reqFailed = new Counter('load_errors_total');
@@ -41,26 +42,32 @@ export const options = {
 function buildPayload(iteration, mode) {
   const tenantOrdinal = iteration % Math.max(tenantCount, 1);
   const userOrdinal = iteration % Math.max(userPerTenant, 1);
-  const platformUserId = `load_tenant_${tenantOrdinal}_user_${userOrdinal}`;
+  // Same numeric Telegram user ids as scripts/v2/load_seed_synthetic.mjs.
+  const telegramUserId = userIdBase + tenantOrdinal * 1000 + userOrdinal;
   const duplicate = duplicateEvery > 0 && (iteration % duplicateEvery === 0);
-  const zaloMsgId = duplicate ? `dup_msg_${Math.floor(iteration / duplicateEvery)}` : `${mode}_msg_${iteration}`;
+  const modeOffset = mode === 'burst' ? 500000000 : 0;
+  const messageId = duplicate ? 1 + Math.floor(iteration / duplicateEvery) : modeOffset + 100000 + iteration;
 
   return {
-    platform_user_id: platformUserId,
-    zalo_msg_id: zaloMsgId,
-    message_type: 'file',
-    attachments: [{ type: 'file', url: 'https://example.zalo.me/invoice.xml', name: 'invoice.xml' }],
-    text: 'invoice attached'
+    update_id: modeOffset + iteration + 1,
+    message: {
+      message_id: messageId,
+      date: Math.floor(Date.now() / 1000),
+      chat: { id: telegramUserId, type: 'private' },
+      from: { id: telegramUserId, is_bot: false, first_name: 'Load' },
+      document: { file_id: `load-file-${messageId}`, file_unique_id: `load-u-${messageId}`, file_name: 'invoice.xlsx' },
+      caption: 'invoice attached'
+    }
   };
 }
 
 function postWebhook(iteration, mode) {
   const payload = buildPayload(iteration, mode);
   const body = JSON.stringify(payload);
-  const res = http.post(`${gatewayBaseUrl}/webhooks/zalo`, body, {
+  const res = http.post(`${gatewayBaseUrl}/webhooks/telegram`, body, {
     headers: {
       'content-type': 'application/json',
-      'x-webhook-token': mode2Token,
+      'x-telegram-bot-api-secret-token': webhookSecret,
       'x-request-id': `${mode}-${iteration}`
     }
   });
