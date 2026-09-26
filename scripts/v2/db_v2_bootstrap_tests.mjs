@@ -28,7 +28,7 @@ function seed() {
       DELETE FROM secret_versions;
       DELETE FROM invite_codes;
       DELETE FROM tenant_users;
-      DELETE FROM zalo_users;
+      DELETE FROM platform_users;
       DELETE FROM tenants;
 
       INSERT INTO tenants (id, name, status, processing_mode)
@@ -36,11 +36,11 @@ function seed() {
         ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2'),
         ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Tenant B', 'active', 'v2');
 
-      INSERT INTO zalo_users (id, platform_user_id, display_name)
+      INSERT INTO platform_users (id, platform_user_id, display_name, platform)
       VALUES
-        ('aaaaaaaa-0000-0000-0000-000000000001', 'platform_owner_a', 'Owner A');
+        ('aaaaaaaa-0000-0000-0000-000000000001', 'platform_owner_a', 'Owner A', 'telegram');
 
-      INSERT INTO tenant_users (id, tenant_id, zalo_user_id, role, status)
+      INSERT INTO tenant_users (id, tenant_id, user_id, role, status)
       VALUES
         ('aaaaaaaa-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'owner', 'active');
 
@@ -115,9 +115,9 @@ function testConsumeInviteSuccessThenFail() {
   const countMembership = one(`
     SELECT count(*)::text
     FROM tenant_users tu
-    JOIN zalo_users zu ON zu.id = tu.zalo_user_id
+    JOIN platform_users pu ON pu.id = tu.user_id
     WHERE tu.tenant_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-      AND zu.platform_user_id IN ('platform_staff_b','platform_staff_b2');
+      AND pu.platform_user_id IN ('platform_staff_b','platform_staff_b2');
   `);
   eq(countMembership, '1', 'no duplicate memberships after double consume');
 }
@@ -145,7 +145,7 @@ function testUserLockoutAfterFiveFails() {
 
   const lockout = one(`
     SELECT CASE WHEN invite_lockout_until > now() THEN 'locked' ELSE 'open' END
-    FROM zalo_users
+    FROM platform_users
     WHERE platform_user_id = 'platform_fail_user';
   `);
   eq(lockout, 'locked', 'user lockout should trigger after 5 failures');

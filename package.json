@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "clean": "rm -rf apps/*/dist packages/*/dist",
-    "test": "npm run build && node --test tests/v2/*.test.mjs tests/v2/db/*.test.mjs tests/v2/integration/*.test.mjs",
+    "test": "npm run build && node --test tests/v2/*.test.mjs && node --test --test-concurrency=1 tests/v2/db/*.test.mjs tests/v2/integration/*.test.mjs",
     "start:gateway": "npm run build --workspace @groceryclaw/gateway && node apps/gateway/dist/server.js",
     "start:admin": "npm run build --workspace @groceryclaw/admin && node apps/admin/dist/server.js",
     "start:mcp": "npm run build --workspace @groceryclaw/mcp-server && node apps/mcp-server/dist/server.js",

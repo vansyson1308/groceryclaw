@@ -31,7 +31,7 @@ function setupFixture() {
       DELETE FROM secret_versions;
       DELETE FROM invite_codes;
       DELETE FROM tenant_users;
-      DELETE FROM zalo_users;
+      DELETE FROM platform_users;
       DELETE FROM tenants;
 
       INSERT INTO tenants (id, name, status, processing_mode)
@@ -39,12 +39,12 @@ function setupFixture() {
         ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tenant A', 'active', 'v2'),
         ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Tenant B', 'active', 'v2');
 
-      INSERT INTO zalo_users (id, platform_user_id, display_name)
+      INSERT INTO platform_users (id, platform_user_id, display_name, platform)
       VALUES
-        ('aaaaaaaa-0000-0000-0000-000000000001', 'zalo_a_owner', 'A Owner'),
-        ('bbbbbbbb-0000-0000-0000-000000000001', 'zalo_b_owner', 'B Owner');
+        ('aaaaaaaa-0000-0000-0000-000000000001', 'tg_a_owner', 'A Owner', 'telegram'),
+        ('bbbbbbbb-0000-0000-0000-000000000001', 'tg_b_owner', 'B Owner', 'telegram');
 
-      INSERT INTO tenant_users (id, tenant_id, zalo_user_id, role, status)
+      INSERT INTO tenant_users (id, tenant_id, user_id, role, status)
       VALUES
         ('aaaaaaaa-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'owner', 'active'),
         ('bbbbbbbb-1111-1111-1111-111111111111', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-0000-0000-0000-000000000001', 'owner', 'active');
@@ -138,11 +138,11 @@ function assertNoMixedIds() {
   const check = scalar(`
     WITH expected(col_table, col_name, col_type) AS (
       VALUES
-        ('tenant_users', 'zalo_user_id', 'uuid'),
+        ('tenant_users', 'user_id', 'uuid'),
         ('tenant_users', 'tenant_id', 'uuid'),
         ('invite_codes', 'used_by', 'uuid'),
-        ('inbound_events', 'zalo_user_id', 'uuid'),
-        ('pending_notifications', 'zalo_user_id', 'uuid'),
+        ('inbound_events', 'user_id', 'uuid'),
+        ('pending_notifications', 'user_id', 'uuid'),
         ('pending_notifications', 'platform_user_id', 'text')
     )
     SELECT CASE WHEN count(*) = 6 THEN 'ok' ELSE 'bad' END
