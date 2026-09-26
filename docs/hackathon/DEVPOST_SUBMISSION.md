@@ -2,7 +2,7 @@
 
 Everything below is ready to paste into the Devpost form. Items marked **[OWNER]** need a value only the owner has, such as a video URL or deployed URL.
 
-> **Honesty note for the owner:** as of 2026-09-25 the Bedrock and Polly code paths had not run with real AWS credentials (BLOCKERS.md B2). The demo and tests used the offline brain and voices. After running `scripts/aws/deploy.sh` and `scripts/aws/smoke.sh`, update the sentences marked ⚠️ and the "Try it out" links.
+> **Honesty note for the owner:** as of 2026-09-26 the Bedrock and Polly code paths have not run with real AWS credentials (BLOCKERS.md B2). The demo, tests and video use the offline rules brain, and the video voices are Piper offline neural voices with public-domain or CC0 training data. Everything that could be proven without AWS is listed in `docs/hackathon/EVIDENCE.md`. After running `scripts/aws/deploy.sh` and `scripts/aws/smoke.sh`, update the sentences marked ⚠️ and the "Try it out" links, and optionally re-render the video with `VIDEO_TTS=polly SIM_BRAIN=bedrock`.
 
 ---
 
@@ -17,9 +17,11 @@ Run a small grocery shop by voice: an Alexa+ MCP server that answers "what's run
 - **Mini challenges:** AWS Builder, Open Source
 
 ## Links
-- **Repository:** https://github.com/vansyson1308/groceryclaw (MIT license at the root, after owner confirmation B5). ShopVoice lives in `apps/mcp-server`, `apps/alexa-sim`, `infra/aws` and `oss/kiotviet-mcp`, and the README section "ShopVoice (Alexa+ MCP)" points to the MCP entry point and client config.
-- **Demo video:** [OWNER] YouTube URL (public, 2:31, English)
-- **Try it out:** [OWNER] `SimulatorUrl` and `McpUrl` from `infra/aws/cdk-outputs.json` after `scripts/aws/deploy.sh`. Share the simulator access code and MCP bearer token privately in the "testing instructions" field.
+- **Repository:** https://github.com/vansyson1308/groceryclaw (MIT license at the root). ShopVoice lives in `apps/mcp-server`, `apps/alexa-sim`, `infra/aws` and `oss/kiotviet-mcp`, and the README section "ShopVoice (Alexa+ MCP)" points to the MCP entry point and client config.
+- **Demo video:** [OWNER] YouTube URL (public, English; length is in `demo/video/out/report.json`)
+- **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md (CI runs, Inspector screenshots, e2e on Postgres with RLS and audit, CDK synth summary, latency)
+- **Try it out:** https://github.com/vansyson1308/groceryclaw#shopvoice-alexa-mcp (runs locally in about 1 minute, no accounts needed; see the testing instructions). A hosted simulator URL can be added here after `scripts/aws/deploy.sh` (BLOCKERS B2).
+- **Open-source package:** https://github.com/vansyson1308/kiotviet-mcp
 
 ---
 
@@ -134,7 +136,7 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 - *Would build again:* yes.
 
 **Amazon Polly (neural)**
-- *Used for:* speaking every assistant reply, and the video narration.
+- *Used for:* speaking every assistant reply in the simulator, and the video narration once AWS access is available (the submitted cut uses offline Piper voices; see the honesty note).
 - *Worked well:* a simple `SynthesizeSpeech` to MP3; SSML is not needed for 35-word answers. ⚠️ Confirm the voices after deploying.
 - *Needs work:* no concerns yet.
 
@@ -167,6 +169,8 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 | F8 | Nullable outputs emitted as JSON Schema type arrays (portability warnings) | low | Accepted (valid JSON Schema) |
 | F9 | `node --test` runs files in parallel against one shared test DB | medium | DB test files run with `--test-concurrency=1` |
 | F10 | A listen-on-0 "free port" helper returned the same port twice on the CI runner | low | Helper skips ports it already handed out |
+| F11 | Playwright `recordVideo` webm ran 1.13x slower than wall-clock time; frames froze while the CPU was busy | medium | Rescale timestamps, pre-synthesize audio, keep-alive animation |
+| F12 | Offline TTS stumbled on brand names, acronyms and money ("Shop… Voice", "dollar two hove and ten") | medium | Voice-only text normalizer, steadier voice settings, Whisper listening QA with automatic re-takes |
 
 ## Feature requests
 - **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered), usable without Preview access.
@@ -181,15 +185,29 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 ---
 
 ## Open Source mini challenge fields
-- **Contribution URL:** [OWNER] `https://github.com/vansyson1308/kiotviet-mcp` once created (`oss/kiotviet-mcp/` in this repo, ready to push). Optional second contribution: the drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/` (open it and paste the PR URL).
+- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp (MIT, CI green on Node 20 and 22). Optional second contribution: the drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/` (open it and paste the PR URL).
 - **Repository URL:** https://github.com/vansyson1308/groceryclaw
 - **GitHub username:** vansyson1308
 - **Short description:** `kiotviet-mcp` is an MIT-licensed, voice-first MCP server for shops on the KiotViet POS. It reports low stock, stock levels, sales and top movers, and makes two-step purchase orders (nothing is sent to KiotViet until an explicit confirm). It runs over stdio or Streamable HTTP (MCP 2025-11-25) and works with Alexa+, Claude or any MCP client. It was extracted from ShopVoice during the hackathon.
 
 ## Testing instructions for judges
-1. **Quickest, no install:** open [OWNER: SimulatorUrl], enter the access code [OWNER: share privately], and hold the mic button (Chrome) or type. Try: "What's running low?", "How were sales today compared to last Friday?", "Reorder milk and eggs", "Yes, confirm", "Did the Sunrise Beverages invoice arrive?".
-2. **MCP Inspector against the live server:**
+No accounts or cloud are needed; this uses Node.js 20 or newer and the built-in demo shop.
+
+1. **Run it locally (about 1 minute):**
+   ```bash
+   git clone https://github.com/vansyson1308/groceryclaw && cd groceryclaw
+   npm ci && npm run build
+   export MCP_DEMO_TOKEN=$(openssl rand -hex 24)
+   MCP_DATA_BACKEND=memory node apps/mcp-server/dist/server.js &
+   SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js
    ```
-   npx @modelcontextprotocol/inspector --cli [OWNER: McpUrl] --transport http --header "Authorization: Bearer [OWNER: token]" --method tools/list
+   Open http://localhost:8091, then hold the mic button (Chrome) or type: "What's running low?", "How were sales today compared to last Friday?", "Reorder milk and eggs", "Yes, confirm", "Did the Sunrise Beverages invoice arrive?". The right-hand panel shows every MCP tool call.
+2. **Check the MCP server with the official Inspector:**
+   ```bash
+   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8090/mcp --transport http \
+     --header "Authorization: Bearer $MCP_DEMO_TOKEN" --method tools/list
    ```
-3. **Local run, no cloud:** README → "ShopVoice (Alexa+ MCP)" → quickstart B (in-memory, about 1 minute).
+3. **Scripted end-to-end run:** `npm run demo:e2e` sends the 5 utterances and asserts which tools were called.
+4. **Open-source package:** `git clone https://github.com/vansyson1308/kiotviet-mcp && cd kiotviet-mcp && npm ci && npm test`.
+5. **Evidence without running anything:** `docs/hackathon/EVIDENCE.md` (CI runs, Inspector screenshots, e2e on Postgres with RLS and audit, CDK synth summary).
+

@@ -3,9 +3,9 @@
 Rules (Devpost): English, under 3 minutes, public YouTube/Vimeo, **no third-party logos, trademarks on screen, or copyrighted music** (this cut has no music). The simulator UI has no Amazon or Alexa marks; "Alexa+" is only named in narration, to describe the integration.
 
 Voices:
-- **Narrator:** Polly `Matthew` (fallback: MBROLA us3).
-- **Owner:** Polly `Stephen` (fallback: MBROLA us2).
-- **Assistant:** Polly `Joanna` (fallback: MBROLA us1).
+- **Narrator:** Polly `Matthew`; offline, Piper `en_US-bryce-medium`, public domain (last resort: MBROLA us3).
+- **Owner:** Polly `Stephen`; offline, Piper `en_US-joe-medium`, CC0 (MBROLA us2).
+- **Assistant:** Polly `Joanna`; offline, Piper `en_US-kristin-medium`, public domain (MBROLA us1).
 
 The narration lines below are the source of truth. `demo/video/narration.json` holds the same text, and `build.sh` reads that file.
 
@@ -20,19 +20,21 @@ The narration lines below are the source of truth. `demo/video/narration.json` h
 
 ## Narration
 
-- **N1 (hook):** "A corner grocery owner juggles two hundred products, deliveries and customers, with both hands full and reorders written on paper. ShopVoice lets them run the shop by voice."
-- **N2 (demo intro):** "Here is the owner talking to the shop, through an MCP server that Alexa plus can call."
+- **N1 (hook):** "Picture a corner grocery. Two hundred products, a line of customers, and the owner's hands are always full. Reorders get scribbled on paper, often too late. ShopVoice lets them run the whole shop just by talking."
+- **N2 (demo intro):** "Here's the owner, talking to the shop through an MCP server that Alexa+ can call."
 - **Live turns** (owner, then the assistant's reply, which is recorded live from the MCP tools):
   1. "What's running low?"
   2. "How were sales today compared to last Friday?"
   3. "Reorder milk and eggs."
   4. "Yes, confirm."
   5. "Did the Sunrise Beverages invoice arrive?"
-- **N3 (architecture):** "ShopVoice is a standard MCP server, speaking the twenty twenty-five eleven twenty-five protocol over streamable HTTP. Alexa plus, or our simulator running an Amazon Bedrock Nova agent with Polly speech, calls nine voice-first tools. Every query runs inside the shop's own row-level-secured Postgres transaction, deployed on AWS with CDK."
-- **N4 (conformance):** "The official MCP Inspector connects, negotiates the latest protocol, and gets both a short spoken answer and schema-checked structured data from every tool."
-- **N5 (safety and impact):** "Money never moves by accident. Reorders are two steps with a five-minute token that the language model never sees. Tenants are isolated by row-level security, and every call is audited. For millions of small shops, that means less time counting stock and more time with customers."
-- **N6 (end):** "ShopVoice. Open source under MIT, built during Build, Ship, Shape."
+- **N3 (architecture):** "Under the hood, ShopVoice is a standard MCP server over streamable HTTP. Alexa+, or our own simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock with Polly speech, plus an offline fallback, which is what you just saw. Every answer comes from the shop's own Postgres data, locked down with row-level security, and one AWS CDK stack ships it all to the cloud."
+- **N4 (conformance):** "The official MCP Inspector connects, agrees on the latest protocol, and every tool returns two things: a short answer to speak, and schema-checked data for the screen."
+- **N5 (safety and impact):** "And money never moves by accident. Every reorder takes two steps, with a five-minute token that the language model never even sees. Each shop's data is walled off from every other shop, and every call is audited. For millions of small shops, that means less time counting stock, and more time with customers."
+- **N6 (end):** "ShopVoice. Open source, MIT licensed, and built during Build, Ship, Shape."
 
 ## What the owner may re-record in their own voice
+
+Narration is written as it should appear in subtitles; `demo/video/lib/speakable.mjs` rewrites numbers, money, acronyms and brand names for the voice.
 
 Any narration line (N1–N6). Record a WAV or MP3 per line into `demo/video/narration/custom/N1.mp3` and so on, then run `VIDEO_NARRATION_DIR=demo/video/narration/custom demo/video/build.sh --skip-record`. See `docs/hackathon/VIDEO_RUNBOOK.md`.

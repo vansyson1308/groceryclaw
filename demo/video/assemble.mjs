@@ -49,9 +49,23 @@ segs.push(still('demo/video/cards/title.png', titleSec, '1-title'));
 cursor += titleSec;
 
 const simOut = join(OUT, 'seg', '2-sim.mp4');
-ff(['-i', join(OUT, 'sim.webm'), '-t', timeline.duration.toFixed(3), '-vf', FIT, ...VIDEO, simOut]);
+// Playwright's webm timestamps do not run at wall-clock speed (measured: 80.8 s of
+// video for 71.5 s of real time, a constant 1.13x stretch), so rescale them onto the
+// recorder's own clock; the speech events use that clock.
+const simWebm = join(OUT, 'sim.webm');
+const pts = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', simWebm], { encoding: 'utf8' });
+const lastPts = Math.max(...pts.stdout.split('\n').map(Number).filter((n) => Number.isFinite(n) && n > 0));
+if (!(lastPts > 0)) throw new Error('could not read sim.webm timestamps');
+const stretch = timeline.duration / lastPts;
+ff(['-i', simWebm, '-vf', `setpts=PTS*${stretch.toFixed(6)},${FIT}`, '-t', timeline.duration.toFixed(3), ...VIDEO, simOut]);
 const simSec = durationSec(simOut);
-for (const e of timeline.events) speech.push({ ...e, start: cursor + e.start });
+// The speech events are placed on the wall-clock timeline, so the recording must cover it.
+if (Math.abs(simSec - timeline.duration) > 1) {
+  throw new Error(`sim recording is ${simSec.toFixed(1)}s but the timeline is ${timeline.duration.toFixed(1)}s; re-run record.mjs`);
+}
+// Optional fine-tuning of the sim audio against the picture (seconds, default 0).
+const simAvOffset = Number(process.env.VIDEO_SIM_AV_OFFSET ?? '0');
+for (const e of timeline.events) speech.push({ ...e, start: cursor + e.start + simAvOffset });
 segs.push({ out: simOut, seconds: simSec });
 cursor += simSec;
 

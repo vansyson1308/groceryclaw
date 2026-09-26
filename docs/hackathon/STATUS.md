@@ -1,6 +1,6 @@
 # ShopVoice — STATUS (agent memory across sessions)
 
-Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.md D1). Baseline: `a9f3cdb` (tag `pre-hackathon-baseline`, local only; see BLOCKERS.md B1).
+Last updated: 2026-09-26. PR #25 merged to `main` (`837c91b`); follow-ups on `claude/great-ritchie-094a7c`. Baseline: `a9f3cdb`, tag `pre-hackathon-baseline` on GitHub (BLOCKERS.md B1, resolved). Evidence index: `docs/hackathon/EVIDENCE.md`.
 
 ## Resume protocol
 
@@ -63,7 +63,12 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 
 ### Phase 9: submission
 - [x] DEVPOST_SUBMISSION.md, BUILT_DURING_HACKATHON.md, draft PR vansyson1308/groceryclaw#25 open
-- [ ] Owner checkpoint B hand-off (final message)
+- [x] Owner checkpoint B hand-off (2026-09-25), then the owner's go-ahead on 2026-09-26:
+  - MIT `LICENSE` added and the history scanned for secrets;
+  - PR #25 merged; `v2-ci` green on `main`;
+  - baseline tag created on GitHub.
+- [x] Evidence pack: `docs/hackathon/EVIDENCE.md`. It adds a CDK synth summary and e2e on Postgres as `app_user`, with audit and RLS proof.
+- [ ] Owner: make the repo public, create the empty `kiotviet-mcp` repo, upload the video, submit on Devpost.
 
 ## Final test run (2026-09-25, commit 1175e6b + this update)
 

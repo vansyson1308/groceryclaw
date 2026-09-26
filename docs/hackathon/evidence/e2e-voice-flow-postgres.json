@@ -1,0 +1,109 @@
+{
+  "simUrl": "http://127.0.0.1:18191",
+  "brain": "rules",
+  "model": "offline-rules-v1",
+  "turns": [
+    {
+      "utterance": "What's running low?",
+      "tools": [
+        "get_low_stock"
+      ],
+      "args": [
+        {}
+      ],
+      "reply": "Four items are running low: White Sandwich Bread, under a day left; Chicken Eggs 10-pack, under a day left; Fresh Milk 1L, under a day left; and 1 more. Want a reorder draft?",
+      "toolLatencyMs": [
+        29
+      ],
+      "turnLatencyMs": 39,
+      "brainFallback": false,
+      "ok": true,
+      "failures": []
+    },
+    {
+      "utterance": "How were sales today compared to last Friday?",
+      "tools": [
+        "get_sales_summary"
+      ],
+      "args": [
+        {
+          "period": "today",
+          "compare_weekday": "friday"
+        }
+      ],
+      "reply": "So far today: $407 from 637 items. That's 92% of yesterday's full day, $441.",
+      "toolLatencyMs": [
+        17
+      ],
+      "turnLatencyMs": 21,
+      "brainFallback": false,
+      "ok": true,
+      "failures": []
+    },
+    {
+      "utterance": "Reorder milk and eggs",
+      "tools": [
+        "create_reorder_draft"
+      ],
+      "args": [
+        {
+          "items": [
+            {
+              "product": "milk"
+            },
+            {
+              "product": "eggs"
+            }
+          ]
+        }
+      ],
+      "reply": "Draft ready: 108 cartons of Fresh Milk 1L and 90 trays of Chicken Eggs 10-pack from Green Valley Dairy & Eggs, about $198. Say \"confirm\" within 5 minutes to place it.",
+      "toolLatencyMs": [
+        22
+      ],
+      "turnLatencyMs": 26,
+      "brainFallback": false,
+      "ok": true,
+      "failures": []
+    },
+    {
+      "utterance": "Yes, confirm",
+      "tools": [
+        "confirm_reorder"
+      ],
+      "args": [
+        {
+          "confirmation_token": "[held by host]"
+        }
+      ],
+      "reply": "Done. Your order to Green Valley Dairy & Eggs is confirmed: 2 items, about $198.",
+      "toolLatencyMs": [
+        12
+      ],
+      "turnLatencyMs": 15,
+      "brainFallback": false,
+      "ok": true,
+      "failures": []
+    },
+    {
+      "utterance": "Did the Sunrise Beverages invoice arrive?",
+      "tools": [
+        "get_invoice_status"
+      ],
+      "args": [
+        {
+          "supplier": "sunrise beverages"
+        }
+      ],
+      "reply": "Yes. The Sunrise Beverages invoice SRB-10442 arrived today, $93. It's matched to your products but not synced to KiotViet yet.",
+      "toolLatencyMs": [
+        15
+      ],
+      "turnLatencyMs": 19,
+      "brainFallback": false,
+      "ok": true,
+      "failures": []
+    }
+  ],
+  "passed": true
+}

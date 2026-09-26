@@ -87,3 +87,24 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Severity:** low (one CI round).
 - **Workaround:** the helper remembers ports it has already handed out and skips them.
 - **Suggestion:** a built-in way to pass `0` for every listener and read the bound ports back from the child would avoid the race entirely.
+
+## F11. Playwright `recordVideo` timestamps drift from wall-clock time
+- **Task:** record the voice simulator for the demo video and line up pre-synthesized speech with the picture.
+- **Steps:** Chromium headless, `browser.newContext({ recordVideo: { size: 1440x810 } })`, drive five turns over about 72 s of wall-clock time, and place the audio at wall-clock offsets.
+- **Expected:** the webm spans the same 72 s.
+- **Actual:** the webm lasted 80.8 s, a constant 1.13x stretch, so the picture fell up to 6 s behind the voices by the last turn. Separately, when heavy CPU work (neural TTS) ran mid-recording, the screencast held a stale frame until the next DOM change.
+- **Severity:** medium (silent: nothing fails, the video just drifts out of sync).
+- **Workaround:** read the last packet timestamp and rescale with `setpts` onto the recorder's clock; synthesize all audio before recording; keep one invisible animation running so frames keep flowing.
+- **Suggestion:** Playwright could expose the video's start time and real frame timestamps (or a `video.duration()`), and document that `recordVideo` output is not guaranteed to be real-time.
+
+## F12. Offline TTS voices stumble on brand names, acronyms and money
+- **Task:** narrate the demo video with offline neural voices, because Polly was unavailable.
+- **Steps:** feed display text straight to Piper (espeak-ng phonemizer), for example "ShopVoice", "MCP", "$210", "SRB-10442", "KiotViet".
+- **Expected:** fluent reading.
+- **Actual:** "ShopVoice" was split with a 0.87 s pause ("Shop… Voice"), "$210" became "dollar two hove and ten", "CDK" was heard as "CBK", "KiotViet" as "Kidwyrd", and "…four four two arrived" as "…four to arrive". Viewers hear this as the narrator hesitating.
+- **Severity:** medium (the video sounded unpolished).
+- **Workaround:**
+  - `speakable.mjs` normalizes text for the voice only (numbers, money, acronyms and codes spelled out, a lexicon for brand names), with unit tests.
+  - A steadier noise setting (`noise_w` 0.4) and best-of-3 takes.
+  - A Whisper listening-QA loop that re-takes failing lines.
+- **Suggestion:** TTS engines could accept a per-request lexicon or SSML `<say-as>` (as Polly does) so product names are handled at the source.
