@@ -82,7 +82,7 @@ ShopVoice-only suites (mcp-http 12, mcp-tools 16, mcp-speech 13, alexa-sim 7, sh
 | Item | State | Evidence |
 |---|---|---|
 | typecheck / lint pass | ✅ | `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run sql:guard` all pass |
-| `npm test` passes | ✅ | 0 failures with and without `DATABASE_URL`, no hang, no leftover processes. Every v2-ci step also passes in a local replay on a fresh Postgres 16 cluster (BLOCKERS B3, now resolved). |
+| `npm test` passes | ✅ | 0 failures with and without `DATABASE_URL`, no hang, no leftover processes. GitHub `v2-ci` is green on `4a62424` ([run](https://github.com/vansyson1308/groceryclaw/actions/runs/36210790866), 2 min 7 s): every step ran and passed, including the Redis gate, the RLS, bootstrap and real-DB gates, E2E, load and perf. BLOCKERS B3 is resolved. |
 | New tests `tests/v2/mcp-*.test.mjs`: each tool's happy path, tenant isolation, token expiry, invalid input, ≤35 words | ✅ | mcp-http, mcp-tools, mcp-speech, db/mcp-tools-db, db/shopvoice-rls |
 | MCP Inspector against the **deployed** URL | ⏳ B2 | Local run done (`docs/hackathon/evidence/inspector-local-*`); `scripts/demo/inspector_evidence.mjs --label deployed` is ready |
 | e2e voice flow (5 utterances) | ✅ local / ⏳ deployed | 5/5 on memory and Postgres backends and on the AWS compose layout in containers; `scripts/aws/smoke.sh` for the deployed run |

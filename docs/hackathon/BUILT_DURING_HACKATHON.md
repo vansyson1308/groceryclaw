@@ -11,11 +11,15 @@ git diff --stat a9f3cdb..HEAD -- . ':!**/package-lock.json'
 git log --oneline a9f3cdb..HEAD
 ```
 
-## Numbers (at the Phase 9 commit, 2026-09-25)
+## Numbers (at commit `4a62424`, 2026-09-26)
 
-- `git diff --shortstat a9f3cdb..HEAD`: **116 files changed, 14,164 insertions(+), 85 deletions(-)**
-- Excluding the three `package-lock.json` files: **113 files changed, 10,849 insertions(+), 74 deletions(-)**
-- Commits since baseline: `a3c15aa` (db) → `071de84` (mcp) → `8542858` (sim) → `f6f30d5` (aws) → `5cb0d83` (oss) → `ea6d9e9` (demo), plus the Phase 9 docs commit.
+- `git diff --shortstat a9f3cdb..4a62424`: **148 files changed, 15,170 insertions(+), 1,014 deletions(-)**
+- Excluding the three `package-lock.json` files: **146 files changed, 13,595 insertions(+), 1,014 deletions(-)**
+- 13 commits since baseline:
+  - features: `a3c15aa` (db) → `071de84` (mcp) → `8542858` (sim) → `f6f30d5` (aws) → `5cb0d83` (oss) → `ea6d9e9` (demo);
+  - Phase 9 docs: `1175e6b`, `c07c3d4`;
+  - CI repair: `bbff291`, `95a191e`, `c3259a1`, `4a62424`, plus docs `61f2734`.
+- Most of the deletions come from the CI repair, which rewrote stale Zalo-era tests and CI gates for the Telegram gateway (see below).
 
 ## What existed before (not claimed)
 
@@ -44,3 +48,19 @@ The GroceryClaw V2 data plane already existed before the window:
 - `scripts/v2/db_v2_lib.mjs` and `scripts/v2/remote_migrate.mjs` now accept migrations 014–016, which were committed without `-- migrate:up/down` markers. `db:v2:migrate` previously failed on a fresh database.
 - `db/v2/seed/001_dev_seed.sql` was updated for the 012 `zalo_users` → `platform_users` rename.
 - `apps/miniapp/src/routes/search.ts` now re-exports the moved search functions; behaviour is unchanged.
+
+## CI repair (pre-existing breakage on `main`, fixed during the window)
+
+`v2-ci` on `main` had been timing out since the Zalo → Telegram migration (`fd7eef7`, March 2026). Many tests and CI gates still targeted the removed `/webhooks/zalo` route and the `zalo_users` table, which was renamed to `platform_users`. Some of these tests also leaked child servers after a failed assertion, so the job hung until the time limit.
+
+Commits `bbff291`, `95a191e`, `c3259a1` and `4a62424` fix it:
+- They port those tests and gates (unit, DB, Redis, E2E compose, load, smoke) to the Telegram gateway.
+- They add a test harness that always stops spawned servers.
+- They run DB test files serially.
+- They add `TELEGRAM_API_BASE_URL` so the E2E gate can use a Bot API stub.
+
+Only two changes touch pre-existing app code:
+- the gateway's test-adapter path for invite redemption;
+- the worker's configurable Bot API root.
+
+Details are in STATUS.md and BLOCKERS.md B3.

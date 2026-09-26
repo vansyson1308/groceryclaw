@@ -69,3 +69,21 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Actual:** `Schema portability: 0 errors, 19 warnings`. All come from nullable output fields, which the SDK's zod-to-JSON-Schema conversion emits as `type: ["string","null"]`, even when written as `z.union([z.string(), z.null()])`.
 - **Severity:** low (valid JSON Schema; input schemas are clean).
 - **Suggestion:** an SDK option to emit `anyOf` for nullables, as the Inspector suggests.
+
+## F9. `node --test` runs test files in parallel against one shared database
+- **Task:** make the repo's `npm test` pass with `DATABASE_URL` set.
+- **Steps:** `node --test tests/v2/*.test.mjs tests/v2/db/*.test.mjs tests/v2/integration/*.test.mjs` with a real Postgres.
+- **Expected:** each file's fixture setup is isolated, or the runner documents that files run concurrently.
+- **Actual:** files run in parallel by default. Several DB test files wipe shared tables (`DELETE FROM tenants`), so one file removed rows another had just seeded, and a foreign-key violation appeared only in the full run.
+- **Severity:** medium (intermittent, hard to reproduce file by file).
+- **Workaround:** keep unit files parallel and run `tests/v2/db` and `tests/v2/integration` with `--test-concurrency=1`.
+- **Suggestion:** Node's test runner docs could say more clearly that each file runs in its own process and in parallel, and show a per-glob concurrency pattern for integration tests.
+
+## F10. A "free port" helper can hand out the same port twice
+- **Task:** start gateway test servers on free ports so a failed test can't block later ones.
+- **Steps:** call a helper twice that listens on port 0, reads the port and closes, then start a server with both ports (service + metrics).
+- **Expected:** two different ports.
+- **Actual:** on the GitHub runner (Node 20) the kernel returned the same port twice in a row. The gateway crashed with `EADDRINUSE` on its own second listener. Locally it never happened.
+- **Severity:** low (one CI round).
+- **Workaround:** the helper remembers ports it has already handed out and skips them.
+- **Suggestion:** a built-in way to pass `0` for every listener and read the bound ports back from the child would avoid the race entirely.

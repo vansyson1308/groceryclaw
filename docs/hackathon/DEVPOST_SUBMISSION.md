@@ -104,7 +104,7 @@ typescript, node.js, model-context-protocol, mcp-typescript-sdk, alexa-plus, ama
 ## Pre-existing project: what was built during the window
 ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice pipeline, last pre-window commit `a9f3cdb` on 2026-03-31, tagged `pre-hackathon-baseline`). Everything ShopVoice-related was built during the submission window: the new MCP server, voice simulator, migration 017 and demo seed, AWS CDK stack, the `kiotviet-mcp` open-source package, tests, the video pipeline and docs.
 
-`git diff --shortstat pre-hackathon-baseline..HEAD`: **116 files changed, 14,164 insertions, 85 deletions**. Of these, 113 files and 10,849 insertions are outside lockfiles, and the few deletions are small fixes to pre-existing scripts. Full breakdown: `docs/hackathon/BUILT_DURING_HACKATHON.md`.
+`git diff --shortstat pre-hackathon-baseline..4a62424`: **148 files changed, 15,170 insertions, 1,014 deletions**. Of these, 146 files and 13,595 insertions are outside lockfiles. Most of the deletions are stale pre-window tests and CI gates that I rewrote so the repo's CI passes again (it had been timing out on `main` since the owner's March migration from Zalo to Telegram). The repo's full CI pipeline (unit, RLS, real-DB, Redis, E2E compose, load and perf gates) is green again ([run](https://github.com/vansyson1308/groceryclaw/actions/runs/36210790866)). Full breakdown: `docs/hackathon/BUILT_DURING_HACKATHON.md`.
 
 ---
 
@@ -165,6 +165,8 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 | F5 / F6 | Docker Hub rate limits and blocked apt mirrors | medium | ECR Public base images; an ops image built without apt |
 | F7 | Inspector 2.x CLI argument order for stdio | low | Env switch |
 | F8 | Nullable outputs emitted as JSON Schema type arrays (portability warnings) | low | Accepted (valid JSON Schema) |
+| F9 | `node --test` runs files in parallel against one shared test DB | medium | DB test files run with `--test-concurrency=1` |
+| F10 | A listen-on-0 "free port" helper returned the same port twice on the CI runner | low | Helper skips ports it already handed out |
 
 ## Feature requests
 - **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered), usable without Preview access.
