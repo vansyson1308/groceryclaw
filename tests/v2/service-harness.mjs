@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 
-export function freePort() {
+// The kernel can hand the same ephemeral port back right after it is released,
+// so never return a port this process has already given out (for example a
+// service port and its metrics port picked back to back).
+const handedOut = new Set();
+
+function probePort() {
   return new Promise((resolve, reject) => {
     const server = createServer();
     server.unref();
@@ -11,6 +16,17 @@ export function freePort() {
       server.close(() => resolve(port));
     });
   });
+}
+
+export async function freePort() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const port = await probePort();
+    if (!handedOut.has(port)) {
+      handedOut.add(port);
+      return port;
+    }
+  }
+  throw new Error('no unused free port found');
 }
 
 function stopProcess(proc) {
