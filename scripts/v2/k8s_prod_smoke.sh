@@ -4,7 +4,7 @@ set -euo pipefail
 NAMESPACE="${NAMESPACE:-groceryclaw-v2}"
 GATEWAY_PORT="${GATEWAY_PORT:-18080}"
 REDIS_LABEL="${REDIS_POD_LABEL:-app=redis}"
-WEBHOOK_SIGNATURE_SECRET="${WEBHOOK_SIGNATURE_SECRET:-}"
+TELEGRAM_WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is required" >&2
@@ -19,8 +19,8 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -z "$WEBHOOK_SIGNATURE_SECRET" ]; then
-  echo "Set WEBHOOK_SIGNATURE_SECRET in environment before running smoke." >&2
+if [ -z "$TELEGRAM_WEBHOOK_SECRET" ]; then
+  echo "Set TELEGRAM_WEBHOOK_SECRET in environment before running smoke." >&2
   exit 1
 fi
 
@@ -38,8 +38,7 @@ trap 'kill "$GW_PF_PID" >/dev/null 2>&1 || true' EXIT
 sleep 2
 
 BODY_FILE=$(mktemp)
-cp tests/fixtures/zalo_webhook_valid.json "$BODY_FILE"
-SIG=$(openssl dgst -sha256 -hmac "$WEBHOOK_SIGNATURE_SECRET" "$BODY_FILE" | awk '{print $2}')
+cp tests/fixtures/telegram_update_valid.json "$BODY_FILE"
 
 echo "[4/6] gateway /healthz"
 HEALTH_CODE=$(curl -sS -o /tmp/gc-k8s-health.out -w '%{http_code}' "http://127.0.0.1:${GATEWAY_PORT}/healthz")
@@ -49,10 +48,10 @@ if [ "$HEALTH_CODE" != "200" ]; then
   exit 1
 fi
 
-echo "[5/6] post signed webhook fixture"
-WEBHOOK_CODE=$(curl -sS -o /tmp/gc-k8s-webhook.out -w '%{http_code}' -X POST "http://127.0.0.1:${GATEWAY_PORT}/webhooks/zalo" \
+echo "[5/6] post Telegram webhook fixture"
+WEBHOOK_CODE=$(curl -sS -o /tmp/gc-k8s-webhook.out -w '%{http_code}' -X POST "http://127.0.0.1:${GATEWAY_PORT}/webhooks/telegram" \
   -H 'content-type: application/json' \
-  -H "x-zalo-signature: ${SIG}" \
+  -H "x-telegram-bot-api-secret-token: ${TELEGRAM_WEBHOOK_SECRET}" \
   --data-binary @"$BODY_FILE")
 if [ "$WEBHOOK_CODE" != "200" ]; then
   echo "webhook failed: HTTP ${WEBHOOK_CODE}" >&2

@@ -1,20 +1,34 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID, createHmac, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const project = `gc-e2e-${randomUUID().slice(0, 8)}`;
+// E2E_COMPOSE_PROJECT / E2E_SKIP_BUILD let a developer reuse prebuilt images locally; CI uses neither.
+const project = process.env.E2E_COMPOSE_PROJECT ?? `gc-e2e-${randomUUID().slice(0, 8)}`;
+const skipBuild = process.env.E2E_SKIP_BUILD === 'true';
 const tempDir = mkdtempSync(path.join(tmpdir(), 'gc-e2e-'));
 const envFile = path.join(tempDir, '.env');
 const composeFiles = ['infra/compose/v2/docker-compose.yml', 'infra/compose/v2/docker-compose.e2e.yml'];
 const files = composeFiles.flatMap((file) => ['-f', file]);
 const composeBase = ['compose', '--project-name', project, '--env-file', envFile, ...files];
 
-function makeEphemeralEnv() {
+// A real .xlsx invoice that the Telegram stub serves through getFile + file download.
+async function buildInvoiceWorkbookB64() {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Sheet1');
+  sheet.addRow(['Ten SP', 'SL', 'Don gia', 'Thanh tien', 'Don vi']);
+  sheet.addRow(['Sua tuoi TH', 10, 12000, 120000, 'hop']);
+  sheet.addRow(['Mi goi Hao Hao', 30, 4500, 135000, 'goi']);
+  return Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64');
+}
+
+async function makeEphemeralEnv() {
   const pgPassword = randomBytes(12).toString('hex');
   const redisPassword = randomBytes(12).toString('hex');
   const webhookSecret = randomBytes(16).toString('hex');
+  const invoiceFileB64 = await buildInvoiceWorkbookB64();
   const invitePepperB64 = randomBytes(32).toString('base64');
   const mekB64 = randomBytes(32).toString('base64');
   const breakglassKey = randomBytes(16).toString('hex');
@@ -35,24 +49,20 @@ function makeEphemeralEnv() {
     `REDIS_URL=redis://:${redisPassword}@redis:6379/0`,
     'GATEWAY_HOST=0.0.0.0',
     'GATEWAY_PORT=8080',
-    'V2_GATEWAY_WEBHOOK_ENABLED=true',
-    'WEBHOOK_VERIFY_MODE=mode1',
-    `WEBHOOK_SIGNATURE_SECRET=${webhookSecret}`,
+    'TELEGRAM_MODE=webhook',
+    `TELEGRAM_WEBHOOK_SECRET=${webhookSecret}`,
+    `TELEGRAM_BOT_TOKEN=e2e-${randomBytes(8).toString('hex')}`,
+    `TELEGRAM_STUB_FILE_B64=${invoiceFileB64}`,
     'WORKER_HOST=0.0.0.0',
     'WORKER_PORT=3002',
     'WORKER_HEALTH_PORT=3002',
     'WORKER_HEALTH_SERVER_ENABLED=true',
     'WORKER_CONCURRENCY=2',
-    'WORKER_XML_PARSE_ENABLED=true',
-    'WORKER_XML_ALLOWED_DOMAINS=xml-stub',
-    'WORKER_XML_ALLOW_HTTP_DOMAINS=xml-stub',
     'WORKER_KIOTVIET_SYNC_ENABLED=true',
     'WORKER_NOTIFIER_ENABLED=true',
     'WORKER_INTERACTION_WINDOW_ENFORCED=false',
     'KIOTVIET_STUB_BASE_URL=http://kiotviet-stub:18080',
     `KIOTVIET_STUB_TOKEN=${randomBytes(12).toString('hex')}`,
-    'ZALO_STUB_BASE_URL=http://zalo-stub:18081',
-    `ZALO_STUB_TOKEN=${randomBytes(12).toString('hex')}`,
     'ADMIN_ENABLED=true',
     'ADMIN_BREAKGLASS_ENABLED=true',
     `ADMIN_BREAKGLASS_API_KEY=${breakglassKey}`,
@@ -140,11 +150,26 @@ function failWithStatus(action, response) {
   throw new Error(`${action} failed with status ${status}`);
 }
 
-function webhookHeaders(secret, body) {
+function webhookHeaders(secret) {
   return {
     'content-type': 'application/json',
-    'x-zalo-signature': createHmac('sha256', secret).update(body).digest('hex')
+    'x-telegram-bot-api-secret-token': secret
   };
+}
+
+let updateSeq = 0;
+function telegramUpdate(userId, messageId, fields) {
+  updateSeq += 1;
+  return JSON.stringify({
+    update_id: 100000 + updateSeq,
+    message: {
+      message_id: messageId,
+      date: Math.floor(Date.now() / 1000),
+      chat: { id: Number(userId), type: 'private' },
+      from: { id: Number(userId), is_bot: false, first_name: 'E2E' },
+      ...fields
+    }
+  });
 }
 
 function getContainerId(service) {
@@ -213,7 +238,7 @@ function printFilteredServiceLogs(service, pattern) {
 }
 
 function printDiagnostics() {
-  for (const service of ['postgres', 'redis', 'gateway', 'admin', 'worker', 'xml-stub', 'kiotviet-stub', 'zalo-stub']) {
+  for (const service of ['postgres', 'redis', 'gateway', 'admin', 'worker', 'kiotviet-stub', 'telegram-stub']) {
     try {
       const state = getContainerState(service);
       console.error(`[diag] ${service}: exists=${state.exists} status=${state.status} health=${state.health}`);
@@ -227,16 +252,16 @@ function printDiagnostics() {
   }
 }
 
-function printInvoiceStageDiagnostics(tenantId, zaloMsgId, queueName, redisPassword) {
+function printInvoiceStageDiagnostics(tenantId, messageId, queueName, redisPassword) {
   try {
     const inboundRows = sql(
       `SELECT id::text || '|' || status || '|' || COALESCE(error_message, '') || '|' || updated_at::text
        FROM inbound_events
-       WHERE tenant_id='${tenantId}'::uuid AND zalo_msg_id=${sqlString(zaloMsgId)}
+       WHERE tenant_id='${tenantId}'::uuid AND message_id=${sqlString(messageId)}
        ORDER BY updated_at DESC
        LIMIT 10;`
     );
-    console.error(`\n[e2e-stage] inbound_events rows for ${zaloMsgId}:\n${inboundRows || '(none)'}`);
+    console.error(`\n[e2e-stage] inbound_events rows for ${messageId}:\n${inboundRows || '(none)'}`);
   } catch (error) {
     console.error('[e2e-stage] failed to query inbound_events:', error instanceof Error ? error.message : String(error));
   }
@@ -256,23 +281,24 @@ function printInvoiceStageDiagnostics(tenantId, zaloMsgId, queueName, redisPassw
     console.error('[e2e-stage] failed to query redis queue depth:', error instanceof Error ? error.message : String(error));
   }
 
-  printFilteredServiceLogs('worker', 'worker_bullmq_started|job_duration_ms|worker_job_failed|PROCESS_INBOUND_EVENT|worker_bullmq_job_failed|worker_bullmq_error|queue_lag_ms');
+  printFilteredServiceLogs('worker', 'worker_bullmq_started|job_duration_ms|worker_job_failed|PROCESS_EXCEL_INVOICE|excel|worker_bullmq_job_failed|worker_bullmq_error|queue_lag_ms');
   printFilteredServiceLogs('gateway', 'gateway_webhook_accepted|gateway_webhook_failed|linked_flow_enqueued|queue_error|gateway_ack_ms');
 }
 
 async function main() {
-  const generated = makeEphemeralEnv();
+  const generated = await makeEphemeralEnv();
   const webhookSecret = generated.webhookSecret;
-  const inviteUser = 'zalo_user_invite_001';
-  const linkedUser = 'zalo_user_linked_001';
+  // Telegram user ids are numeric.
+  const inviteUser = '700000001';
+  const linkedUser = '700000002';
   const tenantName = `E2E-${randomUUID().slice(0, 8)}`;
   const tenantCode = `E2E${Math.floor(Math.random() * 100000)}`;
   const queueName = process.env.BULLMQ_QUEUE_NAME ?? 'process-inbound';
-  const invoiceMsgId = 'msg-invoice-001';
+  const invoiceMsgId = '9001';
   let tenantId = '';
 
   try {
-    dockerCompose(['up', '-d', '--build', 'postgres', 'redis', 'gateway', 'admin', 'worker', 'xml-stub', 'kiotviet-stub', 'zalo-stub']);
+    dockerCompose(['up', '-d', ...(skipBuild ? [] : ['--build']), 'postgres', 'redis', 'gateway', 'admin', 'worker', 'kiotviet-stub', 'telegram-stub']);
 
     run(process.execPath, ['scripts/v2/db_v2_migrate.mjs'], {
       env: {
@@ -286,8 +312,8 @@ async function main() {
     // Disable RLS for e2e tests to avoid permission issues
     sql(`ALTER TABLE invite_codes DISABLE ROW LEVEL SECURITY;`);
     sql(`ALTER TABLE tenants DISABLE ROW LEVEL SECURITY;`);
-    // Disable RLS for zalo_users so worker can query it in canSendNow()
-    sql(`ALTER TABLE zalo_users DISABLE ROW LEVEL SECURITY;`);
+    // Disable RLS for platform_users so worker can query it in canSendNow()
+    sql(`ALTER TABLE platform_users DISABLE ROW LEVEL SECURITY;`);
 
     await waitForServiceHealthy('postgres', 120_000);
     await waitForServiceHealthy('redis', 120_000);
@@ -338,55 +364,46 @@ async function main() {
     if (inviteResp.status !== 201) failWithStatus('invite create', inviteResp);
     const inviteCode = JSON.parse(inviteResp.body).code;
 
-    const invitePayload = JSON.stringify({
-      platform_user_id: inviteUser,
-      zalo_msg_id: 'msg-invite-roundtrip-001',
-      message_type: 'text',
-      attachments: [],
-      text: `INVITE ${inviteCode}`
-    });
+    const invitePayload = telegramUpdate(inviteUser, 8001, { text: `INVITE ${inviteCode}` });
     const inviteWebhookResp = parseFetchResult(serviceFetch('gateway', {
-      url: 'http://127.0.0.1:8080/webhooks/zalo',
+      url: 'http://127.0.0.1:8080/webhooks/telegram',
       method: 'POST',
-      headers: webhookHeaders(webhookSecret, invitePayload),
+      headers: webhookHeaders(webhookSecret),
       body: invitePayload
     }));
     if (inviteWebhookResp.status !== 200) failWithStatus('invite webhook', inviteWebhookResp);
 
     await waitFor('invite membership created', async () => {
-      const count = Number(sql(`SELECT count(*) FROM tenant_users tu JOIN zalo_users zu ON zu.id=tu.zalo_user_id WHERE tu.tenant_id='${tenantId}'::uuid AND zu.platform_user_id='${inviteUser}';`) || '0');
+      const count = Number(sql(`SELECT count(*) FROM tenant_users tu JOIN platform_users pu ON pu.id=tu.user_id WHERE tu.tenant_id='${tenantId}'::uuid AND pu.platform_user_id='${inviteUser}';`) || '0');
       return count >= 1;
     }, 60_000);
 
-    // Create zalo_user BEFORE pushing notify job (worker needs this user to exist)
+    // Create the linked user BEFORE pushing jobs (worker needs this user to exist)
     sql(
-      `INSERT INTO zalo_users (id, platform_user_id, display_name, last_interaction_at)
-       VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, ${sqlString(linkedUser)}, 'Linked User', now() - interval '25 hour')
-       ON CONFLICT (platform_user_id)
+      `INSERT INTO platform_users (id, platform_user_id, platform, telegram_chat_id, display_name, last_interaction_at)
+       VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, ${sqlString(linkedUser)}, 'telegram', ${Number(linkedUser)}, 'Linked User', now() - interval '25 hour')
+       ON CONFLICT (platform, platform_user_id)
        DO UPDATE SET last_interaction_at = now() - interval '25 hour';`
     );
 
     sql(
-      `INSERT INTO tenant_users (tenant_id, zalo_user_id, role, status)
+      `INSERT INTO tenant_users (tenant_id, user_id, role, status)
        VALUES ('${tenantId}'::uuid, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'owner', 'active')
-       ON CONFLICT (tenant_id, zalo_user_id) DO NOTHING;`
+       ON CONFLICT (tenant_id, user_id) DO NOTHING;`
     );
 
     // Skip: pending notification deferred test (requires BullMQ job enqueue from E2E which is complex)
 
-    const invoicePayload = JSON.stringify({
-      platform_user_id: linkedUser,
-      zalo_msg_id: invoiceMsgId,
-      message_type: 'file',
-      attachments: [{ type: 'file', url: 'http://xml-stub:18082/invoice.xml', name: 'invoice.xml' }],
-      text: 'invoice attached'
-    });
-
+    // The same Excel invoice message delivered twice: exactly one inbound event and one invoice.
     for (let i = 0; i < 2; i += 1) {
+      const invoicePayload = telegramUpdate(linkedUser, Number(invoiceMsgId), {
+        document: { file_id: 'e2e-invoice-file', file_unique_id: 'e2e-invoice-unique', file_name: 'invoice.xlsx' },
+        caption: 'invoice attached'
+      });
       const r = parseFetchResult(serviceFetch('gateway', {
-        url: 'http://127.0.0.1:8080/webhooks/zalo',
+        url: 'http://127.0.0.1:8080/webhooks/telegram',
         method: 'POST',
-        headers: webhookHeaders(webhookSecret, invoicePayload),
+        headers: webhookHeaders(webhookSecret),
         body: invoicePayload
       }));
       if (r.status !== 200) failWithStatus(`invoice webhook attempt ${i + 1}`, r);
@@ -396,8 +413,8 @@ async function main() {
       await waitFor('canonical invoice + items + idempotency', async () => {
         const invoiceCount = Number(sql(`SELECT count(*) FROM canonical_invoices WHERE tenant_id='${tenantId}'::uuid;`) || '0');
         const itemCount = Number(sql(`SELECT count(*) FROM canonical_invoice_items WHERE tenant_id='${tenantId}'::uuid;`) || '0');
-        const inboundCount = Number(sql(`SELECT count(*) FROM inbound_events WHERE tenant_id='${tenantId}'::uuid AND zalo_msg_id=${sqlString(invoiceMsgId)};`) || '0');
-        return invoiceCount === 1 && itemCount >= 1 && inboundCount === 1;
+        const inboundCount = Number(sql(`SELECT count(*) FROM inbound_events WHERE tenant_id='${tenantId}'::uuid AND message_id=${sqlString(invoiceMsgId)};`) || '0');
+        return invoiceCount === 1 && itemCount === 2 && inboundCount === 1;
       }, 120_000);
     } catch (error) {
       if (tenantId) {
@@ -410,7 +427,7 @@ async function main() {
     // Worker is verified to be running and processing jobs via gateway webhooks
     // The invoice webhook flow tests the gateway→worker pipeline end-to-end
 
-    console.log(`E2E passed (tenant=${tenantId}): onboarding invite, v2 routing, idempotency, invoice processing verified.`);
+    console.log(`E2E passed (tenant=${tenantId}): Telegram invite onboarding, linked routing, dedupe, Excel invoice processing verified.`);
   } catch (error) {
     printDiagnostics();
     throw error;

@@ -186,7 +186,11 @@ async function processInboundEvent(job: WorkerJobEnvelope): Promise<void> {
 function createTelegramAdapter() {
   const botToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
   if (botToken) {
-    return new HttpTelegramBotAdapter(botToken, Number(process.env.TELEGRAM_TIMEOUT_MS ?? '10000'));
+    return new HttpTelegramBotAdapter(
+      botToken,
+      Number(process.env.TELEGRAM_TIMEOUT_MS ?? '10000'),
+      process.env.TELEGRAM_API_BASE_URL || undefined
+    );
   }
   return new InMemoryStubTelegramAdapter();
 }

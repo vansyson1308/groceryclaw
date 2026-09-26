@@ -48,7 +48,7 @@ if [[ "$ready_code" != "200" ]]; then
   exit 1
 fi
 
-echo "[4/5] Send signed webhook fixture..."
+echo "[4/5] Send Telegram webhook fixture..."
 # Stop worker temporarily so it doesn't consume jobs before we can verify the queue
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop worker >/dev/null 2>&1 || true
 
@@ -56,12 +56,11 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop worker >/dev/null 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T redis redis-cli -a "${REDIS_PASSWORD:-redis_dev_password}" --no-auth-warning DEL "bull-${BULLMQ_QUEUE_NAME:-process-inbound}-wait" >/dev/null 2>&1 || true
 
 tmp_payload="$(mktemp)"
-node -e "const fs=require('node:fs');const payload=JSON.parse(fs.readFileSync('tests/fixtures/zalo_webhook_valid.json','utf8'));payload.zalo_msg_id='smoke-'+Date.now();fs.writeFileSync(process.argv[1], JSON.stringify(payload));" "$tmp_payload"
+node -e "const fs=require('node:fs');const payload=JSON.parse(fs.readFileSync('tests/fixtures/telegram_update_valid.json','utf8'));payload.update_id=Date.now()%2000000000;payload.message.message_id=payload.update_id;fs.writeFileSync(process.argv[1], JSON.stringify(payload));" "$tmp_payload"
 
-signature="$(openssl dgst -sha256 -hmac "${WEBHOOK_SIGNATURE_SECRET}" "$tmp_payload" | awk '{print $2}')"
-webhook_body="$(curl -sS -w '\n%{http_code}' -X POST "http://127.0.0.1:${GATEWAY_HOST_PORT:-8081}/webhooks/zalo" \
+webhook_body="$(curl -sS -w '\n%{http_code}' -X POST "http://127.0.0.1:${GATEWAY_HOST_PORT:-8081}/webhooks/telegram" \
   -H 'content-type: application/json' \
-  -H "x-zalo-signature: ${signature}" \
+  -H "x-telegram-bot-api-secret-token: ${TELEGRAM_WEBHOOK_SECRET:-}" \
   --data-binary "@$tmp_payload")"
 rm -f "$tmp_payload"
 

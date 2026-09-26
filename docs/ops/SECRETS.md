@@ -7,6 +7,7 @@
    - Any webhook auth secrets
 2. **Runtime environment variables** (`.env` in deployment, NOT git)
    - `ZALO_OA_SECRET`, `KIOTVIET_CLIENT_SECRET`, `OPENAI_API_KEY`, etc.
+   - Telegram: `TELEGRAM_BOT_TOKEN` and, in webhook mode, `TELEGRAM_WEBHOOK_SECRET` (the gateway compares it in constant time with `X-Telegram-Bot-Api-Secret-Token`). `TELEGRAM_API_BASE_URL` is not a secret; it only overrides the Bot API root (the E2E gate points it at a local stub).
 
 ## Must NOT be committed
 - Real API keys/tokens/secrets/passwords.
