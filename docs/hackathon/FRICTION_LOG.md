@@ -87,3 +87,12 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Severity:** low (one CI round).
 - **Workaround:** the helper remembers ports it has already handed out and skips them.
 - **Suggestion:** a built-in way to pass `0` for every listener and read the bound ports back from the child would avoid the race entirely.
+
+## F11. Playwright `recordVideo` timestamps drift from wall-clock time
+- **Task:** record the voice simulator for the demo video and line up pre-synthesized speech with the picture.
+- **Steps:** Chromium headless, `browser.newContext({ recordVideo: { size: 1440x810 } })`, drive five turns over about 72 s of wall-clock time, and place the audio at wall-clock offsets.
+- **Expected:** the webm spans the same 72 s.
+- **Actual:** the webm lasted 80.8 s, a constant 1.13x stretch, so the picture fell up to 6 s behind the voices by the last turn. Separately, when heavy CPU work (neural TTS) ran mid-recording, the screencast held a stale frame until the next DOM change.
+- **Severity:** medium (silent: nothing fails, the video just drifts out of sync).
+- **Workaround:** read the last packet timestamp and rescale with `setpts` onto the recorder's clock; synthesize all audio before recording; keep one invisible animation running so frames keep flowing.
+- **Suggestion:** Playwright could expose the video's start time and real frame timestamps (or a `video.duration()`), and document that `recordVideo` output is not guaranteed to be real-time.

@@ -28,7 +28,7 @@ The narration lines below are the source of truth. `demo/video/narration.json` h
   3. "Reorder milk and eggs."
   4. "Yes, confirm."
   5. "Did the Sunrise Beverages invoice arrive?"
-- **N3 (architecture):** "ShopVoice is a standard MCP server, speaking the twenty twenty-five eleven twenty-five protocol over streamable HTTP. Alexa plus, or our simulator running an Amazon Bedrock Nova agent with Polly speech, calls nine voice-first tools. Every query runs inside the shop's own row-level-secured Postgres transaction, deployed on AWS with CDK."
+- **N3 (architecture):** "ShopVoice is a standard MCP server, speaking the twenty twenty-five eleven twenty-five protocol over streamable HTTP. Alexa plus, or our simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock Nova with Polly speech, and falls back to an offline brain, shown here. Every query runs inside the shop's own row-level-secured Postgres transaction, and an AWS CDK stack ships it to the cloud."
 - **N4 (conformance):** "The official MCP Inspector connects, negotiates the latest protocol, and gets both a short spoken answer and schema-checked structured data from every tool."
 - **N5 (safety and impact):** "Money never moves by accident. Reorders are two steps with a five-minute token that the language model never sees. Tenants are isolated by row-level security, and every call is audited. For millions of small shops, that means less time counting stock and more time with customers."
 - **N6 (end):** "ShopVoice. Open source under MIT, built during Build, Ship, Shape."

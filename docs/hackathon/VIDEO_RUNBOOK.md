@@ -7,7 +7,10 @@ Output: `demo/video/shopvoice_demo.mp4` (1920x1080, H.264 + AAC, no music) and `
 - Node 20+ (`npm ci && npm run build` at the repo root)
 - `ffmpeg` / `ffprobe` (`sudo apt-get install ffmpeg`, `brew install ffmpeg`)
 - Playwright Chromium. It's in the repo's devDependencies; if `npx playwright --version` shows no browser, run `npx playwright install chromium`.
-- **Voices:** with working AWS credentials (any profile or env allowed `polly:SynthesizeSpeech`), the pipeline uses **Amazon Polly** neural voices: narrator Matthew, owner Stephen, assistant Joanna. Without them it falls back to offline `espeak-ng` + MBROLA (`sudo apt-get install espeak-ng mbrola mbrola-us1 mbrola-us2 mbrola-us3`), which sounds robotic and is for rehearsal only.
+- **Voices** (picked automatically, in this order):
+  1. **Amazon Polly** neural voices (narrator Matthew, owner Stephen, assistant Joanna), with AWS credentials that allow `polly:SynthesizeSpeech`.
+  2. **Piper**, offline neural TTS: `pip install piper-tts`, then download three voices into `PIPER_VOICES_DIR` (default `/tmp/piper-voices`) from `https://huggingface.co/rhasspy/piper-voices`: narrator `en_US-norman-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`. For each voice you need both the `.onnx` and the `.onnx.json` file. These three were chosen for their licenses: Norman and Kristin are trained on public-domain LibriVox recordings and Joe on a CC0 dataset (see each voice's `MODEL_CARD`). Several popular Piper voices, such as ryan, lessac and hfc_*, are non-commercial only, so avoid them for a contest video. `PIPER_LENGTH_SCALE` sets the pace (default 0.9).
+  3. `espeak-ng` + MBROLA (`sudo apt-get install espeak-ng mbrola mbrola-us1 mbrola-us2 mbrola-us3`), which sounds robotic and is for rehearsal only.
 
 ## Re-render (the exact commands)
 
@@ -16,7 +19,10 @@ Output: `demo/video/shopvoice_demo.mp4` (1920x1080, H.264 + AAC, no music) and `
 export AWS_REGION=us-east-1            # plus AWS credentials in env or profile
 VIDEO_TTS=polly SIM_BRAIN=bedrock demo/video/build.sh
 
-# Rehearsal cut, fully offline (what the agent rendered):
+# Offline neural voices (what the agent rendered for submission while AWS was unavailable):
+VIDEO_TTS=piper demo/video/build.sh
+
+# Rehearsal cut with robotic voices:
 VIDEO_TTS=espeak demo/video/build.sh
 
 # Check it:
@@ -54,5 +60,12 @@ Flags and env:
 
 ## Last verified render (by the agent)
 
-- Date: 2026-09-25. Engine: offline espeak-ng + MBROLA (Polly not yet available, BLOCKERS B2).
-- `ffprobe`: duration **151.5 s** (2:31), **1920x1080 h264** + aac, file size about 10 MB. `report.json` → `under_3_minutes: true`.
+- **Date:** 2026-09-26. **Engine:** Piper offline neural voices (narrator `en_US-norman-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`). Polly is still unavailable (BLOCKERS B2).
+- **ffprobe:** duration **145.7 s** (2:26), **1920x1080 h264** + aac, about 10 MB, integrated loudness -16.2 LUFS. `report.json` → `under_3_minutes: true`.
+- **Sync check:** each owner turn appears on screen within 0.1 s of its voice (measured on the status label for all 5 turns), and none of the 35 subtitle cues overlap.
+
+### Pipeline fixes made while rendering this cut
+- `record.mjs` synthesizes every clip in a dry run before recording. Running neural TTS mid-recording starved Chromium, so the captured frame froze on "THINKING…".
+- An invisible Web Animations keep-alive keeps the screencast emitting frames. It uses CSSOM because the simulator's CSP blocks injected `<style>` tags.
+- The recording is saved through `page.video().saveAs()` into an emptied `raw/` directory, so a partial file from an interrupted run is never used.
+- `assemble.mjs` rescales the webm timestamps onto the recorder's clock. Playwright's webm ran 1.13x slower than wall-clock time, which made the picture drift up to 6 s behind the voices by the last turn. It also refuses to assemble if the recording and the timeline disagree by more than 1 s.
