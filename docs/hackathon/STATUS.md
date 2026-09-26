@@ -70,8 +70,9 @@ Last updated: 2026-09-25. Branch: `claude/great-ritchie-094a7c` (see DECISIONS.m
 | Run | Tests | Pass | Fail | Cancelled | Skipped | Note |
 |---|---|---|---|---|---|---|
 | Baseline `a9f3cdb`, no DB | 156 | 131 | 11 | 2 | 12 | pre-existing failures |
-| This branch, no DB | 223 | 185 | 11 | 2 | 25 | the same 11 pre-existing failures; +67 tests; the 13 new DB tests skip without `DATABASE_URL` |
-| This branch, with Postgres 16 (`DATABASE_URL`) | 226 | 195 | 21 | 5 | 5 | all failures pre-existing (identical on baseline code against the same DB) |
+| This branch before the CI fix (`c07c3d4`), no DB | 223 | 185 | 11 | 2 | 25 | the same 11 pre-existing failures; +67 tests |
+| This branch after the CI fix (`c3259a1`), no DB | 226 | 201 | 0 | 0 | 25 | stale Zalo-era tests ported to Telegram; DB suites skip without `DATABASE_URL`; 8 s |
+| This branch after the CI fix, with Postgres 16 (`DATABASE_URL`) | 226 | 221 | 0 | 0 | 5 | the 5 skips need Redis or the opt-in compose stack (run by later CI steps); about 14 s, 3 runs in a row |
 | `oss/kiotviet-mcp` (`npm test`) | 4 | 4 | 0 | 0 | 0 | |
 
 ShopVoice-only suites (mcp-http 12, mcp-tools 16, mcp-speech 13, alexa-sim 7, shopvoice-seed 6, db/mcp-tools-db 6, db/shopvoice-rls 7): **67/67 pass**.
@@ -81,7 +82,7 @@ ShopVoice-only suites (mcp-http 12, mcp-tools 16, mcp-speech 13, alexa-sim 7, sh
 | Item | State | Evidence |
 |---|---|---|
 | typecheck / lint pass | ✅ | `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run sql:guard` all pass |
-| `npm test` passes | ⚠️ partially | Every ShopVoice test passes (numbers in "Final test run"). The pre-existing failures on `main` remain: stale Zalo/`zalo_users` tests and a leaking canary test. They are identical on baseline code, out of scope, and listed in BLOCKERS B3. |
+| `npm test` passes | ✅ | 0 failures with and without `DATABASE_URL`, no hang, no leftover processes. Every v2-ci step also passes in a local replay on a fresh Postgres 16 cluster (BLOCKERS B3, now resolved). |
 | New tests `tests/v2/mcp-*.test.mjs`: each tool's happy path, tenant isolation, token expiry, invalid input, ≤35 words | ✅ | mcp-http, mcp-tools, mcp-speech, db/mcp-tools-db, db/shopvoice-rls |
 | MCP Inspector against the **deployed** URL | ⏳ B2 | Local run done (`docs/hackathon/evidence/inspector-local-*`); `scripts/demo/inspector_evidence.mjs --label deployed` is ready |
 | e2e voice flow (5 utterances) | ✅ local / ⏳ deployed | 5/5 on memory and Postgres backends and on the AWS compose layout in containers; `scripts/aws/smoke.sh` for the deployed run |
@@ -102,7 +103,7 @@ ShopVoice-only suites (mcp-http 12, mcp-tools 16, mcp-speech 13, alexa-sim 7, sh
 - Lint: `tools/v2/lint.mjs` forbids explicit `any` in apps/packages TS; format check forbids trailing whitespace and tabs, and requires a final newline, across apps/packages/tests/docs.
 - Types: repo uses `types-node-compat.d.ts` stubs; `@types/node` in node_modules is v14 (transitive via exceljs → fast-csv).
 
-## Baseline test state (main @ a9f3cdb)
+## Baseline test state (main @ a9f3cdb, before the CI fix)
 
 Measured in an isolated worktree, no `DATABASE_URL`, `node --test --test-timeout=60000 …` (same globs as `npm test`):
 **156 tests: 131 pass, 11 fail, 2 cancelled, 12 skipped.** Pre-existing failures (not touched by ShopVoice work):
