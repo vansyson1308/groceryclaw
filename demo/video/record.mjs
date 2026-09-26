@@ -5,6 +5,7 @@
 // audio to finish, so the timeline in out/timeline.json lines up exactly
 // with the audio that assemble.mjs mixes in.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { startLocalStack } from '../../scripts/demo/e2e_voice_flow.mjs';
@@ -24,6 +25,22 @@ rmSync(join(OUT, 'raw'), { recursive: true, force: true });
 // Neural TTS saturates the CPU; doing it mid-recording starves Chromium's
 // compositor and freezes the captured frames.
 const clips = new Map();
+// One connection per request (agent: false). fetch() drops a `connection: close`
+// header, and the multi-second TTS gaps between turns outlive the server's
+// keep-alive timeout, so a reused socket gets "other side closed".
+function postJson(url, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = httpRequest(url, { method: 'POST', agent: false, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { raw += c; });
+      res.on('end', () => { try { resolve(JSON.parse(raw)); } catch (e) { reject(e); } });
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
 async function clip(role, text, file) {
   const key = `${role}:${text}`;
   if (!clips.has(key)) clips.set(key, { file, seconds: await synthesize(text, cfg.voices[role], file) });
@@ -35,8 +52,7 @@ async function clip(role, text, file) {
     let conversationId;
     for (const [i, text] of cfg.turns.entries()) {
       await clip('owner', text, join(OUT, 'turns', `owner-${i + 1}.mp3`));
-      const res = await fetch(`${dry.url}/api/turn`, { method: 'POST', headers: { 'content-type': 'application/json', connection: 'close' }, body: JSON.stringify({ text, conversationId }) });
-      const data = await res.json();
+      const data = await postJson(`${dry.url}/api/turn`, { text, conversationId });
       conversationId = data.conversationId;
       await clip('assistant', data.reply ?? '', join(OUT, 'turns', `assistant-${i + 1}.mp3`));
     }

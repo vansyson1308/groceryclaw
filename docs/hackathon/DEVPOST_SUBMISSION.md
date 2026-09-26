@@ -169,6 +169,7 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 | F9 | `node --test` runs files in parallel against one shared test DB | medium | DB test files run with `--test-concurrency=1` |
 | F10 | A listen-on-0 "free port" helper returned the same port twice on the CI runner | low | Helper skips ports it already handed out |
 | F11 | Playwright `recordVideo` webm ran 1.13x slower than wall-clock time; frames froze while the CPU was busy | medium | Rescale timestamps, pre-synthesize audio, keep-alive animation |
+| F12 | Offline TTS stumbled on brand names, acronyms and money ("Shop… Voice", "dollar two hove and ten") | medium | Voice-only text normalizer, steadier voice settings, Whisper listening QA with automatic re-takes |
 
 ## Feature requests
 - **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered), usable without Preview access.
@@ -183,7 +184,7 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 ---
 
 ## Open Source mini challenge fields
-- **Contribution URL:** [OWNER] `https://github.com/vansyson1308/kiotviet-mcp` once created (`oss/kiotviet-mcp/` in this repo, ready to push). Optional second contribution: the drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/` (open it and paste the PR URL).
+- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp (MIT, CI green on Node 20 and 22). Optional second contribution: the drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/` (open it and paste the PR URL).
 - **Repository URL:** https://github.com/vansyson1308/groceryclaw
 - **GitHub username:** vansyson1308
 - **Short description:** `kiotviet-mcp` is an MIT-licensed, voice-first MCP server for shops on the KiotViet POS. It reports low stock, stock levels, sales and top movers, and makes two-step purchase orders (nothing is sent to KiotViet until an explicit confirm). It runs over stdio or Streamable HTTP (MCP 2025-11-25) and works with Alexa+, Claude or any MCP client. It was extracted from ShopVoice during the hackathon.

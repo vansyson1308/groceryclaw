@@ -1,20 +1,38 @@
 {
   "voices": {
-    "narrator": { "polly": "Matthew", "piper": "en_US-norman-medium", "espeak": "mb-us3" },
-    "owner": { "polly": "Stephen", "piper": "en_US-joe-medium", "espeak": "mb-us2" },
-    "assistant": { "polly": "Joanna", "piper": "en_US-kristin-medium", "espeak": "mb-us1" }
+    "narrator": {
+      "polly": "Matthew",
+      "piper": {
+        "model": "en_US-bryce-medium",
+        "lengthScale": 0.8,
+        "sentenceSilence": 0.25
+      },
+      "espeak": "mb-us3"
+    },
+    "owner": {
+      "polly": "Stephen",
+      "piper": {
+        "model": "en_US-joe-medium",
+        "lengthScale": 0.9
+      },
+      "espeak": "mb-us2"
+    },
+    "assistant": {
+      "polly": "Joanna",
+      "piper": {
+        "model": "en_US-kristin-medium",
+        "lengthScale": 0.85
+      },
+      "espeak": "mb-us1"
+    }
   },
   "lines": {
-    "N1": "A corner grocery owner juggles two hundred products, deliveries and customers, with both hands full and reorders written on paper. ShopVoice lets them run the shop by voice.",
-    "N2": "Here is the owner talking to the shop, through an MCP server that Alexa plus can call.",
-    "N3": "ShopVoice is a standard MCP server, speaking the twenty twenty-five eleven twenty-five protocol over streamable HTTP. Alexa plus, or our simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock Nova with Polly speech, and falls back to an offline brain, shown here. Every query runs inside the shop's own row-level-secured Postgres transaction, and an AWS CDK stack ships it to the cloud.",
-    "N4": "The official MCP Inspector connects, negotiates the latest protocol, and gets both a short spoken answer and schema-checked structured data from every tool.",
-    "N5": "Money never moves by accident. Reorders are two steps with a five-minute token that the language model never sees. Tenants are isolated by row-level security, and every call is audited. For millions of small shops, that means less time counting stock and more time with customers.",
-    "N6": "ShopVoice. Open source under MIT, built during Build, Ship, Shape."
-  },
-  "subtitles": {
-    "N3": "ShopVoice is a standard MCP server, speaking the 2025-11-25 protocol over Streamable HTTP. Alexa+, or our simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock Nova with Polly speech, and falls back to an offline brain, shown here. Every query runs inside the shop's own row-level-secured Postgres transaction, and an AWS CDK stack ships it to the cloud.",
-    "N2": "Here is the owner talking to the shop, through an MCP server that Alexa+ can call."
+    "N1": "Picture a corner grocery. Two hundred products, a line of customers, and the owner's hands are always full. Reorders get scribbled on paper, often too late. ShopVoice lets them run the whole shop just by talking.",
+    "N2": "Here's the owner, talking to the shop through an MCP server that Alexa+ can call.",
+    "N3": "Under the hood, ShopVoice is a standard MCP server over streamable HTTP. Alexa+, or our own simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock with Polly speech, plus an offline fallback, which is what you just saw. Every answer comes from the shop's own Postgres data, locked down with row-level security, and one AWS CDK stack ships it all to the cloud.",
+    "N4": "The official MCP Inspector connects, agrees on the latest protocol, and every tool returns two things: a short answer to speak, and schema-checked data for the screen.",
+    "N5": "And money never moves by accident. Every reorder takes two steps, with a five-minute token that the language model never even sees. Each shop's data is walled off from every other shop, and every call is audited. For millions of small shops, that means less time counting stock, and more time with customers.",
+    "N6": "ShopVoice. Open source, MIT licensed, and built during Build, Ship, Shape."
   },
   "turns": [
     "What's running low?",

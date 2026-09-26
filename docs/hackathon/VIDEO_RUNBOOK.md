@@ -7,9 +7,13 @@ Output: `demo/video/shopvoice_demo.mp4` (1920x1080, H.264 + AAC, no music) and `
 - Node 20+ (`npm ci && npm run build` at the repo root)
 - `ffmpeg` / `ffprobe` (`sudo apt-get install ffmpeg`, `brew install ffmpeg`)
 - Playwright Chromium. It's in the repo's devDependencies; if `npx playwright --version` shows no browser, run `npx playwright install chromium`.
+- **Pronunciation:** narration is written as it should appear in subtitles. `demo/video/lib/speakable.mjs` rewrites money, numbers, units, acronyms, codes and brand names for the voice only; for example `$210` becomes "two hundred ten dollars" and `ShopVoice` becomes "Shop Voice". It is unit-tested in `tests/v2/video-speakable.test.mjs`.
 - **Voices** (picked automatically, in this order):
   1. **Amazon Polly** neural voices (narrator Matthew, owner Stephen, assistant Joanna), with AWS credentials that allow `polly:SynthesizeSpeech`.
-  2. **Piper**, offline neural TTS: `pip install piper-tts`, then download three voices into `PIPER_VOICES_DIR` (default `/tmp/piper-voices`) from `https://huggingface.co/rhasspy/piper-voices`: narrator `en_US-norman-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`. For each voice you need both the `.onnx` and the `.onnx.json` file. These three were chosen for their licenses: Norman and Kristin are trained on public-domain LibriVox recordings and Joe on a CC0 dataset (see each voice's `MODEL_CARD`). Several popular Piper voices, such as ryan, lessac and hfc_*, are non-commercial only, so avoid them for a contest video. `PIPER_LENGTH_SCALE` sets the pace (default 0.9).
+  2. **Piper**, offline neural TTS: `pip install piper-tts`, then download three voices into `PIPER_VOICES_DIR` (default `/tmp/piper-voices`) from `https://huggingface.co/rhasspy/piper-voices`: narrator `en_US-bryce-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`. For each voice you need both the `.onnx` and the `.onnx.json` file.
+     - **Licenses:** Bryce and Kristin are trained on public-domain LibriVox recordings, and Joe on a CC0 dataset; see each voice's `MODEL_CARD`. Popular voices such as ryan, lessac and hfc_* are non-commercial only, so avoid them for a contest video.
+     - **Per-voice settings:** pace, noise and the pause between sentences live in `narration.json` → `voices.*.piper`.
+     - **Takes:** `PIPER_TAKES` (default 3) records several takes and keeps the one whose pauses match the punctuation.
   3. `espeak-ng` + MBROLA (`sudo apt-get install espeak-ng mbrola mbrola-us1 mbrola-us2 mbrola-us3`), which sounds robotic and is for rehearsal only.
 
 ## Re-render (the exact commands)
@@ -60,9 +64,18 @@ Flags and env:
 
 ## Last verified render (by the agent)
 
-- **Date:** 2026-09-26. **Engine:** Piper offline neural voices (narrator `en_US-norman-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`). Polly is still unavailable (BLOCKERS B2).
-- **ffprobe:** duration **145.7 s** (2:26), **1920x1080 h264** + aac, about 10 MB, integrated loudness -16.2 LUFS. `report.json` → `under_3_minutes: true`.
-- **Sync check:** each owner turn appears on screen within 0.1 s of its voice (measured on the status label for all 5 turns), and none of the 35 subtitle cues overlap.
+- **Date:** 2026-09-26. **Engine:** Piper offline neural voices: narrator `en_US-bryce-medium`, owner `en_US-joe-medium`, assistant `en_US-kristin-medium`. Polly is still unavailable (BLOCKERS B2).
+- **ffprobe:** duration **160.6 s** (2:40, the storyboard target), **1920x1080 h264** + aac, about 10 MB, integrated loudness -16.2 LUFS. `report.json` → `under_3_minutes: true`.
+- **Sync check:** each owner turn appears on screen within 0.16 s of its voice (measured on all 5 turns); none of the 37 subtitle cues overlap; no two voices overlap.
+- **Listening QA:** `python3 demo/video/audit_audio.py --retake 5` passes **16/16 clips** (6 narration, 10 dialogue turns). Each clip has a Whisper word error rate of at most 0.1 against the intended text and no pause that the punctuation doesn't explain. One dialogue line was re-taken automatically. The narrator's earlier stumbles came from the voice splitting "ShopVoice" into "Shop… Voice" (a 0.87 s gap) and misreading acronyms, money and the protocol date. They are fixed by `speakable.mjs`, a steadier Piper noise setting and the Bryce voice.
+
+### Listening QA (optional)
+
+```bash
+pip install faster-whisper
+python3 demo/video/audit_audio.py --retake 5   # re-takes failing lines
+node demo/video/assemble.mjs                    # only if retakes were applied
+```
 
 ### Pipeline fixes made while rendering this cut
 - `record.mjs` synthesizes every clip in a dry run before recording. Running neural TTS mid-recording starved Chromium, so the captured frame froze on "THINKING…".
