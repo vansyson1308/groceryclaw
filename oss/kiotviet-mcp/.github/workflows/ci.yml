@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Demo shop smoke (stdio, no KiotViet account)
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@2.8.0 --cli node dist/cli.js -e KIOTVIET_MCP_DEMO=1 --method tools/list > tools.json
+          node -e "const t=require('./tools.json').tools.map(x=>x.name);console.log(t.join(', '));if(t.length<7)process.exit(1)"

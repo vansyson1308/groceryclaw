@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Voice-first MCP server for KiotViet shops: low stock, stock levels, sales, top movers and two-step purchase orders over the Model Context Protocol (stdio or Streamable HTTP).",
   "license": "MIT",
+  "author": "vansyson1308",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vansyson1308/kiotviet-mcp.git"
+  },
+  "homepage": "https://github.com/vansyson1308/kiotviet-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/vansyson1308/kiotviet-mcp/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
