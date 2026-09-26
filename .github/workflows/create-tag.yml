@@ -1,0 +1,50 @@
+name: Create annotated tag
+
+# Manual helper: creates an annotated tag at a given commit from GitHub itself
+# (used for `pre-hackathon-baseline`, see docs/hackathon/BLOCKERS.md B1).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag name
+        required: true
+        default: pre-hackathon-baseline
+      sha:
+        description: Full commit SHA to tag
+        required: true
+        default: a9f3cdb2a385b68bc2c7bb82c61a8e57fbee5c57
+      message:
+        description: Tag message
+        required: true
+        default: Baseline before hackathon (last commit before the Sep 1 2026 submission window)
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${SHA}^{commit}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists on origin; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" "${SHA}" -m "${MESSAGE}"
+          git push origin "refs/tags/${TAG}"
+          git ls-remote --tags origin "refs/tags/${TAG}"

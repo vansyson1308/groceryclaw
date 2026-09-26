@@ -797,3 +797,7 @@ npm run secrets:revoke -- --secret-id <id>
 ```
 
 Chi tiet: `docs/saas_v2/SECURITY_CHECKLIST.md`
+
+## License
+
+MIT, see [`LICENSE`](LICENSE). The standalone `oss/kiotviet-mcp` package is also MIT licensed.
