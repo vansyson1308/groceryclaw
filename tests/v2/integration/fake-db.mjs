@@ -55,20 +55,20 @@ if (sql.includes('SELECT processing_mode')) {
   process.exit(0);
 }
 
-if (sql.includes('UPDATE zalo_users') && sql.includes('last_interaction_at')) {
-  process.stdout.write('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n');
-  saveState(state);
-  process.exit(0);
-}
-
-if (sql.includes('FROM zalo_users') && sql.includes('platform_user_id')) {
-  process.stdout.write('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n');
-  saveState(state);
-  process.exit(0);
-}
-
 if (sql.includes('INSERT INTO inbound_events')) {
   process.stdout.write('22222222-2222-2222-2222-222222222222\n');
+  saveState(state);
+  process.exit(0);
+}
+
+if (sql.includes('UPDATE platform_users') && sql.includes('last_interaction_at')) {
+  process.stdout.write('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n');
+  saveState(state);
+  process.exit(0);
+}
+
+if (sql.includes('FROM platform_users') && sql.includes('platform_user_id')) {
+  process.stdout.write('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n');
   saveState(state);
   process.exit(0);
 }

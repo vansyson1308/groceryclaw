@@ -1,0 +1,10 @@
+{
+  "update_id": 900001,
+  "message": {
+    "message_id": 501,
+    "date": 1700000000,
+    "chat": { "id": 424242, "type": "private" },
+    "from": { "id": 424242, "is_bot": false, "first_name": "Test" },
+    "text": "xin chao"
+  }
+}
