@@ -101,6 +101,20 @@ Or run the scripted voice flow: `npm run demo:e2e`. It sends the 5 demo utteranc
 - Every query runs inside `runTenantScopedTransaction`, so RLS applies.
 - Reorders need an explicit "yes", and the Bedrock agent never sees the confirmation token.
 
+### Claude connector and plugin
+
+The same server works as a Claude connector when `PUBLIC_BASE_URL` is set:
+- OAuth 2.1 with CIMD and DCR, PKCE and rotating refresh tokens, plus sign-up with a demo shop and an `/account` page;
+- public pages at `/docs`, `/privacy`, `/terms` and `/support`.
+
+The plugin (skills, commands and evals) lives in `plugins/shopvoice/`. Plan, status and submission kit: `docs/directory/` (start with `docs/directory/STATUS.md`). Try the connector locally:
+
+```bash
+MCP_DATA_BACKEND=memory MCP_DEMO_TOKEN=$(openssl rand -hex 24) PUBLIC_BASE_URL=http://localhost:8090 \
+  OAUTH_COOKIE_SECRET=$(openssl rand -hex 32) node apps/mcp-server/dist/server.js
+# then: npx @modelcontextprotocol/inspector (Streamable HTTP, http://localhost:8090/mcp) and sign up in the OAuth window
+```
+
 ---
 
 ## GroceryClaw lam gi?

@@ -40,7 +40,7 @@ Confirm the SNS subscription email ("AWS Notification - Subscription Confirmatio
 ```bash
 BASE=$(node -e "console.log(require('./infra/aws/cdk-outputs.json')['ShopVoice-demo'].PublicBaseUrlOutput)")
 node scripts/directory/create_reviewer.mjs --base-url "$BASE" \
-  --email claude-reviewer@shopvoice.example --ssm-name /shopvoice/demo/reviewer-password
+  --email sonnv.hd34+shopvoice-reviewer@gmail.com --ssm-name /shopvoice/demo/reviewer-password
 ```
 
 This signs up through the public form, so the account gets the fully populated demo shop that refreshes daily, and then signs in again to prove the password works. The password is written **only** to SSM and is never printed. The owner reads it when filling in the portal:
@@ -51,7 +51,7 @@ This signs up through the public form, so the account gets the fully populated d
 ```bash
 scripts/aws/smoke.sh     # OAuth discovery, 401, pages, full OAuth flow with every tool (reviewer), e2e voice, latency
 PW=$(mktemp) && aws ssm get-parameter --with-decryption --name /shopvoice/demo/reviewer-password --query Parameter.Value --output text > "$PW"
-node scripts/directory/inspector_oauth_evidence.mjs --server-url "$BASE/mcp" --email claude-reviewer@shopvoice.example --password-file "$PW" --label deployed
+node scripts/directory/inspector_oauth_evidence.mjs --server-url "$BASE/mcp" --email sonnv.hd34+shopvoice-reviewer@gmail.com --password-file "$PW" --label deployed
 rm -f "$PW"
 node scripts/demo/inspector_evidence.mjs --server-url "$BASE/mcp" --token "$(aws ssm get-parameter --with-decryption --name /shopvoice/demo/mcp-demo-token --query Parameter.Value --output text)" --label deployed   # Devpost (bearer)
 curl -i "$BASE/mcp" -X POST -H 'content-type: application/json' -d '{}'   # expect 401 + WWW-Authenticate resource_metadata

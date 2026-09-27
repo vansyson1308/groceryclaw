@@ -22,6 +22,10 @@ Run a small grocery shop by voice: an Alexa+ MCP server that answers "what's run
 - **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md (CI runs, Inspector screenshots, e2e on Postgres with RLS and audit, CDK synth summary, latency)
 - **Try it out:** https://github.com/vansyson1308/groceryclaw#shopvoice-alexa-mcp (runs locally in about 1 minute, no accounts needed; see the testing instructions). A hosted simulator URL can be added here after `scripts/aws/deploy.sh` (BLOCKERS B2).
 - **Open-source package:** https://github.com/vansyson1308/kiotviet-mcp
+- **Claude connector + plugin (same MCP server):**
+  - Docs: `https://<deployed host>/docs`. ⚠️ Fill this in after `scripts/aws/deploy.sh`; the privacy, terms and support pages sit next to it.
+  - Plugin: https://github.com/vansyson1308/shopvoice-plugin. ⚠️ It is published after deploy (docs/directory/BLOCKERS.md DB3).
+  - Evidence: https://github.com/vansyson1308/groceryclaw/tree/main/docs/directory. Local OAuth runs against Postgres: `evidence/oauth-smoke-local-postgres.json`, 31/31 checks covering all 9 tools; and `evidence/inspector-oauth-local-*`, the MCP Inspector OAuth flow. Also `PLUGIN_EVAL.md`.
 
 ---
 
@@ -86,20 +90,33 @@ The owner just talks:
 - Tool latency on the seeded Postgres: **p95 12.8 ms client-side, 8 ms server-side** (160 calls, measured locally on the same host). ⚠️ Replace with the deployed number from `scripts/aws/smoke.sh`.
 - A reusable open-source package, `kiotviet-mcp`, that any KiotViet shop can run with Claude Desktop, Alexa+ or its own agent.
 
+### Impact: one MCP server, two assistants
+The same ShopVoice MCP server that Alexa+ calls by voice also works as a **Claude connector**, with no fork. During the hackathon it gained:
+- an OAuth 2.1 authorization server: CIMD and DCR clients, PKCE, rotating refresh tokens, and read-only and write scopes;
+- a free sign-up that gives every new user their own demo shop;
+- markdown answers for chat clients, next to the same structured data;
+- public docs, privacy, terms and support pages;
+- a Claude plugin with four skills (daily briefing, restock planner, sales insights, supplier invoices) and an eval suite. It scores 1.00 with the plugin and 0.29 without it.
+
+A shop owner can ask Alexa "what's running low?" at the counter, then ask Claude on their phone "compare this week with last week and draft the dairy reorder". The same shop data, the same two-step confirmation and the same row-level isolation apply to both.
+
+The connector and plugin are prepared for the Claude directory. ⚠️ Change this to "submitted to the Claude directory" only after the owner submits, and never say "listed" until the portal shows **Published**.
+
 ### What we learned
 MCP is the right seam for voice. The same server serves Alexa+, a Bedrock agent, the MCP Inspector and IDE agents without change. For voice, what the tool returns matters as much as the model: spoken text plus structured data plus annotations turned out to be the contract that keeps answers short and actions safe.
 
 ### What's next
 - Live KiotViet inventory and invoice pull through the existing worker adapter.
 - Sending confirmed drafts to KiotViet `POST /purchaseorders`.
-- Vietnamese answers (`locale`).
+- Vietnamese voice answers on Alexa+. In Claude, answers already follow the user's language and VND formatting.
 - Amazon Transcribe streaming input.
-- OAuth 2.1 per the MCP authorization spec instead of static tokens.
+- MCP 2026-07-28 (stateless) once the TypeScript SDK supports it.
+- MCP Apps UI in Claude: an interactive low-stock table and reorder form.
 - An Alexa+ routine for the morning briefing.
 - Moving hosting to ECS Express Mode once managed Postgres can host the RLS roles.
 
 ## Built with
-typescript, node.js, model-context-protocol, mcp-typescript-sdk, alexa-plus, amazon-bedrock, amazon-nova, amazon-polly, aws-cdk, amazon-ec2, amazon-cloudfront, aws-systems-manager, amazon-cloudwatch, postgresql, row-level-security, zod, playwright, ffmpeg, kiotviet-api, docker
+typescript, node.js, model-context-protocol, mcp-typescript-sdk, oauth-2.1, claude, alexa-plus, amazon-bedrock, amazon-nova, amazon-polly, aws-cdk, amazon-ec2, amazon-cloudfront, aws-systems-manager, amazon-cloudwatch, postgresql, row-level-security, zod, playwright, ffmpeg, kiotviet-api, docker
 
 ---
 
@@ -185,7 +202,10 @@ ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice
 ---
 
 ## Open Source mini challenge fields
-- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp (MIT, CI green on Node 20 and 22). Optional second contribution: the drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/` (open it and paste the PR URL).
+- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp (MIT, CI green on Node 20 and 22).
+- Optional extra contributions:
+  - https://github.com/vansyson1308/shopvoice-plugin: the MIT ShopVoice plugin for Claude, with skills, commands and evals. ⚠️ It is pushed after deploy.
+  - The drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/`: open it and paste the PR URL.
 - **Repository URL:** https://github.com/vansyson1308/groceryclaw
 - **GitHub username:** vansyson1308
 - **Short description:** `kiotviet-mcp` is an MIT-licensed, voice-first MCP server for shops on the KiotViet POS. It reports low stock, stock levels, sales and top movers, and makes two-step purchase orders (nothing is sent to KiotViet until an explicit confirm). It runs over stdio or Streamable HTTP (MCP 2025-11-25) and works with Alexa+, Claude or any MCP client. It was extracted from ShopVoice during the hackathon.

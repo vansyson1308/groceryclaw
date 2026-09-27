@@ -13,7 +13,7 @@ param() { aws ssm get-parameter --region "$REGION" --with-decryption --name "/sh
 mkdir -p "$ROOT/docs/hackathon/evidence" "$ROOT/docs/directory/evidence"
 cd "$ROOT"
 BASE="${MCP_URL%/mcp}"
-REVIEWER_EMAIL="${REVIEWER_EMAIL:-claude-reviewer@shopvoice.example}"
+REVIEWER_EMAIL="${REVIEWER_EMAIL:-sonnv.hd34+shopvoice-reviewer@gmail.com}"
 if PW="$(param reviewer-password 2>/dev/null)"; then
   PWFILE="$(mktemp)"; chmod 600 "$PWFILE"; printf '%s' "$PW" > "$PWFILE"; unset PW
   node scripts/directory/oauth_smoke.mjs --base-url "$BASE" --email "$REVIEWER_EMAIL" --password-file "$PWFILE" --json-out docs/directory/evidence/oauth-smoke-deployed.json || STATUS=1
