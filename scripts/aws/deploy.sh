@@ -2,7 +2,9 @@
 # Deploy ShopVoice to AWS (CDK): EC2 + docker compose + CloudFront + SSM.
 # Usage: scripts/aws/deploy.sh [--show-secrets]
 # Env: AWS_REGION (default us-east-1), STAGE (default demo), GIT_REF (default: current pushed commit),
-#      INSTANCE_TYPE (default t3.small), BEDROCK_MODEL_ID, POLLY_VOICE_ID, DEMO_ANCHOR_DATE.
+#      INSTANCE_TYPE (default t3.small), BEDROCK_MODEL_ID, POLLY_VOICE_ID, DEMO_ANCHOR_DATE,
+#      SUPPORT_EMAIL (public support contact), ALARM_EMAIL (CloudWatch alarm subscription),
+#      DOMAIN_NAME + CERTIFICATE_ARN (optional custom domain; ACM certificate in us-east-1).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -36,6 +38,8 @@ ensure_param postgres-password "$(rand 32)"
 ensure_param mcp-demo-token "sv_$(rand 43)"
 ensure_param sim-access-code "$(rand 10)"
 ensure_param origin-verify-secret "$(rand 40)"
+ensure_param oauth-cookie-secret "$(rand 48)"
+ensure_param invite-pepper-b64 "$(openssl rand -base64 32 | tr -d '\n')"
 get_param() { aws ssm get-parameter --region "$REGION" --with-decryption --name "${SSM_PATH}/$1" --query Parameter.Value --output text; }
 
 cd "$ROOT/infra/aws"
@@ -51,6 +55,10 @@ npx cdk deploy "ShopVoice-${STAGE}" --require-approval never \
   -c bedrockModelId="${BEDROCK_MODEL_ID:-us.amazon.nova-2-lite-v1:0}" \
   -c pollyVoiceId="${POLLY_VOICE_ID:-Joanna}" \
   -c demoAnchorDate="${DEMO_ANCHOR_DATE:-}" \
+  -c supportEmail="${SUPPORT_EMAIL:-}" \
+  -c alarmEmail="${ALARM_EMAIL:-${SUPPORT_EMAIL:-}}" \
+  -c domainName="${DOMAIN_NAME:-}" \
+  -c certificateArn="${CERTIFICATE_ARN:-}" \
   --outputs-file cdk-outputs.json
 
 MCP_URL="$(node -e "const o=require('./cdk-outputs.json')['ShopVoice-${STAGE}'];console.log(o.McpUrl)")"
@@ -65,8 +73,13 @@ for _ in $(seq 1 90); do
 done
 
 echo
+CF_DOMAIN="$(node -e "const o=require('./cdk-outputs.json')['ShopVoice-${STAGE}'];console.log(o.CloudFrontDomain)")"
 echo "MCP endpoint : ${MCP_URL}"
+echo "Public pages : ${MCP_URL%/mcp}/docs  /privacy  /terms  /support"
 echo "Simulator    : ${SIM_URL}"
+if [[ -n "${DOMAIN_NAME:-}" ]]; then
+  echo "DNS          : create CNAME ${DOMAIN_NAME} -> ${CF_DOMAIN} (or an ALIAS/ANAME at the zone apex)"
+fi
 if [[ "${READY:-false}" != true ]]; then
   echo "Endpoints not healthy yet; check: aws ssm start-session --target <InstanceId>  (then: sudo tail -f /var/log/shopvoice-bootstrap.log)" >&2
 fi

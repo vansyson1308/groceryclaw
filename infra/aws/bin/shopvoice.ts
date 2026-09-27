@@ -19,5 +19,9 @@ new ShopVoiceStack(app, `ShopVoice-${stage}`, {
   instanceType: ctx('instanceType', 't3.small'),
   bedrockModelId: ctx('bedrockModelId', 'us.amazon.nova-2-lite-v1:0'),
   pollyVoiceId: ctx('pollyVoiceId', 'Joanna'),
-  demoAnchorDate: ctx('demoAnchorDate', '')
+  demoAnchorDate: ctx('demoAnchorDate', ''),
+  supportEmail: ctx('supportEmail', ''),
+  domainName: ctx('domainName', ''),
+  certificateArn: ctx('certificateArn', ''),
+  alarmEmail: ctx('alarmEmail', '')
 });

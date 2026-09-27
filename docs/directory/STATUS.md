@@ -10,7 +10,7 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
 - [x] Phase 0: branch; SPEC, STATUS, DECISIONS, BLOCKERS and REQUIREMENTS_DIGEST written; AWS check (fails, DB1); Checkpoint A asked
 - [x] Phase 1: OAuth 2.1 authorization server (migration 018, metadata, DCR, CIMD, authorize/consent, token, revoke, account page) and tests
 - [x] Phase 2: MCP adjustments (protocol decision, Claude reorder path, markdown content, instructions, Origin regression test, errors, description audit)
-- [ ] Phase 3: deploy (CDK: OAuth routes, `/.well-known` at the root, pages, backups, alarms), smoke test, reviewer account, `DEPLOYMENT.md`, deployed Devpost evidence
+- [ ] Phase 3: deploy. **Code ready and synthesized; the deploy itself is BLOCKED on AWS credentials (DB1).** CDK changes: OAuth/pages routes, `/.well-known` at the root, SSM `public-base-url`, S3 backups, alarms. Also done: reviewer script, smoke tooling, `DEPLOYMENT.md`
 - [x] Phase 4: public pages (`/docs`, `/privacy`, `/terms`, `/support`), icon, `REVIEWER_WALKTHROUGH.md`. They are live only once Phase 3 deploys
 - [ ] Phase 5: plugin bundle, validate, evals, zip, `shopvoice-plugin` repo
 - [ ] Phase 6: Inspector OAuth evidence, every tool called on the deployed server, `OWNER_CLAUDE_TEST.md`, Checkpoint B
@@ -45,6 +45,13 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
   - screenshots in `docs/directory/evidence/pages/`, made by `scripts/directory/screenshot_pages.mjs`;
   - `REVIEWER_WALKTHROUGH.md`, whose expected results were checked against a sandbox run.
   Tests: `site-pages` 3, plus deletion tests in `oauth-flow` and `db/oauth-db`.
+
+- Phase 3 prep:
+  - The CDK stack (29 resources) passes `cdk synth`.
+  - `scripts/directory/{oauth_smoke,create_reviewer,inspector_oauth_evidence}.mjs` all ran against a **local** server on Postgres, using the least-privilege runtime role:
+    - `oauth_smoke`: 31/31 checks, including every tool (`evidence/oauth-smoke-local-postgres.json`);
+    - MCP Inspector 2.8.0 OAuth flow: 401 → DCR → sign-in → consent → connected → tool call (`evidence/inspector-oauth-local-*`).
+  - **Not yet run against a deployed URL.**
 
 ## Next
 

@@ -13,7 +13,7 @@ export CDK_DEFAULT_REGION="$REGION" CDK_DEFAULT_ACCOUNT="$(aws sts get-caller-id
 npx cdk destroy "ShopVoice-${STAGE}" --force -c stage="$STAGE"
 
 if [[ "${1:-}" == "--purge-secrets" ]]; then
-  for p in postgres-password mcp-demo-token sim-access-code origin-verify-secret; do
+  for p in postgres-password mcp-demo-token sim-access-code origin-verify-secret oauth-cookie-secret invite-pepper-b64 reviewer-password; do
     aws ssm delete-parameter --region "$REGION" --name "/shopvoice/${STAGE}/${p}" 2>/dev/null && echo "deleted /shopvoice/${STAGE}/${p}" || true
   done
 fi

@@ -1,0 +1,259 @@
+{
+  "base_url": "http://localhost:8190",
+  "started_at": "2026-09-27T04:40:40.582Z",
+  "checks": [
+    {
+      "name": "PRM /.well-known/oauth-protected-resource/mcp",
+      "ok": true,
+      "detail": "200, 61 ms"
+    },
+    {
+      "name": "PRM /.well-known/oauth-protected-resource",
+      "ok": true,
+      "detail": "200, 3 ms"
+    },
+    {
+      "name": "AS metadata (RFC 8414)",
+      "ok": true,
+      "detail": "issuer http://localhost:8190"
+    },
+    {
+      "name": "401 + WWW-Authenticate resource_metadata",
+      "ok": true,
+      "detail": "401"
+    },
+    {
+      "name": "GET /docs",
+      "ok": true,
+      "detail": "200 text/html; charset=utf-8"
+    },
+    {
+      "name": "GET /privacy",
+      "ok": true,
+      "detail": "200 text/html; charset=utf-8"
+    },
+    {
+      "name": "GET /terms",
+      "ok": true,
+      "detail": "200 text/html; charset=utf-8"
+    },
+    {
+      "name": "GET /support",
+      "ok": true,
+      "detail": "200 text/html; charset=utf-8"
+    },
+    {
+      "name": "GET /docs?lang=vi",
+      "ok": true,
+      "detail": "200 text/html; charset=utf-8"
+    },
+    {
+      "name": "GET /icon.svg",
+      "ok": true,
+      "detail": "200 image/svg+xml"
+    },
+    {
+      "name": "GET /icon-512.png",
+      "ok": true,
+      "detail": "200 image/png"
+    },
+    {
+      "name": "DCR registration",
+      "ok": true,
+      "detail": "5 ms"
+    },
+    {
+      "name": "authorize shows sign-in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sign-in -> consent",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "consent -> redirect with code, state and iss",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "token exchange (PKCE, form-urlencoded)",
+      "ok": true,
+      "detail": "9 ms, scope \"shop.read shop.write offline_access\""
+    },
+    {
+      "name": "MCP initialize with OAuth token",
+      "ok": true,
+      "detail": "protocol 2025-11-25"
+    },
+    {
+      "name": "tools/list returns 9 annotated tools",
+      "ok": true,
+      "detail": "get_low_stock, get_stock_level, get_sales_summary, get_top_movers, get_invoice_status, suggest_reorder, create_reorder_draft, confirm_reorder, get_daily_briefing"
+    },
+    {
+      "name": "tools/call get_daily_briefing",
+      "ok": true,
+      "detail": "44 ms"
+    },
+    {
+      "name": "tools/call get_low_stock",
+      "ok": true,
+      "detail": "20 ms"
+    },
+    {
+      "name": "tools/call get_stock_level",
+      "ok": true,
+      "detail": "26 ms"
+    },
+    {
+      "name": "tools/call get_sales_summary",
+      "ok": true,
+      "detail": "12 ms"
+    },
+    {
+      "name": "tools/call get_top_movers",
+      "ok": true,
+      "detail": "24 ms"
+    },
+    {
+      "name": "tools/call get_invoice_status",
+      "ok": true,
+      "detail": "14 ms"
+    },
+    {
+      "name": "tools/call suggest_reorder",
+      "ok": true,
+      "detail": "18 ms"
+    },
+    {
+      "name": "tools/call create_reorder_draft",
+      "ok": true,
+      "detail": "28 ms"
+    },
+    {
+      "name": "tools/call confirm_reorder",
+      "ok": true,
+      "detail": "16 ms"
+    },
+    {
+      "name": "resources/read shop://profile",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "refresh-token rotation",
+      "ok": true,
+      "detail": "7 ms"
+    },
+    {
+      "name": "reused refresh token rejected (invalid_grant)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "revoked grant -> 401",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_daily_briefing",
+      "args": {},
+      "http": 200,
+      "ms": 44,
+      "is_error": false,
+      "text": "**Daily shop briefing**\n- Yesterday's sales: $585.12 (-1.0% vs the same weekday last week)\n- Products at or below minimum stock: 4 (most urgent: White Sandwich Bread)\n- Supplier invoices not yet synced to the POS: 2"
+    },
+    {
+      "name": "get_low_stock",
+      "args": {},
+      "http": 200,
+      "ms": 20,
+      "is_error": false,
+      "text": "**4 product(s) at or below minimum stock**, most urgent first:\n\n| Product | On hand | Minimum | Days of cover | Supplier |\n|---|---|---|---|---|\n| White Sandwich Bread | 6 loaf | 20 loaf | under 1 day | SUP-FRESH |\n| Chicken Eggs 10-pack | 11 tray | 24 tray | under 1 day | SUP-DAIRY |\n| Fresh Milk 1L | 13 carton | 28 carton | under 1 day | SUP-DAIRY |\n| Cola 330ml Can | 47 can | 108 can | 1.3 days | SUP-BEV |"
+    },
+    {
+      "name": "get_stock_level",
+      "args": {
+        "product": "fresh milk 1l"
+      },
+      "http": 200,
+      "ms": 26,
+      "is_error": false,
+      "text": "**Fresh Milk 1L**: 13 carton on hand (minimum 28 carton), about under 1 day of cover at 15.1 sold per day — **below minimum**."
+    },
+    {
+      "name": "get_sales_summary",
+      "args": {
+        "period": "yesterday"
+      },
+      "http": 200,
+      "ms": 12,
+      "is_error": false,
+      "text": "**Sales, yesterday (2026-09-26)**: $585.12 from 870 units.\nCompared with last Saturday (2026-09-19): $592.64 from 878 units (-1.0%)."
+    },
+    {
+      "name": "get_top_movers",
+      "args": {
+        "period": "last_7_days",
+        "metric": "revenue",
+        "limit": 5
+      },
+      "http": 200,
+      "ms": 24,
+      "is_error": false,
+      "text": "**Top 5 products by revenue, the last 7 days (2026-09-20 to 2026-09-26)**\n\n| # | Product | Units | Revenue |\n|---|---|---|---|\n| 1 | Lager Beer 24-Can Case | 14 case | $201.60 |\n| 2 | Lager Beer 330ml Can | 233 can | $149.12 |\n| 3 | Fresh Milk 1L | 106 carton | $135.68 |\n| 4 | Jasmine Rice 5kg | 22 bag | $123.20 |\n| 5 | Chicken Eggs 10-pack | 83 tray | $106.24 |"
+    },
+    {
+      "name": "get_invoice_status",
+      "args": {
+        "supplier": "Sunrise Beverages"
+      },
+      "http": 200,
+      "ms": 14,
+      "is_error": false,
+      "text": "**Supplier invoices matching \"Sunrise Beverages\"**\n\n| Invoice | Supplier | Date | Total | Lines | Status |\n|---|---|---|---|---|---|\n| SRB-10442 | Sunrise Beverages | 2026-09-27 | $92.93 | 4 | Matched, not synced to POS |"
+    },
+    {
+      "name": "suggest_reorder",
+      "args": {},
+      "http": 200,
+      "ms": 18,
+      "is_error": false,
+      "text": "**Suggested reorder: 4 item(s), about $394.70** (suggestion only, nothing is ordered).\n\n**Green Valley Dairy & Eggs** (lead time 1 day(s), about $210.00)\n\n| Product | On hand | Days of cover | Order |\n|---|---|---|---|\n| Chicken Eggs 10-pack | 11 tray | under 1 day | 90 tray |\n| Fresh Milk 1L | 13 carton | under 1 day | 120 carton |\n\n**Sunrise Beverages** (lead time 2 day(s), about $97.34)\n\n| Product | On hand | Days of cover | Order |\n|---|---|---|---|\n| Cola 330ml Can | 47 can | 1.3 days | 312 can |\n\n**Dawn Bakery & Farm** (lead time 1 day(s), about $87.36)\n\n| Product | On hand | Days of cover | Order |\n|---|---|---|---|\n| White Sandwich Bread | 6 loaf | under 1 day | 80 loaf |"
+    },
+    {
+      "name": "create_reorder_draft",
+      "args": {
+        "items": [
+          {
+            "product": "fresh milk 1l"
+          },
+          {
+            "product": "eggs"
+          }
+        ]
+      },
+      "http": 200,
+      "ms": 28,
+      "is_error": false,
+      "text": "**Purchase-order draft(s) created, total about $210.00.** Not placed yet: nothing is ordered until confirm_reorder runs with the confirmation token below (valid 5 minutes, one use).\n\n**Green Valley Dairy & Eggs**, about $210.00\n\n| Product | Quantity |\n|---|---|\n| Fresh Milk 1L | 120 carton |\n| Chicken Eggs 10-pack | 90 tray |\n\nconfirmation_token: `[redacted]` (expires 2026-09-27T04:45:40.974Z)"
+    },
+    {
+      "name": "confirm_reorder",
+      "args": {
+        "confirmation_token": "[redacted]"
+      },
+      "http": 200,
+      "ms": 16,
+      "is_error": false,
+      "text": "**Confirmed 1 purchase order(s), total $210.00.** They are recorded in the shop's purchase orders; no payment was made.\n- Green Valley Dairy & Eggs: $210.00 (confirmed)"
+    }
+  ],
+  "www_authenticate": "Bearer realm=\"shopvoice\", resource_metadata=\"http://localhost:8190/.well-known/oauth-protected-resource/mcp\", scope=\"shop.read shop.write\"",
+  "finished_at": "2026-09-27T04:40:41.038Z",
+  "passed": true
+}
