@@ -12,7 +12,7 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
 - [x] Phase 2: MCP adjustments (protocol decision, Claude reorder path, markdown content, instructions, Origin regression test, errors, description audit)
 - [ ] Phase 3: deploy. **Code ready and synthesized; the deploy itself is BLOCKED on AWS credentials (DB1).** CDK changes: OAuth/pages routes, `/.well-known` at the root, SSM `public-base-url`, S3 backups, alarms. Also done: reviewer script, smoke tooling, `DEPLOYMENT.md`
 - [x] Phase 4: public pages (`/docs`, `/privacy`, `/terms`, `/support`), icon, `REVIEWER_WALKTHROUGH.md`. They are live only once Phase 3 deploys
-- [ ] Phase 5: plugin bundle, validate, evals, zip, `shopvoice-plugin` repo
+- [x] Phase 5: plugin bundle (`plugins/shopvoice`): `claude plugin validate` passes; evals score 1.00 with the plugin, mean Δ +0.71; `build_plugin.mjs` produces the repo root and the zip. **Not done: pushing to `vansyson1308/shopvoice-plugin` (the repo exists and is empty). It waits for the deployed host, because `.mcp.json` must carry the real URL (DB1)**
 - [ ] Phase 6: Inspector OAuth evidence, every tool called on the deployed server, `OWNER_CLAUDE_TEST.md`, Checkpoint B
 - [ ] Phase 7: `SUBMISSION_KIT.md` with limits checked by a script, Devpost update, PR, Checkpoint C
 
@@ -52,6 +52,13 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
     - `oauth_smoke`: 31/31 checks, including every tool (`evidence/oauth-smoke-local-postgres.json`);
     - MCP Inspector 2.8.0 OAuth flow: 401 → DCR → sign-in → consent → connected → tool call (`evidence/inspector-oauth-local-*`).
   - **Not yet run against a deployed URL.**
+
+- Phase 5 added:
+  - `plugins/shopvoice`: `plugin.json`, `.mcp.json` (placeholder host `SHOPVOICE_HOST`), 4 skills, 2 commands, a README and the MIT LICENSE;
+  - `evals/`: 4 cases, with mocks generated from the real server output;
+  - `PLUGIN_EVAL.md`, recording that the restock skill was fixed after scoring 0.58 and now scores 1.00;
+  - `scripts/directory/build_plugin.mjs`, which fills in the host, adds the plugin repo's CI (`claude plugin validate` plus the directory rules), validates and zips.
+  - In Claude Code, `claude --plugin-dir` against the local server loads the 4 skills and 2 commands, and the server is correctly reported as needing OAuth.
 
 ## Next
 

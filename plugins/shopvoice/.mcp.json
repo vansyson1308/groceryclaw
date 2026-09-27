@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "shopvoice": {
+      "type": "http",
+      "url": "https://SHOPVOICE_HOST/mcp"
+    }
+  }
+}

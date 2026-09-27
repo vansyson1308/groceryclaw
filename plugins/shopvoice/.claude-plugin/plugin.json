@@ -1,0 +1,11 @@
+{
+  "name": "shopvoice",
+  "displayName": "ShopVoice",
+  "version": "0.1.0",
+  "description": "Run a small grocery or convenience store from a conversation: daily briefings, low-stock alerts, sales insights, supplier invoice follow-ups and two-step reorders, using the ShopVoice connector for your shop's stock, sales and purchase orders.",
+  "author": { "name": "GroceryClaw (vansyson1308)", "url": "https://github.com/vansyson1308" },
+  "homepage": "https://SHOPVOICE_HOST/docs",
+  "repository": "https://github.com/vansyson1308/shopvoice-plugin",
+  "license": "MIT",
+  "keywords": ["grocery", "retail", "inventory", "sales", "reorder", "small-business", "vietnam", "tap-hoa", "mcp"]
+}
