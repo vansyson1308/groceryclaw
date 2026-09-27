@@ -242,6 +242,10 @@ services:
       MCP_CONFIRM_TTL_SECONDS: ${MCP_CONFIRM_TTL_SECONDS:-300}
       MCP_DEMO_TOKEN: ${MCP_DEMO_TOKEN:-}
       DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      OAUTH_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-}
     depends_on:
       postgres:
         condition: service_healthy

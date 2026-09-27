@@ -54,6 +54,14 @@
 - **Reorder confirmation tokens** are short-lived (`MCP_CONFIRM_TTL_SECONDS`, default 300s), stored hashed, and redacted from `voice_audit_log.args_redacted`.
 - The MCP server never logs bearer tokens; the shared logger redacts `authorization` and `*token*` keys.
 
+## ShopVoice OAuth (Claude connector) secrets
+- **`OAUTH_COOKIE_SECRET`**: HMAC key for the sign-in session cookie (>= 32 random chars). Deployment: SSM SecureString `/shopvoice/oauth-cookie-secret`. Rotating it signs everyone out of the web pages; issued OAuth tokens keep working.
+- **OAuth access tokens** (`svat_…`, 1 h), **refresh tokens** (`svrt_…`, 30 days, rotated on every use), **authorization codes** (`svac_…`, 60 s, single use) and **DCR client secrets** (`svcs_…`): random 256-bit values shown once to the client; only their SHA-256 hashes are stored (`oauth_tokens`, `oauth_codes`, `oauth_clients`). The runtime DB role has no grants on these tables; SECURITY DEFINER functions from migration 018 are the only access path.
+- **Web account passwords**: scrypt (N=16384, r=8, p=1, 16-byte salt) via `node:crypto`; never logged.
+- **Revocation:** users revoke apps on `/account`; clients use `/oauth/revoke`; operators run `SELECT oauth_revoke_grant('<account uuid>', '<client_id>');`. Reusing a rotated refresh token or an authorization code revokes the whole token family automatically.
+- **Reviewer account password** (directory review): generated at deploy time, stored only in SSM SecureString `/shopvoice/reviewer-password` (and the operator's local `.env`), never in git or the submission kit.
+- `PUBLIC_BASE_URL`, `SUPPORT_EMAIL`, `OAUTH_*_TTL_*` and the rate limits are configuration, not secrets.
+
 ## ShopVoice simulator secrets
 - **`SIM_MCP_TOKEN`**: the MCP bearer token the simulator uses to reach the MCP server (the demo tenant's token).
 - **AWS credentials** for Bedrock and Polly: locally, use `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `infra/compose/v2/.env` (git-ignored). On AWS, use the task role created by `infra/aws` (no static keys). The minimum IAM permissions are `bedrock:InvokeModel` on the configured model/inference profile and `polly:SynthesizeSpeech`.

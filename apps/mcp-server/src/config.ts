@@ -17,6 +17,18 @@ export interface McpServerConfig {
   readonly jsonResponses: boolean;
   /** When set, every request except /healthz must carry X-Origin-Verify with this value (added by CloudFront). */
   readonly originVerifySecret: string;
+  /** Public origin (https://host) that serves /mcp, /.well-known/* and /oauth/*; empty disables OAuth. */
+  readonly publicBaseUrl: string;
+  readonly oauthCookieSecret: string;
+  readonly oauthAccessTtlSeconds: number;
+  readonly oauthRefreshTtlSeconds: number;
+  readonly oauthCodeTtlSeconds: number;
+  readonly oauthDcrPerHour: number;
+  readonly oauthLoginPerMinute: number;
+  readonly oauthDcrIdleDays: number;
+  /** Base64 invite pepper, shared with the gateway; enables linking a web account to a real shop. */
+  readonly invitePepperB64: string;
+  readonly supportEmail: string;
 }
 
 function int(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -37,6 +49,24 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     throw new Error('MCP_DB_URL (or DB_APP_URL / DATABASE_URL) is required when MCP_DATA_BACKEND=postgres');
   }
   const production = env.NODE_ENV === 'production';
+  const publicBaseUrl = (env.PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
+  if (publicBaseUrl) {
+    let url: URL;
+    try {
+      url = new URL(publicBaseUrl);
+    } catch {
+      throw new Error('PUBLIC_BASE_URL must be an absolute URL such as https://shopvoice.example.com');
+    }
+    const local = ['localhost', '127.0.0.1'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local && !production)) {
+      throw new Error('PUBLIC_BASE_URL must use https (http is allowed only for localhost outside production)');
+    }
+    if (url.pathname !== '/' || url.search || url.hash) throw new Error('PUBLIC_BASE_URL must be an origin without a path');
+  }
+  const cookieSecret = env.OAUTH_COOKIE_SECRET ?? '';
+  if (publicBaseUrl && cookieSecret.length < 32) {
+    throw new Error('OAUTH_COOKIE_SECRET (>= 32 random characters) is required when PUBLIC_BASE_URL is set');
+  }
   return {
     host: env.MCP_HOST ?? '0.0.0.0',
     port: int(env.MCP_PORT, 8090, 1, 65535),
@@ -54,6 +84,16 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     maxBodyBytes: int(env.MCP_MAX_BODY_BYTES, 262_144, 1024, 4_194_304),
     tokenCacheSeconds: int(env.MCP_TOKEN_CACHE_SECONDS, 30, 0, 3600),
     jsonResponses: bool(env.MCP_JSON_RESPONSES, true),
-    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? ''
+    originVerifySecret: env.ORIGIN_VERIFY_SECRET ?? '',
+    publicBaseUrl,
+    oauthCookieSecret: cookieSecret,
+    oauthAccessTtlSeconds: int(env.OAUTH_ACCESS_TTL_SECONDS, 3600, 300, 86_400),
+    oauthRefreshTtlSeconds: int(env.OAUTH_REFRESH_TTL_DAYS, 30, 1, 90) * 86_400,
+    oauthCodeTtlSeconds: 60,
+    oauthDcrPerHour: int(env.OAUTH_DCR_PER_HOUR, 30, 1, 10_000),
+    oauthLoginPerMinute: int(env.OAUTH_LOGIN_PER_MINUTE, 20, 1, 1000),
+    oauthDcrIdleDays: 30,
+    invitePepperB64: env.INVITE_PEPPER_B64 ?? '',
+    supportEmail: env.SUPPORT_EMAIL ?? ''
   };
 }

@@ -10,7 +10,11 @@ import type { z } from 'zod';
 export const SERVER_NAME = 'shopvoice';
 export const SERVER_VERSION = '0.1.0';
 
+/** voice: Alexa simulator / static bearer (spoken sentence); chat: OAuth clients such as Claude (markdown). */
+export type ClientProfile = 'voice' | 'chat';
+
 export interface McpFactoryOptions {
+  readonly profile?: ClientProfile;
   readonly store: ShopStore;
   readonly tenantId: string;
   readonly logger: Logger;
