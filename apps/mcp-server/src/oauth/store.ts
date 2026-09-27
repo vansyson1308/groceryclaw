@@ -108,6 +108,10 @@ export interface OAuthStore {
   revokeToken(tokenHash: string, clientId: string): Promise<boolean>;
   listGrants(accountId: string): Promise<GrantSummary[]>;
   revokeGrant(accountId: string, clientId: string): Promise<number>;
+  /** Deletes the account, its tokens and its sandbox shop data (self-service, /account). */
+  deleteAccount(accountId: string): Promise<boolean>;
+  /** Tool-call audit retention; returns rows removed. */
+  purgeAuditLog(days: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +154,8 @@ export interface MemorySandboxHooks {
   provision(tenantId: string, locale: Locale): Promise<string> | string;
   /** Links an invite code to a tenant id (test double for consume_invite_code). */
   redeemInvite?(code: string): { tenantId: string; shopName: string } | null;
+  /** Drops a deleted account's sandbox data. */
+  remove?(tenantId: string): void;
 }
 
 export class MemoryOAuthStore implements OAuthStore {
@@ -323,6 +329,20 @@ export class MemoryOAuthStore implements OAuthStore {
       });
     }
     return out.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+  }
+
+  async deleteAccount(accountId: string): Promise<boolean> {
+    const a = this.accounts.get(accountId);
+    if (!a) return false;
+    this.accounts.delete(accountId);
+    for (const [hash, t] of this.tokens) if (t.accountId === accountId) this.tokens.delete(hash);
+    for (const [hash, c] of this.codes) if (c.accountId === accountId) this.codes.delete(hash);
+    this.hooks.remove?.(a.tenantId);
+    return true;
+  }
+
+  async purgeAuditLog(): Promise<number> {
+    return 0;
   }
 
   async revokeGrant(accountId: string, clientId: string): Promise<number> {

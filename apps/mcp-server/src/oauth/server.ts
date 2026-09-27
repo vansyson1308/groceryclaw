@@ -60,6 +60,8 @@ export interface OAuthServer {
 const SESSION_COOKIE = 'sv_session';
 const CSRF_COOKIE = 'sv_csrf';
 const SESSION_TTL_MS = 12 * 3600_000;
+/** Privacy policy: tool-call audit entries are kept 90 days. */
+export const AUDIT_RETENTION_DAYS = 90;
 const MAX_FORM_BYTES = 16 * 1024;
 const AUTHZ_FIELDS = ['response_type', 'client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method', 'scope', 'resource', 'ui_locales'] as const;
 
@@ -617,7 +619,7 @@ export function createOAuthServer(deps: OAuthServerDeps): OAuthServer {
       const account = await sessionAccount(req);
       const notice = url.searchParams.get('done');
       if (account) await showAccount(req, res, account, notice === 'linked' ? 'linked' : notice === 'revoked' ? 'revoked' : null, null);
-      else showAccountLogin(req, res, locale, null);
+      else showAccountLogin(req, res, locale, notice === 'deleted' ? 'deleted' : null);
       return;
     }
     if (req.method !== 'POST') throw new HttpError(405, 'method not allowed');
@@ -652,6 +654,17 @@ export function createOAuthServer(deps: OAuthServerDeps): OAuthServer {
       await store.revokeGrant(account.accountId, form.get('client_id') ?? '');
       logger.info('oauth_grant_revoked', { account_id: account.accountId });
       seeOther(res, '/account?done=revoked');
+      return;
+    }
+    if (action === 'delete') {
+      if ((form.get('confirm_email') ?? '').trim().toLowerCase() !== account.email) {
+        await showAccount(req, res, account, null, 'errDeleteConfirm', 400);
+        return;
+      }
+      await store.deleteAccount(account.accountId);
+      endSession(res);
+      logger.info('oauth_account_deleted', { account_id: account.accountId });
+      seeOther(res, '/account?done=deleted');
       return;
     }
     if (action === 'link') {
@@ -723,7 +736,11 @@ export function createOAuthServer(deps: OAuthServerDeps): OAuthServer {
       sandboxChecked.set(tenantId, day);
       if (sandboxChecked.size > 50_000) sandboxChecked.clear();
     },
-    cleanup: () => store.cleanup(config.dcrIdleDays)
+    async cleanup() {
+      const removed = await store.cleanup(config.dcrIdleDays);
+      await store.purgeAuditLog(AUDIT_RETENTION_DAYS);
+      return removed;
+    }
   };
 }
 

@@ -44,7 +44,8 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
         provision: (tenantId, locale) => {
           store.addTenant(tenantId, seed.buildSandboxTenantData(locale, process.env.DEMO_ANCHOR_DATE || undefined));
           return seed.SANDBOX_PROFILES[locale].shop_name;
-        }
+        },
+        remove: (tenantId) => store.removeTenant(tenantId)
       })
       : null;
     return { store, oauthStore };

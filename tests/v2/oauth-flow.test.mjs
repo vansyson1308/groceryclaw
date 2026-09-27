@@ -575,3 +575,30 @@ test('DCR clients idle for 30 days with no live token are cleaned up; recently u
     await srv.close();
   }
 });
+
+test('account deletion needs the typed email, then removes the account and its access', async () => {
+  const srv = await startOAuthServer();
+  try {
+    const clientId = await dcrClient(srv);
+    const who = email();
+    const t = await fullGrant(srv, { clientId, email: who });
+    const jar = t.jar;
+    const page = await (await fetch(`${srv.url}/account`, { headers: { cookie: jar.header() } })).text();
+    assert.match(page, /name="action" value="delete"/);
+    const post = async (fields) => jar.absorb(await fetch(`${srv.url}/account`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: jar.header() },
+      body: new URLSearchParams({ csrf: hidden(page, 'csrf'), ...fields }), redirect: 'manual'
+    }));
+    const wrong = await post({ action: 'delete', confirm_email: 'someone-else@example.com' });
+    assert.equal(wrong.status, 400);
+    assert.equal((await mcpPost(srv, INIT, { token: t.access_token })).status, 200, 'nothing deleted');
+    const del = await post({ action: 'delete', confirm_email: who.toUpperCase() });
+    assert.equal(del.status, 303);
+    assert.equal((await mcpPost(srv, INIT, { token: t.access_token })).status, 401);
+    assert.equal(await srv.oauthStore.findCredentials(who), null);
+    const after = await fetch(`${srv.url}/account?done=deleted`, { headers: { cookie: jar.header() } });
+    assert.match(await after.text(), /Your account was deleted/);
+  } finally {
+    await srv.close();
+  }
+});

@@ -16,6 +16,7 @@ import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
 import type { CimdResolver } from './oauth/cimd.js';
 import { CHALLENGE_SCOPE, WRITE_SCOPE, wwwAuthenticate } from './oauth/metadata.js';
+import { createSite } from './site.js';
 
 interface Session {
   readonly transport: StreamableHTTPServerTransport;
@@ -179,6 +180,8 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       }
     })
     : null;
+
+  const site = createSite({ baseUrl: config.publicBaseUrl, mcpPath: config.mcpPath, supportEmail: config.supportEmail });
 
   async function resolvePrincipal(token: string): Promise<Principal | null> {
     if (oauth && token.startsWith('svat_')) {
@@ -371,6 +374,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
           return;
         }
         if (oauth && await oauth.handle(req, res, url)) return;
+        if (site?.handle(req, res, url)) return;
         if (url.pathname === '/readyz' && req.method === 'GET') {
           const ok = await store.ping();
           sendJson(res, ok ? 200 : 503, { status: ok ? 'ready' : 'not_ready', checks: { database: ok ? 'ok' : 'fail' } });

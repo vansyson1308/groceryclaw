@@ -57,6 +57,12 @@ const T = {
     errInviteOff: 'Linking a real shop is not enabled on this server yet.',
     linked: 'Your account now uses your real shop.',
     revoked: 'Access revoked.',
+    deleteTitle: 'Delete account',
+    deleteLead: 'Deletes your ShopVoice account, disconnects every app and erases your demo shop. A linked real shop keeps its data in GroceryClaw. This cannot be undone.',
+    deleteConfirm: 'Type your email to confirm',
+    deleteButton: 'Delete my account',
+    deleted: 'Your account was deleted.',
+    errDeleteConfirm: 'The email you typed does not match this account, so nothing was deleted.',
     errorTitle: 'Cannot continue',
     help: 'Need help? Contact',
     docs: 'Docs',
@@ -116,6 +122,12 @@ const T = {
     errInviteOff: 'Máy chủ này chưa bật tính năng liên kết cửa hàng thật.',
     linked: 'Tài khoản đã chuyển sang cửa hàng thật.',
     revoked: 'Đã thu hồi quyền.',
+    deleteTitle: 'Xóa tài khoản',
+    deleteLead: 'Xóa tài khoản ShopVoice, ngắt kết nối mọi ứng dụng và xóa cửa hàng mẫu. Cửa hàng thật đã liên kết vẫn giữ dữ liệu trong GroceryClaw. Không thể hoàn tác.',
+    deleteConfirm: 'Nhập email để xác nhận',
+    deleteButton: 'Xóa tài khoản của tôi',
+    deleted: 'Tài khoản đã được xóa.',
+    errDeleteConfirm: 'Email không khớp với tài khoản này nên chưa xóa gì.',
     errorTitle: 'Không thể tiếp tục',
     help: 'Cần hỗ trợ? Liên hệ',
     docs: 'Tài liệu',
@@ -143,7 +155,7 @@ export function esc(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-export const LOGO_SVG = '<svg viewBox="0 0 64 64" width="36" height="36" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f766e"/><path d="M14 26h36l-3 20a4 4 0 0 1-4 3.4H21a4 4 0 0 1-4-3.4z" fill="#fff"/><path d="M22 26l4-9m16 9l-4-9" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M27 33v8m5-11v14m5-11v8" stroke="#0f766e" stroke-width="3.2" stroke-linecap="round"/></svg>';
+export const LOGO_SVG = '<svg viewBox="0 0 512 512" width="36" height="36" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0f766e"/><path d="M176 214l40-86M336 214l-40-86" stroke="#fff" stroke-width="30" stroke-linecap="round"/><path d="M104 206h304a14 14 0 0 1 13.8 16.3l-26 152A40 40 0 0 1 356.4 408H155.6a40 40 0 0 1-39.4-33.7l-26-152A14 14 0 0 1 104 206z" fill="#fff"/><path d="M196 268v76M236 250v112M276 276v60M316 262v88" stroke="#0f766e" stroke-width="24" stroke-linecap="round"/></svg>';
 
 const CSS = `
 :root{--bg:#f6f7f5;--card:#fff;--ink:#17201d;--muted:#5b6661;--line:#dfe4e1;--brand:#0f766e;--brand-ink:#fff;--warn-bg:#fff7e6;--warn:#8a5a00;--err-bg:#fdecec;--err:#9b1c1c;--ok-bg:#e8f6ef;--ok:#11643a}
@@ -195,7 +207,7 @@ export function renderAuthPage(p: AuthPageInput): string {
   const s = strings(p.locale);
   const other: Locale = p.locale === 'vi' ? 'en' : 'vi';
   const intro = p.clientLabel ? `<p><b>${esc(p.clientLabel)}</b> ${s.connecting}</p>` : `<p>${s.signinLead}</p>`;
-  const err = p.error ? `<div class="err" role="alert">${s[p.error]}</div>` : '';
+  const err = p.error === 'deleted' ? `<div class="ok" role="status">${s.deleted}</div>` : p.error ? `<div class="err" role="alert">${s[p.error]}</div>` : '';
   const body = `
 <div class="card"><h1>${s.signinTitle}</h1>${intro}${err}
 <form method="post" action="${esc(p.action)}">${hiddenInputs(p.hidden)}
@@ -239,7 +251,7 @@ export function renderConsentPage(p: ConsentPageInput): string {
     writeRequested ? `<li><label class="check" style="margin:0"><input type="checkbox" name="grant_write" value="1" checked> <span>${s.canWrite}</span></label></li>` : '',
     p.scopes.includes('offline_access') ? `<li>✓ ${s.refresh}</li>` : ''
   ].join('');
-  const shop = `${esc(p.account.shopName)}${p.account.isSandbox ? ` <span class="pill">${s.sample}</span>` : ''}`;
+  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
   const body = `
 <div class="card"><h1>${s.consentTitle}</h1>
 <ul class="facts"><li><div class="muted">${s.app}</div>${identity}</li>
@@ -282,7 +294,7 @@ export function renderAccountPage(p: AccountPageInput): string {
     ? `<p class="muted">${s.noApps}</p>`
     : p.grants.map((g) => `<div class="app"><div><b>${esc(appLabel(g))}</b><div class="muted">${esc(g.scopes.join(' '))} · ${s.lastUsed} ${esc(g.lastUsedAt.slice(0, 16).replace('T', ' '))} UTC</div></div>
 <form method="post" action="/account">${csrf}<input type="hidden" name="client_id" value="${esc(g.clientId)}"><button type="submit" name="action" value="revoke">${s.revoke}</button></form></div>`).join('');
-  const shop = `${esc(p.account.shopName)}${p.account.isSandbox ? ` <span class="pill">${s.sample}</span>` : ''}`;
+  const shop = `${esc(p.account.shopName)}${p.account.isSandbox && !/sample|mẫu/i.test(p.account.shopName) ? ` <span class="pill">${s.sample}</span>` : ''}`;
   const body = `
 <div class="card"><h1>${s.accountTitle}</h1>
 ${p.notice ? `<div class="ok" role="status">${s[p.notice]}</div>` : ''}${p.error ? `<div class="err" role="alert">${s[p.error]}</div>` : ''}
@@ -291,7 +303,10 @@ ${p.notice ? `<div class="ok" role="status">${s[p.notice]}</div>` : ''}${p.error
 <div class="card"><h2>${s.connectedApps}</h2>${apps}</div>
 <div class="card"><h2>${s.linkTitle}</h2><p class="muted">${s.linkLead}</p>
 <form method="post" action="/account">${csrf}<label for="inv">${s.inviteCode}</label><input id="inv" type="text" name="invite_code" autocomplete="off" required maxlength="40">
-<div class="row"><button type="submit" name="action" value="link">${s.link}</button></div></form></div>`;
+<div class="row"><button type="submit" name="action" value="link">${s.link}</button></div></form></div>
+<div class="card"><h2>${s.deleteTitle}</h2><p class="muted">${s.deleteLead}</p>
+<form method="post" action="/account">${csrf}<label for="del">${s.deleteConfirm}</label><input id="del" type="email" name="confirm_email" autocomplete="off" required>
+<div class="row"><button type="submit" name="action" value="delete">${s.deleteButton}</button></div></form></div>`;
   return layout(p.locale, s.accountTitle, body, p.supportEmail);
 }
 

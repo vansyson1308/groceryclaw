@@ -199,6 +199,16 @@ export class PgOAuthStore implements OAuthStore {
     }));
   }
 
+  async deleteAccount(accountId: string): Promise<boolean> {
+    const { rows } = await query(this.pool, 'SELECT web_account_delete($1) AS ok', [accountId]);
+    return rows[0]?.ok === true;
+  }
+
+  async purgeAuditLog(days: number): Promise<number> {
+    const { rows } = await query(this.pool, 'SELECT purge_voice_audit_log($1) AS n', [days]);
+    return Number(rows[0]?.n ?? 0);
+  }
+
   async revokeGrant(accountId: string, clientId: string): Promise<number> {
     const { rows } = await query(this.pool, 'SELECT oauth_revoke_grant($1, $2) AS n', [accountId, clientId]);
     return Number(rows[0]?.n ?? 0);

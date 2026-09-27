@@ -51,6 +51,7 @@ export async function startOAuthServer({ env = {}, cimdDocs = { [CC_CIMD]: CC_DO
       shopStore.addTenant(tenantId, buildSandboxTenantData(locale, ANCHOR));
       return SANDBOX_PROFILES[locale].shop_name;
     },
+    remove: (tenantId) => shopStore.removeTenant(tenantId),
     redeemInvite: (code) => (code.replace(/[\s-]/g, '').toUpperCase() === INVITE_CODE ? { tenantId: TENANT_B, shopName: 'Other Shop' } : null)
   }, clock);
   const config = loadMcpServerConfig({

@@ -2,7 +2,7 @@
 
 Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), the requirements in `REQUIREMENTS_DIGEST.md`, and deviations in `DECISIONS.md`.
 
-**Last update:** 2026-09-27, Phases 0–2 done.
+**Last update:** 2026-09-27, Phases 0–2 and 4 done; Phase 3 is blocked on AWS credentials.
 **Branch:** `feat/claude-directory`
 
 ## Checklist
@@ -11,7 +11,7 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
 - [x] Phase 1: OAuth 2.1 authorization server (migration 018, metadata, DCR, CIMD, authorize/consent, token, revoke, account page) and tests
 - [x] Phase 2: MCP adjustments (protocol decision, Claude reorder path, markdown content, instructions, Origin regression test, errors, description audit)
 - [ ] Phase 3: deploy (CDK: OAuth routes, `/.well-known` at the root, pages, backups, alarms), smoke test, reviewer account, `DEPLOYMENT.md`, deployed Devpost evidence
-- [ ] Phase 4: public pages (`/docs`, `/privacy`, `/terms`, `/support`), icon, `REVIEWER_WALKTHROUGH.md`
+- [x] Phase 4: public pages (`/docs`, `/privacy`, `/terms`, `/support`), icon, `REVIEWER_WALKTHROUGH.md`. They are live only once Phase 3 deploys
 - [ ] Phase 5: plugin bundle, validate, evals, zip, `shopvoice-plugin` repo
 - [ ] Phase 6: Inspector OAuth evidence, every tool called on the deployed server, `OWNER_CLAUDE_TEST.md`, Checkpoint B
 - [ ] Phase 7: `SUBMISSION_KIT.md` with limits checked by a script, Devpost update, PR, Checkpoint C
@@ -38,6 +38,13 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
   - without `DATABASE_URL`: `npm test` 221 plus 26, 0 failures;
   - with Postgres, on a fresh cluster with all migrations: 215 plus 56, 5 skipped, 0 failures, and the `db:v2:test:rls` and `db:v2:test:bootstrap` gates pass.
 - The Devpost e2e voice flow (`scripts/demo/e2e_voice_flow.mjs`) still passes 5/5.
+- Phase 4 added:
+  - `apps/mcp-server/public/pages/*.{en,vi}.html`, served by `src/site.ts` at `/docs`, `/privacy`, `/terms` and `/support`, with `?lang=vi` for Vietnamese;
+  - the icon, as `public/icon.svg` and `public/icon-512.png`;
+  - self-service account deletion and 90-day audit retention, added to migration 018 so the privacy page promises only what the code does;
+  - screenshots in `docs/directory/evidence/pages/`, made by `scripts/directory/screenshot_pages.mjs`;
+  - `REVIEWER_WALKTHROUGH.md`, whose expected results were checked against a sandbox run.
+  Tests: `site-pages` 3, plus deletion tests in `oauth-flow` and `db/oauth-db`.
 
 ## Next
 
@@ -45,7 +52,7 @@ Phase 3: the deploy is blocked on AWS (DB1). Before it, do Phase 4 (pages and ic
 
 ## Blockers
 
-See `BLOCKERS.md`: DB1 (AWS credentials rejected) and DB2 (Checkpoint A answers).
+See `BLOCKERS.md`: DB1 (AWS credentials rejected). DB2 is resolved: Checkpoint A was answered on 2026-09-27.
 
 ## Unverified / owner-only
 

@@ -196,6 +196,26 @@ test('invite link switches the account to the real tenant and revokes its tokens
   assert.equal(after.isSandbox, false);
 });
 
+test('account deletion erases the sandbox shop and tokens; audit purge keeps 90 days', { skip }, async () => {
+  const account = await store.createAccount({ email: `del-${run}@example.com`, passwordHash: 'scrypt$x', locale: 'en' });
+  const clientId = await newClient();
+  const t = await grant(account, clientId);
+  await admin.query("INSERT INTO voice_audit_log (tenant_id, tool_name, created_at) VALUES ($1, 'old', now() - interval '91 days'), ($1, 'new', now())", [account.tenantId]);
+  const removed = await store.purgeAuditLog(90);
+  assert.ok(removed >= 1);
+  const left = await admin.query('SELECT tool_name FROM voice_audit_log WHERE tenant_id = $1', [account.tenantId]);
+  assert.deepEqual(left.rows.map((r) => r.tool_name), ['new']);
+  assert.equal(await store.deleteAccount(account.accountId), true);
+  assert.equal(await store.findCredentials(`del-${run}@example.com`), null);
+  assert.equal(await store.resolveAccessToken(sha(t.access)), null);
+  const rest = await admin.query(`SELECT (SELECT count(*) FROM sales_daily WHERE tenant_id = $1)::int AS sales,
+      (SELECT count(*) FROM voice_audit_log WHERE tenant_id = $1)::int AS audit,
+      (SELECT status FROM tenants WHERE id = $1) AS status,
+      (SELECT count(*) FROM platform_users WHERE platform_user_id = $2)::int AS users`, [account.tenantId, `web:${account.accountId}`]);
+  assert.deepEqual(rest.rows[0], { sales: 0, audit: 0, status: 'suspended', users: 0 });
+  assert.equal(await store.deleteAccount(account.accountId), false);
+});
+
 test('migration 018 installs its functions', { skip }, async () => {
   const fns = await query(admin, "SELECT count(*)::int AS n FROM pg_proc WHERE proname LIKE 'oauth\\_%' OR proname LIKE 'web\\_account\\_%'");
   assert.ok(fns.rows[0].n >= 15);

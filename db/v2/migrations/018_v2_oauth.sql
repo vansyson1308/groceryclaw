@@ -103,6 +103,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON shop_profiles, suppliers, product_cache,
   sales_daily, purchase_order_drafts, inbound_events, canonical_invoices, canonical_invoice_items,
   resolved_invoice_items, sync_results
   TO groceryclaw_bootstrap_owner;
+GRANT SELECT, DELETE ON voice_audit_log TO groceryclaw_bootstrap_owner;
+GRANT DELETE ON tenant_users, platform_users TO groceryclaw_bootstrap_owner;
 
 -- ---------------------------------------------------------------------------
 -- Sandbox shop: the deterministic demo catalogue (scripts/v2/gen_demo_seed.mjs
@@ -600,6 +602,65 @@ BEGIN
 END;
 $$;
 
+-- Self-service account deletion (/account). Removes the account, its tokens
+-- and codes (cascade), the web platform users, and every row of its sandbox
+-- shop; the sandbox tenant row is kept as a suspended tombstone because older
+-- tables reference tenants without ON DELETE CASCADE. A linked real shop is
+-- untouched apart from losing this account's membership.
+CREATE OR REPLACE FUNCTION web_account_delete(p_account_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_sandbox UUID;
+BEGIN
+  SELECT sandbox_tenant_id INTO v_sandbox FROM web_accounts WHERE id = p_account_id;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  DELETE FROM web_accounts WHERE id = p_account_id;
+  IF v_sandbox IS NOT NULL THEN
+    DELETE FROM sync_results WHERE tenant_id = v_sandbox;
+    DELETE FROM resolved_invoice_items WHERE tenant_id = v_sandbox;
+    DELETE FROM canonical_invoice_items WHERE tenant_id = v_sandbox;
+    DELETE FROM canonical_invoices WHERE tenant_id = v_sandbox;
+    DELETE FROM inbound_events WHERE tenant_id = v_sandbox;
+    DELETE FROM purchase_order_drafts WHERE tenant_id = v_sandbox;
+    DELETE FROM voice_audit_log WHERE tenant_id = v_sandbox;
+    DELETE FROM sales_daily WHERE tenant_id = v_sandbox;
+    DELETE FROM reorder_rules WHERE tenant_id = v_sandbox;
+    DELETE FROM stock_levels WHERE tenant_id = v_sandbox;
+    DELETE FROM suppliers WHERE tenant_id = v_sandbox;
+    DELETE FROM product_cache WHERE tenant_id = v_sandbox;
+    DELETE FROM shop_profiles WHERE tenant_id = v_sandbox;
+    DELETE FROM sandbox_shops WHERE tenant_id = v_sandbox;
+    UPDATE tenants SET status = 'suspended', name = 'deleted sandbox', updated_at = now() WHERE id = v_sandbox;
+  END IF;
+  DELETE FROM tenant_users WHERE user_id IN (
+    SELECT id FROM platform_users WHERE platform_user_id IN ('web:' || p_account_id::text, 'web-link:' || p_account_id::text));
+  DELETE FROM platform_users WHERE platform_user_id IN ('web:' || p_account_id::text, 'web-link:' || p_account_id::text);
+  RETURN true;
+END;
+$$;
+
+-- Tool-call audit retention (privacy policy: 90 days).
+CREATE OR REPLACE FUNCTION purge_voice_audit_log(p_days INT)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count INT;
+BEGIN
+  DELETE FROM voice_audit_log WHERE created_at < now() - make_interval(days => GREATEST(p_days, 1));
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
 DO $$
 DECLARE
   fn TEXT;
@@ -622,7 +683,9 @@ BEGIN
     'oauth_rotate_refresh(text, text, text, int, text, int)',
     'oauth_revoke_token(text, text)',
     'oauth_list_grants(uuid)',
-    'oauth_revoke_grant(uuid, text)'
+    'oauth_revoke_grant(uuid, text)',
+    'web_account_delete(uuid)',
+    'purge_voice_audit_log(int)'
   ] LOOP
     EXECUTE format('ALTER FUNCTION %s OWNER TO groceryclaw_bootstrap_owner', fn);
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', fn);
@@ -638,6 +701,8 @@ COMMIT;
 -- migrate:down
 BEGIN;
 
+DROP FUNCTION IF EXISTS purge_voice_audit_log(INT);
+DROP FUNCTION IF EXISTS web_account_delete(UUID);
 DROP FUNCTION IF EXISTS oauth_revoke_grant(UUID, TEXT);
 DROP FUNCTION IF EXISTS oauth_list_grants(UUID);
 DROP FUNCTION IF EXISTS oauth_revoke_token(TEXT, TEXT);
@@ -662,6 +727,8 @@ REVOKE SELECT, INSERT, UPDATE, DELETE ON shop_profiles, suppliers, product_cache
   resolved_invoice_items, sync_results
   FROM groceryclaw_bootstrap_owner;
 REVOKE INSERT, UPDATE ON tenants FROM groceryclaw_bootstrap_owner;
+REVOKE SELECT, DELETE ON voice_audit_log FROM groceryclaw_bootstrap_owner;
+REVOKE DELETE ON tenant_users, platform_users FROM groceryclaw_bootstrap_owner;
 
 DROP TABLE IF EXISTS oauth_tokens;
 DROP TABLE IF EXISTS oauth_codes;
