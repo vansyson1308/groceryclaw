@@ -232,7 +232,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     const origin = header(req, 'origin');
     if (!isOriginAllowed(origin, config.allowedOrigins, config.allowLocalhostOrigins)) {
       logger.warn('mcp_origin_rejected', { origin });
-      jsonRpcError(res, 403, -32000, 'Forbidden: origin not allowed');
+      jsonRpcError(res, 403, -32000, 'Forbidden: this browser Origin is not allowed to call ShopVoice. Server-to-server clients should send no Origin header.');
       return;
     }
     const cors = corsHeaders(origin);
@@ -256,7 +256,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       // Claude's requests all come from Anthropic's shared egress range, so
       // counting those per IP would throttle every Claude user at once.
       if (token && !token.startsWith('svat_') && !authFailLimiter.consume(ip).allowed) {
-        jsonRpcError(res, 429, -32000, 'Too many requests', { 'retry-after': '60' });
+        jsonRpcError(res, 429, -32000, 'Too many failed sign-in attempts from this address; retry after 60 seconds.', { 'retry-after': '60' });
         return;
       }
       unauthorized(res, !!token);
@@ -267,7 +267,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
 
     if (!tenantLimiter.consume(tenantId).allowed) {
       logger.warn('mcp_rate_limited', { tenant_id: tenantId });
-      jsonRpcError(res, 429, -32000, 'Too many requests', { 'retry-after': '10' });
+      jsonRpcError(res, 429, -32000, `Rate limit reached for this shop (${config.rateLimitPerMinute} requests per minute); retry after 10 seconds.`, { 'retry-after': '10' });
       return;
     }
 
@@ -277,7 +277,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       // A session is bound to the principal that created it; another
       // tenant's (or account's) token gets the same answer as an unknown session.
       if (!session || session.principalKey !== principal.key) {
-        jsonRpcError(res, 404, -32001, 'Session not found');
+        jsonRpcError(res, 404, -32001, 'Session not found: it expired or belongs to another sign-in. Start a new MCP session with initialize.');
         return;
       }
       session.lastSeenMs = now();
@@ -287,7 +287,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
           body = await readJsonBody(req, config.maxBodyBytes);
         } catch (error) {
           const tooLarge = error instanceof Error && error.message === 'body_too_large';
-          jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? 'Request body too large' : 'Parse error');
+          jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? `Request body too large (limit ${config.maxBodyBytes} bytes)` : 'Parse error: the request body is not valid JSON.');
           return;
         }
         if (!principal.scopes.has(WRITE_SCOPE) && callsWriteTool(body)) {
@@ -300,7 +300,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     }
 
     if (req.method !== 'POST') {
-      jsonRpcError(res, 400, -32000, 'Bad Request: Mcp-Session-Id header is required');
+      jsonRpcError(res, 400, -32000, 'Bad Request: send the Mcp-Session-Id header returned by initialize (or POST an initialize request first).');
       return;
     }
 
@@ -309,17 +309,17 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       body = await readJsonBody(req, config.maxBodyBytes);
     } catch (error) {
       const tooLarge = error instanceof Error && error.message === 'body_too_large';
-      jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? 'Request body too large' : 'Parse error');
+      jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? `Request body too large (limit ${config.maxBodyBytes} bytes)` : 'Parse error: the request body is not valid JSON.');
       return;
     }
     if (!isInitializeRequest(body)) {
-      jsonRpcError(res, 400, -32000, 'Bad Request: No valid session ID provided');
+      jsonRpcError(res, 400, -32000, 'Bad Request: no MCP session. POST an initialize request first, then send its Mcp-Session-Id header.');
       return;
     }
     if (sessions.size >= config.maxSessions) {
       await sweepIdleSessions();
       if (sessions.size >= config.maxSessions) {
-        jsonRpcError(res, 503, -32000, 'Server busy', { 'retry-after': '30' });
+        jsonRpcError(res, 503, -32000, 'ShopVoice is at its session limit right now; retry after 30 seconds.', { 'retry-after': '30' });
         return;
       }
     }
@@ -383,7 +383,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
         sendJson(res, 404, { error: 'not_found' });
       } catch (error) {
         logger.error('mcp_http_error', { path: url.pathname, error: error instanceof Error ? error.message : 'unknown' });
-        jsonRpcError(res, 500, -32603, 'Internal server error');
+        jsonRpcError(res, 500, -32603, 'ShopVoice hit an unexpected server error while handling this request. Retry in a few seconds; if it keeps failing, contact support (see /support).');
       }
     },
     sessionCount: () => sessions.size,
