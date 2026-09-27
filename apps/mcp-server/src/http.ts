@@ -8,13 +8,45 @@ import { InMemoryTokenBucketRateLimiter } from '../../../packages/common/dist/in
 import type { Logger } from '../../../packages/common/dist/index.js';
 import type { ShopStore } from './store.js';
 import { createShopVoiceServer } from './mcp.js';
+import type { ClientProfile } from './mcp.js';
 import type { McpServerConfig } from './config.js';
+import { ALL_TOOLS } from './tools.js';
+import { createOAuthServer } from './oauth/server.js';
+import type { OAuthServer } from './oauth/server.js';
+import type { OAuthStore } from './oauth/store.js';
+import type { CimdResolver } from './oauth/cimd.js';
+import { CHALLENGE_SCOPE, WRITE_SCOPE, wwwAuthenticate } from './oauth/metadata.js';
+import { createSite } from './site.js';
+import { clientIpFrom } from './client-ip.js';
 
 interface Session {
   readonly transport: StreamableHTTPServerTransport;
   readonly server: McpServer;
   readonly tenantId: string;
+  /** Who opened the session: auth kind + tenant (+ account for OAuth). Every request must match it. */
+  readonly principalKey: string;
   lastSeenMs: number;
+}
+
+interface Principal {
+  readonly kind: 'oauth' | 'static';
+  readonly tenantId: string;
+  readonly key: string;
+  readonly scopes: ReadonlySet<string>;
+  readonly isSandbox: boolean;
+}
+
+/** Tools that change shop data; an OAuth token needs shop.write to call them. */
+export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(ALL_TOOLS.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name));
+const STATIC_SCOPES: ReadonlySet<string> = new Set(['shop.read', 'shop.write']);
+
+function callsWriteTool(body: unknown): boolean {
+  const messages = Array.isArray(body) ? body : [body];
+  return messages.some((m) => {
+    if (!m || typeof m !== 'object') return false;
+    const msg = m as { method?: unknown; params?: { name?: unknown } };
+    return msg.method === 'tools/call' && typeof msg.params?.name === 'string' && WRITE_TOOL_NAMES.has(msg.params.name);
+  });
 }
 
 interface CachedToken {
@@ -27,6 +59,8 @@ export interface McpHttpDeps {
   readonly config: McpServerConfig;
   readonly logger: Logger;
   readonly now?: () => number;
+  /** OAuth authorization server; active when config.publicBaseUrl is set. */
+  readonly oauth?: { readonly store: OAuthStore; readonly cimd?: CimdResolver };
 }
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -74,14 +108,6 @@ function header(req: IncomingMessage, name: string): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function clientIp(req: IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = header(req, 'x-forwarded-for');
-    if (forwarded) return forwarded.split(',')[0]?.trim() ?? 'unknown';
-  }
-  return req.socket.remoteAddress ?? 'unknown';
-}
-
 function sendJson(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void {
   if (res.headersSent) return;
   res.writeHead(status, { 'content-type': 'application/json', ...SECURITY_HEADERS, ...extra });
@@ -114,6 +140,8 @@ export interface McpHttpHandler {
   handle(req: IncomingMessage, res: ServerResponse): Promise<void>;
   sessionCount(): number;
   sweepIdleSessions(): Promise<number>;
+  /** OAuth housekeeping (idle DCR clients, dead codes/tokens); 0 when OAuth is off. */
+  oauthCleanup(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -124,6 +152,55 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
   const tokenCache = new Map<string, CachedToken>();
   const tenantLimiter = new InMemoryTokenBucketRateLimiter(config.rateLimitPerMinute, config.rateLimitPerMinute);
   const authFailLimiter = new InMemoryTokenBucketRateLimiter(config.authFailuresPerMinute, config.authFailuresPerMinute);
+  const oauth: OAuthServer | null = config.publicBaseUrl && deps.oauth
+    ? createOAuthServer({
+      store: deps.oauth.store,
+      ...(deps.oauth.cimd ? { cimd: deps.oauth.cimd } : {}),
+      logger,
+      now,
+      config: {
+        publicBaseUrl: config.publicBaseUrl,
+        mcpPath: config.mcpPath,
+        cookieSecret: config.oauthCookieSecret,
+        accessTtlSeconds: config.oauthAccessTtlSeconds,
+        refreshTtlSeconds: config.oauthRefreshTtlSeconds,
+        codeTtlSeconds: config.oauthCodeTtlSeconds,
+        dcrPerHour: config.oauthDcrPerHour,
+        loginPerMinute: config.oauthLoginPerMinute,
+        dcrIdleDays: config.oauthDcrIdleDays,
+        trustProxy: config.trustProxy,
+        supportEmail: config.supportEmail
+      }
+    })
+    : null;
+
+  const site = createSite({ baseUrl: config.publicBaseUrl, mcpPath: config.mcpPath, supportEmail: config.supportEmail });
+
+  async function resolvePrincipal(token: string): Promise<Principal | null> {
+    if (oauth && token.startsWith('svat_')) {
+      const p = await oauth.resolveAccessToken(token);
+      return p ? { kind: 'oauth', tenantId: p.tenantId, key: `oauth:${p.tenantId}:${p.accountId}`, scopes: p.scopes, isSandbox: p.isSandbox } : null;
+    }
+    const tenantId = await resolveTenant(token);
+    return tenantId ? { kind: 'static', tenantId, key: `static:${tenantId}`, scopes: STATIC_SCOPES, isSandbox: false } : null;
+  }
+
+  function unauthorized(res: ServerResponse, tokenPresented: boolean): void {
+    const challenge = oauth
+      ? wwwAuthenticate(oauth.urls, tokenPresented ? { error: 'invalid_token', description: 'The access token is missing, expired or revoked' } : {})
+      : 'Bearer realm="shopvoice", error="invalid_token"';
+    jsonRpcError(res, 401, -32001, oauth
+      ? 'Unauthorized: connect ShopVoice with OAuth (sign in at the authorization server) or send a valid bearer token.'
+      : 'Unauthorized: send Authorization: Bearer <your ShopVoice token>.', { 'www-authenticate': challenge });
+  }
+
+  /** 403 + insufficient_scope so OAuth clients run step-up authorization (MCP 2025-11-25). */
+  function insufficientScope(res: ServerResponse): void {
+    const challenge = oauth
+      ? wwwAuthenticate(oauth.urls, { error: 'insufficient_scope', scope: CHALLENGE_SCOPE, description: 'Creating or confirming reorders needs the shop.write scope' })
+      : `Bearer realm="shopvoice", error="insufficient_scope", scope="${CHALLENGE_SCOPE}"`;
+    jsonRpcError(res, 403, -32003, 'Forbidden: this connection is read-only. Reconnect ShopVoice and allow "create and confirm purchase-order drafts" (scope shop.write).', { 'www-authenticate': challenge });
+  }
 
   async function resolveTenant(token: string): Promise<string | null> {
     const hash = hashBearerToken(token);
@@ -151,7 +228,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     const origin = header(req, 'origin');
     if (!isOriginAllowed(origin, config.allowedOrigins, config.allowLocalhostOrigins)) {
       logger.warn('mcp_origin_rejected', { origin });
-      jsonRpcError(res, 403, -32000, 'Forbidden: origin not allowed');
+      jsonRpcError(res, 403, -32000, 'Forbidden: this browser Origin is not allowed to call ShopVoice. Server-to-server clients should send no Origin header.');
       return;
     }
     const cors = corsHeaders(origin);
@@ -164,34 +241,39 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       return;
     }
 
-    const ip = clientIp(req, config.trustProxy);
+    const ip = clientIpFrom(req, config.trustProxy);
     const auth = header(req, 'authorization') ?? '';
     const match = /^Bearer\s+([A-Za-z0-9._~+/=-]{16,256})$/i.exec(auth.trim());
-    const tenantId = match?.[1] ? await resolveTenant(match[1]) : null;
-    if (!tenantId) {
-      if (!authFailLimiter.consume(ip).allowed) {
-        jsonRpcError(res, 429, -32000, 'Too many requests', { 'retry-after': '60' });
+    const token = match?.[1] ?? '';
+    const principal = token ? await resolvePrincipal(token) : null;
+    if (!principal) {
+      // Guessing is only plausible for static tokens: OAuth access tokens are
+      // 256-bit random, and a missing token is the normal start of sign-in.
+      // Claude's requests all come from Anthropic's shared egress range, so
+      // counting those per IP would throttle every Claude user at once.
+      if (token && !token.startsWith('svat_') && !authFailLimiter.consume(ip).allowed) {
+        jsonRpcError(res, 429, -32000, 'Too many failed sign-in attempts from this address; retry after 60 seconds.', { 'retry-after': '60' });
         return;
       }
-      jsonRpcError(res, 401, -32001, 'Unauthorized', {
-        'www-authenticate': `Bearer realm="shopvoice", error="invalid_token"`
-      });
+      unauthorized(res, !!token);
       return;
     }
+    const tenantId = principal.tenantId;
+    if (principal.isSandbox && oauth) await oauth.ensureSandboxFresh(tenantId);
 
     if (!tenantLimiter.consume(tenantId).allowed) {
       logger.warn('mcp_rate_limited', { tenant_id: tenantId });
-      jsonRpcError(res, 429, -32000, 'Too many requests', { 'retry-after': '10' });
+      jsonRpcError(res, 429, -32000, `Rate limit reached for this shop (${config.rateLimitPerMinute} requests per minute); retry after 10 seconds.`, { 'retry-after': '10' });
       return;
     }
 
     const sessionId = header(req, 'mcp-session-id');
     if (sessionId) {
       const session = sessions.get(sessionId);
-      // A session is bound to the tenant that created it; another tenant's
-      // token gets the same answer as an unknown session.
-      if (!session || session.tenantId !== tenantId) {
-        jsonRpcError(res, 404, -32001, 'Session not found');
+      // A session is bound to the principal that created it; another
+      // tenant's (or account's) token gets the same answer as an unknown session.
+      if (!session || session.principalKey !== principal.key) {
+        jsonRpcError(res, 404, -32001, 'Session not found: it expired or belongs to another sign-in. Start a new MCP session with initialize.');
         return;
       }
       session.lastSeenMs = now();
@@ -201,7 +283,11 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
           body = await readJsonBody(req, config.maxBodyBytes);
         } catch (error) {
           const tooLarge = error instanceof Error && error.message === 'body_too_large';
-          jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? 'Request body too large' : 'Parse error');
+          jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? `Request body too large (limit ${config.maxBodyBytes} bytes)` : 'Parse error: the request body is not valid JSON.');
+          return;
+        }
+        if (!principal.scopes.has(WRITE_SCOPE) && callsWriteTool(body)) {
+          insufficientScope(res);
           return;
         }
       }
@@ -210,7 +296,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     }
 
     if (req.method !== 'POST') {
-      jsonRpcError(res, 400, -32000, 'Bad Request: Mcp-Session-Id header is required');
+      jsonRpcError(res, 400, -32000, 'Bad Request: send the Mcp-Session-Id header returned by initialize (or POST an initialize request first).');
       return;
     }
 
@@ -219,27 +305,28 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       body = await readJsonBody(req, config.maxBodyBytes);
     } catch (error) {
       const tooLarge = error instanceof Error && error.message === 'body_too_large';
-      jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? 'Request body too large' : 'Parse error');
+      jsonRpcError(res, tooLarge ? 413 : 400, -32700, tooLarge ? `Request body too large (limit ${config.maxBodyBytes} bytes)` : 'Parse error: the request body is not valid JSON.');
       return;
     }
     if (!isInitializeRequest(body)) {
-      jsonRpcError(res, 400, -32000, 'Bad Request: No valid session ID provided');
+      jsonRpcError(res, 400, -32000, 'Bad Request: no MCP session. POST an initialize request first, then send its Mcp-Session-Id header.');
       return;
     }
     if (sessions.size >= config.maxSessions) {
       await sweepIdleSessions();
       if (sessions.size >= config.maxSessions) {
-        jsonRpcError(res, 503, -32000, 'Server busy', { 'retry-after': '30' });
+        jsonRpcError(res, 503, -32000, 'ShopVoice is at its session limit right now; retry after 30 seconds.', { 'retry-after': '30' });
         return;
       }
     }
 
-    const server = createShopVoiceServer({ store, tenantId, logger, confirmTtlSeconds: config.confirmTtlSeconds });
+    const profile: ClientProfile = principal.kind === 'oauth' ? 'chat' : 'voice';
+    const server = createShopVoiceServer({ store, tenantId, logger, confirmTtlSeconds: config.confirmTtlSeconds, profile });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableJsonResponse: config.jsonResponses,
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport, server, tenantId, lastSeenMs: now() });
+        sessions.set(id, { transport, server, tenantId, principalKey: principal.key, lastSeenMs: now() });
         logger.info('mcp_session_started', { tenant_id: tenantId, session_id: id });
       }
     });
@@ -279,6 +366,8 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
           sendJson(res, 403, { error: 'forbidden' });
           return;
         }
+        if (oauth && await oauth.handle(req, res, url)) return;
+        if (site?.handle(req, res, url)) return;
         if (url.pathname === '/readyz' && req.method === 'GET') {
           const ok = await store.ping();
           sendJson(res, ok ? 200 : 503, { status: ok ? 'ready' : 'not_ready', checks: { database: ok ? 'ok' : 'fail' } });
@@ -291,11 +380,12 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
         sendJson(res, 404, { error: 'not_found' });
       } catch (error) {
         logger.error('mcp_http_error', { path: url.pathname, error: error instanceof Error ? error.message : 'unknown' });
-        jsonRpcError(res, 500, -32603, 'Internal server error');
+        jsonRpcError(res, 500, -32603, 'ShopVoice hit an unexpected server error while handling this request. Retry in a few seconds; if it keeps failing, contact support (see /support).');
       }
     },
     sessionCount: () => sessions.size,
     sweepIdleSessions,
+    oauthCleanup: async () => (oauth ? oauth.cleanup() : 0),
     async close() {
       for (const session of sessions.values()) {
         await session.transport.close().catch(() => {});

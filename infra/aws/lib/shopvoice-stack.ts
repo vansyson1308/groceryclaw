@@ -1,10 +1,18 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, Tags, Token } from 'aws-cdk-lib';
 import type { StackProps } from 'aws-cdk-lib';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import type { Construct } from 'constructs';
 import { renderUserData } from './user-data.js';
 
@@ -21,6 +29,13 @@ export interface ShopVoiceStackProps extends StackProps {
   readonly bedrockModelId: string;
   readonly pollyVoiceId: string;
   readonly demoAnchorDate: string;
+  /** Public support contact shown on /support, /privacy and sign-in pages. */
+  readonly supportEmail: string;
+  /** Optional custom domain for the MCP/OAuth distribution (needs certificateArn, an ACM cert in us-east-1). */
+  readonly domainName?: string;
+  readonly certificateArn?: string;
+  /** Optional email subscribed to the CloudWatch alarm topic (the owner confirms the subscription). */
+  readonly alarmEmail?: string;
 }
 
 /**
@@ -86,6 +101,18 @@ export class ShopVoiceStack extends Stack {
     role.addToPolicy(new iam.PolicyStatement({ sid: 'PollyTts', actions: ['polly:SynthesizeSpeech'], resources: ['*'] }));
     logGroup.grantWrite(role);
 
+    // Daily pg_dump (cron on the instance) kept for 7 days.
+    const backups = new s3.Bucket(this, 'Backups', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      versioned: false,
+      lifecycleRules: [{ id: 'expire-after-7-days', expiration: Duration.days(7) }],
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true
+    });
+    backups.grantPut(role, 'postgres/*');
+
     const userData = ec2.UserData.forLinux();
     userData.addCommands(renderUserData({
       repoUrl: props.repoUrl,
@@ -95,7 +122,9 @@ export class ShopVoiceStack extends Stack {
       logGroup: `/shopvoice/${props.stage}`,
       bedrockModelId: props.bedrockModelId,
       pollyVoiceId: props.pollyVoiceId,
-      demoAnchorDate: props.demoAnchorDate
+      demoAnchorDate: props.demoAnchorDate,
+      supportEmail: props.supportEmail,
+      backupBucket: backups.bucketName
     }));
 
     const instance = new ec2.Instance(this, 'Host', {
@@ -139,17 +168,91 @@ export class ShopVoiceStack extends Stack {
       customHeaders: { 'X-Origin-Verify': props.originVerifySecret }
     });
 
+    const mcpOrigin = origin(8090);
+    // Sign-in, consent and account pages need their session/CSRF cookies and
+    // form posts; nothing there may be cached.
+    const browserFlow: cloudfront.BehaviorOptions = {
+      origin: mcpOrigin,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+      cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER
+    };
+    const custom = props.domainName && props.certificateArn
+      ? { domainNames: [props.domainName], certificate: acm.Certificate.fromCertificateArn(this, 'Certificate', props.certificateArn) }
+      : {};
     const mcpDist = new cloudfront.Distribution(this, 'McpDistribution', {
-      comment: `ShopVoice MCP server (${props.stage})`,
+      comment: `ShopVoice MCP server, OAuth and public pages (${props.stage})`,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      ...custom,
       defaultBehavior: {
-        origin: origin(8090),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+        origin: mcpOrigin,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: mcpCachePolicy,
         originRequestPolicy: mcpOriginRequest
+      },
+      additionalBehaviors: {
+        '/oauth/*': browserFlow,
+        '/account*': browserFlow,
+        // RFC 9728 / RFC 8414 discovery documents at the domain root, never cached here.
+        '/.well-known/*': {
+          origin: mcpOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER
+        }
       }
     });
+    const publicHost = props.domainName && props.certificateArn ? props.domainName : mcpDist.distributionDomainName;
+
+    // The instance cannot know the CloudFront hostname when it is created (the
+    // distribution depends on the instance), so the boot script waits for this
+    // parameter. One value switches CloudFront <-> custom domain.
+    new ssm.StringParameter(this, 'PublicBaseUrl', {
+      parameterName: `${ssmPath}public-base-url`,
+      stringValue: `https://${publicHost}`,
+      description: 'ShopVoice PUBLIC_BASE_URL (OAuth issuer; MCP resource = this + /mcp)'
+    });
+
+    // ---- monitoring ----------------------------------------------------------
+    const alarmTopic = new sns.Topic(this, 'Alarms', { displayName: `ShopVoice ${props.stage} alarms` });
+    if (props.alarmEmail) alarmTopic.addSubscription(new subs.EmailSubscription(props.alarmEmail));
+    const notify = new cwActions.SnsAction(alarmTopic);
+
+    // EC2 system check failure -> automatic recovery (same instance, same EBS volume).
+    const recover = new cloudwatch.Alarm(this, 'HostSystemCheck', {
+      alarmDescription: 'ShopVoice host failed the EC2 system status check; EC2 recovers it automatically.',
+      metric: new cloudwatch.Metric({ namespace: 'AWS/EC2', metricName: 'StatusCheckFailed_System', dimensionsMap: { InstanceId: instance.instanceId }, statistic: 'Maximum', period: Duration.minutes(1) }),
+      threshold: 1,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD
+    });
+    recover.addAlarmAction(new cwActions.Ec2Action(cwActions.Ec2InstanceAction.RECOVER), notify);
+
+    // CloudFront and Route 53 health-check metrics live in us-east-1.
+    if (Token.isUnresolved(this.region) || this.region === 'us-east-1') {
+      const health = new route53.CfnHealthCheck(this, 'McpHealthCheck', {
+        healthCheckConfig: { type: 'HTTPS', fullyQualifiedDomainName: publicHost, resourcePath: '/healthz', port: 443, requestInterval: 30, failureThreshold: 3 }
+      });
+      new cloudwatch.Alarm(this, 'McpHealthAlarm', {
+        alarmDescription: 'ShopVoice /healthz is failing from Route 53 health checkers.',
+        metric: new cloudwatch.Metric({ namespace: 'AWS/Route53', metricName: 'HealthCheckStatus', dimensionsMap: { HealthCheckId: health.attrHealthCheckId }, statistic: 'Minimum', period: Duration.minutes(1) }),
+        threshold: 1,
+        evaluationPeriods: 3,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING
+      }).addAlarmAction(notify);
+      new cloudwatch.Alarm(this, 'Mcp5xxAlarm', {
+        alarmDescription: 'More than 5% of ShopVoice requests return 5xx.',
+        metric: new cloudwatch.Metric({ namespace: 'AWS/CloudFront', metricName: '5xxErrorRate', dimensionsMap: { DistributionId: mcpDist.distributionId, Region: 'Global' }, statistic: 'Average', period: Duration.minutes(5) }),
+        threshold: 5,
+        evaluationPeriods: 3,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+      }).addAlarmAction(notify);
+    }
 
     const simDist = new cloudfront.Distribution(this, 'SimDistribution', {
       comment: `ShopVoice voice simulator (${props.stage})`,
@@ -163,7 +266,11 @@ export class ShopVoiceStack extends Stack {
       }
     });
 
-    new CfnOutput(this, 'McpUrl', { value: `https://${mcpDist.distributionDomainName}/mcp`, description: 'Public MCP endpoint (Streamable HTTP, bearer token required)' });
+    new CfnOutput(this, 'McpUrl', { value: `https://${publicHost}/mcp`, description: 'Public MCP endpoint (Streamable HTTP; OAuth or bearer token)' });
+    new CfnOutput(this, 'PublicBaseUrlOutput', { exportName: `ShopVoice-${props.stage}-PublicBaseUrl`, value: `https://${publicHost}`, description: 'Docs, privacy, terms, support, OAuth issuer' });
+    new CfnOutput(this, 'CloudFrontDomain', { value: mcpDist.distributionDomainName, description: 'Custom domain: create a CNAME from your domain to this name' });
+    new CfnOutput(this, 'BackupBucket', { value: backups.bucketName });
+    new CfnOutput(this, 'AlarmTopicArn', { value: alarmTopic.topicArn });
     new CfnOutput(this, 'SimulatorUrl', { value: `https://${simDist.distributionDomainName}/`, description: 'Voice simulator (access code required)' });
     new CfnOutput(this, 'InstanceId', { value: instance.instanceId, description: 'aws ssm start-session --target <id>' });
     new CfnOutput(this, 'LogGroupName', { value: logGroup.logGroupName });

@@ -1,0 +1,35 @@
+{
+  "inspector": "@modelcontextprotocol/inspector@2.8.0",
+  "server_url": "http://localhost:8190/mcp",
+  "account": "claude-reviewer@example.com",
+  "passed": true,
+  "steps": [
+    {
+      "name": "inspector started without any token",
+      "at": "2026-09-27T04:41:47.314Z",
+      "server_url": "http://localhost:8190/mcp"
+    },
+    {
+      "name": "401 -> discovery -> DCR -> redirected to ShopVoice sign-in",
+      "at": "2026-09-27T04:41:47.616Z",
+      "authorize_host": "localhost:8190",
+      "client_id_prefix": "svc_",
+      "redirect_uri": "http://127.0.0.1:6274/oauth/callback",
+      "code_challenge_method": "S256",
+      "scope": "shop.read shop.write offline_access",
+      "resource": "http://localhost:8190/mcp"
+    },
+    {
+      "name": "signed in; consent screen shows app, redirect host, shop and scopes",
+      "at": "2026-09-27T04:41:47.980Z"
+    },
+    {
+      "name": "code exchanged; Inspector connected with the OAuth access token",
+      "at": "2026-09-27T04:41:51.114Z"
+    },
+    {
+      "name": "tools/list and tools/call get_low_stock over OAuth",
+      "at": "2026-09-27T04:41:56.150Z"
+    }
+  ]
+}

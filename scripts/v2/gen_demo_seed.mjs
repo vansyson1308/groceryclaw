@@ -314,6 +314,46 @@ export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
   };
 }
 
+// ---- Sandbox shops (Claude connector sign-ups) ----------------------------
+// Every web sign-up gets its own copy of the demo catalogue, labelled as
+// sample data. Postgres: the JSON below feeds seed_sandbox_shop() (migration
+// 018). Memory backend: buildSandboxTenantData() gives the same numbers.
+export const SANDBOX_PROFILES = {
+  en: { shop_name: 'Demo shop (sample data)', display_currency: 'USD', vnd_per_display_unit: 25000, locale: 'en-US' },
+  vi: { shop_name: 'Cửa hàng mẫu (dữ liệu mẫu)', display_currency: 'VND', vnd_per_display_unit: 1, locale: 'vi-VN' }
+};
+
+export function buildSandboxCatalogue() {
+  return {
+    profiles: SANDBOX_PROFILES,
+    sales_days: SALES_DAYS,
+    today_fraction: TODAY_FRACTION,
+    weekday_multipliers: WEEKDAY_MULTIPLIERS,
+    suppliers: SUPPLIERS.map((s) => ({ code: s.code, name: s.name, phone: s.phone, lead: s.lead })),
+    products: buildCatalogue().map((p) => ({
+      sku: p.sku, name: p.name, unit: p.unit, barcode: p.barcode, price: p.price, unit_cost: p.unitCost, base: p.base,
+      pack: p.pack, supplier: p.supplier, lead: p.lead, min_qty: p.minQty, reorder_qty: p.reorderQty, on_hand: p.onHand,
+      noise: p.noise
+    })),
+    invoices: INVOICES.map((inv) => ({ number: inv.number, supplier: inv.supplier, days_ago: inv.daysAgo, state: inv.state, items: inv.items }))
+  };
+}
+
+export function buildSandboxTenantData(locale = 'en', anchorDate = todayInTimezone()) {
+  const profile = SANDBOX_PROFILES[locale] ?? SANDBOX_PROFILES.en;
+  const base = buildDemoDataset({ anchorDate }).tenants[DEMO_TENANT_ID];
+  return {
+    ...base,
+    profile: {
+      shopName: profile.shop_name,
+      displayCurrency: profile.display_currency,
+      vndPerDisplayUnit: profile.vnd_per_display_unit,
+      timezone: 'Asia/Ho_Chi_Minh',
+      locale: profile.locale
+    }
+  };
+}
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   process.stdout.write(renderSeedSql());

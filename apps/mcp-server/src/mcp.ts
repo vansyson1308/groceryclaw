@@ -5,12 +5,17 @@ import { ShopDataError } from './store.js';
 import { ALL_TOOLS } from './tools.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
 import { countWords, fitSpeech, MAX_SPOKEN_WORDS } from './speech.js';
+import { toMarkdown } from './markdown.js';
 import type { z } from 'zod';
 
 export const SERVER_NAME = 'shopvoice';
 export const SERVER_VERSION = '0.1.0';
 
+/** voice: Alexa simulator / static bearer (spoken sentence); chat: OAuth clients such as Claude (markdown). */
+export type ClientProfile = 'voice' | 'chat';
+
 export interface McpFactoryOptions {
+  readonly profile?: ClientProfile;
   readonly store: ShopStore;
   readonly tenantId: string;
   readonly logger: Logger;
@@ -19,6 +24,19 @@ export interface McpFactoryOptions {
 }
 
 const SAFE_ERROR_SPEECH = "Sorry, I couldn't reach your shop data just now. Please try again in a moment.";
+
+/** Chat clients get a specific, actionable message instead of the short spoken one. */
+export function safeErrorText(error: unknown, profile: ClientProfile): string {
+  if (profile === 'voice') return safeErrorSpeech(error);
+  const message = error instanceof Error ? error.message : '';
+  if (error instanceof ShopDataError && error.code === 'profile_missing') {
+    return 'This ShopVoice account has no shop profile yet, so there is no shop data to read. Sign in at the ShopVoice account page and link a shop with an invite code, or use the demo shop created at sign-up.';
+  }
+  if (message.startsWith('custom_period') || message.startsWith('invalid_date')) {
+    return 'The date range is invalid: use YYYY-MM-DD dates in the past, with start_date on or before end_date (for example period="custom", start_date="2026-09-01", end_date="2026-09-07").';
+  }
+  return 'ShopVoice could not read or update the shop data just now (a temporary server or database problem). Retry in a few seconds; if it keeps failing, contact ShopVoice support from the /support page.';
+}
 
 export function safeErrorSpeech(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
@@ -39,13 +57,18 @@ function defaultRedact(args: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes.';
+
+export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices and purchase-order drafts. Amounts are in the shop\'s display currency (the currency field; *_vnd fields hold exact Vietnamese dong) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft records a draft and returns a confirmation_token valid for 5 minutes, and confirm_reorder marks the draft as a confirmed purchase order; no payment is ever made.';
+
 /** One McpServer per MCP session, bound to the tenant resolved from the bearer token. */
 export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
+  const profile = opts.profile ?? 'voice';
   const server = new McpServer(
     { name: SERVER_NAME, title: 'ShopVoice', version: SERVER_VERSION },
     {
       capabilities: { tools: {}, prompts: {}, resources: {} },
-      instructions: 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes.'
+      instructions: profile === 'chat' ? CHAT_INSTRUCTIONS : VOICE_INSTRUCTIONS
     }
   );
 
@@ -121,13 +144,14 @@ function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.Z
       const latencyMs = performance.now() - started;
       await audit(opts, tool.name, redacted, speech, 'ok', latencyMs);
       opts.onToolLatency?.(tool.name, latencyMs, 'ok');
+      const text = opts.profile === 'chat' ? toMarkdown(tool.name, outcome.data, speech) : speech;
       return {
-        content: [{ type: 'text' as const, text: speech }],
+        content: [{ type: 'text' as const, text }],
         structuredContent: outcome.data as Record<string, unknown>
       };
     } catch (error) {
       const latencyMs = performance.now() - started;
-      const speech = safeErrorSpeech(error);
+      const speech = safeErrorText(error, opts.profile ?? 'voice');
       opts.logger.error('mcp_tool_failed', { tool: tool.name, tenant_id: opts.tenantId, error: error instanceof Error ? error.message : 'unknown' });
       await audit(opts, tool.name, redacted, speech, 'error', latencyMs);
       opts.onToolLatency?.(tool.name, latencyMs, 'error');

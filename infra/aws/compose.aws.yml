@@ -55,6 +55,11 @@ services:
       # MCP Inspector runs on the judge's localhost; bearer auth still applies.
       MCP_ALLOW_LOCALHOST_ORIGINS: "true"
       ORIGIN_VERIFY_SECRET: ${ORIGIN_VERIFY_SECRET:?missing}
+      # OAuth 2.1 for the Claude connector (issuer = PUBLIC_BASE_URL, resource = PUBLIC_BASE_URL/mcp).
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?missing}
+      OAUTH_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:?missing}
+      INVITE_PEPPER_B64: ${INVITE_PEPPER_B64:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
     depends_on:
       postgres:
         condition: service_healthy

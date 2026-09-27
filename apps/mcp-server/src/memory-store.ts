@@ -244,6 +244,15 @@ export class MemoryShopStore implements ShopStore {
     }
   }
 
+  /** Adds a tenant's dataset (sandbox shops created by OAuth sign-ups). */
+  addTenant(tenantId: string, data: MemoryTenantData): void {
+    (this.dataset.tenants as Record<string, MemoryTenantData>)[tenantId] = data;
+  }
+
+  removeTenant(tenantId: string): void {
+    delete (this.dataset.tenants as Record<string, MemoryTenantData>)[tenantId];
+  }
+
   async withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T> {
     const data = this.dataset.tenants[tenantId];
     if (!data) throw new ShopDataError('profile_missing');

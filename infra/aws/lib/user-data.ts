@@ -9,6 +9,8 @@ export interface UserDataOptions {
   readonly bedrockModelId: string;
   readonly pollyVoiceId: string;
   readonly demoAnchorDate: string;
+  readonly supportEmail: string;
+  readonly backupBucket: string;
 }
 
 const SAFE = /^[A-Za-z0-9._:/@+\-]*$/;
@@ -35,6 +37,8 @@ export function renderUserData(o: UserDataOptions): string {
   const model = safe('bedrockModelId', o.bedrockModelId);
   const voice = safe('pollyVoiceId', o.pollyVoiceId);
   const anchor = safe('demoAnchorDate', o.demoAnchorDate);
+  const support = safe('supportEmail', o.supportEmail);
+  const bucket = safe('backupBucket', o.backupBucket);
   return `#!/bin/bash
 set -euo pipefail
 exec > >(tee /var/log/shopvoice-bootstrap.log) 2>&1
@@ -54,6 +58,12 @@ git -C "$APP" checkout ${ref}
 ENV_FILE="$APP/infra/aws/runtime.env"
 umask 077
 param() { aws ssm get-parameter --region ${region} --with-decryption --name "${path}$1" --query Parameter.Value --output text; }
+# public-base-url is written by the stack after the CloudFront distribution exists.
+for _ in $(seq 1 120); do
+  PUBLIC_BASE_URL="$(param public-base-url 2>/dev/null || true)"
+  [ -n "$PUBLIC_BASE_URL" ] && break
+  sleep 10
+done
 {
   echo "AWS_REGION=${region}"
   echo "LOG_GROUP=${logGroup}"
@@ -65,6 +75,10 @@ param() { aws ssm get-parameter --region ${region} --with-decryption --name "${p
   echo "MCP_DEMO_TOKEN=$(param mcp-demo-token)"
   echo "SIM_ACCESS_CODE=$(param sim-access-code)"
   echo "ORIGIN_VERIFY_SECRET=$(param origin-verify-secret)"
+  echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
+  echo "OAUTH_COOKIE_SECRET=$(param oauth-cookie-secret)"
+  echo "INVITE_PEPPER_B64=$(param invite-pepper-b64)"
+  echo "SUPPORT_EMAIL=${support}"
 } > "$ENV_FILE"
 
 COMPOSE="docker compose --env-file $ENV_FILE -f $APP/infra/aws/compose.aws.yml"
@@ -74,6 +88,25 @@ $COMPOSE --profile ops run --rm ops
 cat > /etc/cron.d/shopvoice-reseed <<CRON
 # 00:05 Asia/Ho_Chi_Minh = 17:05 UTC: re-seed the demo shop so "today" has data.
 5 17 * * * root $COMPOSE --profile ops run --rm ops >> /var/log/shopvoice-reseed.log 2>&1
+CRON
+
+# Dump to a temp file and check it is complete before uploading, so a failed
+# pg_dump can never overwrite that day's backup with an empty or partial one.
+cat > /usr/local/bin/shopvoice-backup <<SCRIPT
+#!/bin/bash
+set -euo pipefail
+tmp=\\$(mktemp /tmp/shopvoice-backup.XXXXXX)
+trap 'rm -f "\\$tmp"' EXIT
+$COMPOSE exec -T postgres pg_dump -U postgres -d groceryclaw_v2 | gzip > "\\$tmp"
+gzip -dc "\\$tmp" | tail -n 5 | grep -q 'PostgreSQL database dump complete'
+aws s3 cp "\\$tmp" "s3://${bucket}/postgres/groceryclaw_v2-\\$(date -u +%Y-%m-%d).sql.gz" --region ${region} --only-show-errors
+echo "backup ok \\$(date -u +%FT%TZ)"
+SCRIPT
+chmod 755 /usr/local/bin/shopvoice-backup
+
+cat > /etc/cron.d/shopvoice-backup <<CRON
+# 01:15 Asia/Ho_Chi_Minh = 18:15 UTC: pg_dump to S3 (the bucket expires objects after 7 days).
+15 18 * * * root /usr/local/bin/shopvoice-backup >> /var/log/shopvoice-backup.log 2>&1
 CRON
 echo "ShopVoice bootstrap complete"
 `;

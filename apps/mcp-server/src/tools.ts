@@ -186,7 +186,7 @@ export const getLowStock = defineTool({
 export const getStockLevel = defineTool({
   name: 'get_stock_level',
   title: 'Stock level for one product',
-  description: 'How many units of one product are on hand, with days of cover. Accepts a spoken product name (fuzzy matched) or a barcode. If several products match, the answer asks which one.',
+  description: 'How many units of one product are on hand, with days of cover. Accepts a product name (fuzzy matched, spoken or typed) or a barcode. If several products match, returns the candidates instead of a stock level.',
   input: {
     product: z.string().trim().min(2).max(80).describe('Product name as spoken, e.g. "fresh milk", or a barcode.')
   },
@@ -397,7 +397,7 @@ function invoiceWhen(inv: InvoiceRow, today: string): string {
 export const getInvoiceStatus = defineTool({
   name: 'get_invoice_status',
   title: 'Supplier invoice status',
-  description: 'Latest supplier invoices and whether each has arrived, been matched to products (mapped), or been synced to KiotViet. Filter by supplier name or a product on the invoice, e.g. "Sunrise Beverages" or "drinks".',
+  description: 'Latest supplier invoices and whether each has arrived, been matched to products (mapped), or been synced to the shop\'s point-of-sale system (KiotViet). Filter by supplier name or a product on the invoice, e.g. "Sunrise Beverages" or "drinks".',
   input: {
     supplier: z.string().trim().max(80).optional().describe('Supplier name, category or product word to filter by.'),
     limit: z.number().int().min(1).max(10).default(3)
@@ -608,7 +608,7 @@ const draftOutSchema = z.object({
 export const createReorderDraft = defineTool({
   name: 'create_reorder_draft',
   title: 'Draft a reorder (step 1 of 2)',
-  description: 'Creates purchase-order drafts (one per supplier) and returns a confirmation_token valid for 5 minutes. Nothing is ordered yet: read the spoken summary to the user and call confirm_reorder with the token ONLY after they explicitly say yes. Give items by spoken name ("milk", "eggs") with optional quantities, or omit items to draft all current suggestions.',
+  description: 'Creates purchase-order drafts in the shop\'s own records, one per supplier, from product names such as "milk" or "eggs" with optional quantities, or from all current reorder suggestions when items is omitted. Nothing is ordered and no payment is made: the drafts stay pending until confirm_reorder is called with the returned confirmation_token, which expires after 5 minutes.',
   input: {
     items: z.array(z.object({
       product: z.string().trim().min(2).max(80),
@@ -711,7 +711,7 @@ export const createReorderDraft = defineTool({
 export const confirmReorder = defineTool({
   name: 'confirm_reorder',
   title: 'Confirm a reorder (step 2 of 2)',
-  description: 'Confirms the purchase-order drafts created by create_reorder_draft. Requires the confirmation_token from that call; tokens expire after 5 minutes. Only call after the user explicitly confirms (e.g. "yes, confirm"). Confirming twice has no further effect.',
+  description: 'Marks the purchase-order drafts from one create_reorder_draft call as confirmed orders in the shop\'s own records, using that call\'s confirmation_token (valid 5 minutes). It changes their status only: it does not contact suppliers or send any payment. Confirming the same drafts again has no further effect.',
   input: {
     confirmation_token: z.string().trim().min(8).max(64)
   },
@@ -759,7 +759,7 @@ export const confirmReorder = defineTool({
 export const getDailyBriefing = defineTool({
   name: 'get_daily_briefing',
   title: 'Morning briefing',
-  description: "Three-sentence morning summary: yesterday's sales vs the same weekday last week, how many items are low, and supplier invoices not yet synced. Good for an Alexa+ morning routine.",
+  description: "Three-sentence start-of-day summary: yesterday's sales vs the same weekday last week, how many products are below minimum stock, and supplier invoices not yet synced to the point-of-sale system.",
   input: {},
   output: {
     ...moneyOut,

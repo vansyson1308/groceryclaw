@@ -1,0 +1,1980 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.283",
+  "startedAt": "2026-09-27T04:51:43.837Z",
+  "durationSeconds": 69,
+  "costUsd": 1.4521305999999998,
+  "partial": false,
+  "suite": {
+    "root": "/home/user/groceryclaw/plugins/shopvoice",
+    "ablation": "with-without",
+    "threshold": 1,
+    "concurrency": 4,
+    "plugins": [
+      {
+        "name": "shopvoice",
+        "version": "0.1.0",
+        "path": "/home/user/groceryclaw/plugins/shopvoice"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "invoice-status-vi",
+      "dir": "evals/invoice-status-vi",
+      "source": "prose",
+      "promptMarkdown": "H\u00f3a \u0111\u01a1n c\u1ee7a Sunrise Beverages v\u1ec1 ch\u01b0a? \u0110\u00e3 \u0111\u1ed3ng b\u1ed9 v\u1edbi m\u00e1y b\u00e1n h\u00e0ng ch\u01b0a?",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 10,
+      "graders": [
+        {
+          "name": "called-invoices",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__get_invoice_status"
+          }
+        },
+        {
+          "name": "status",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS if the reply, written in Vietnamese, says invoice SRB-10442 from Sunrise Beverages has arrived and is matched to products but not yet synced to the point-of-sale system, and suggests syncing it in GroceryClaw (or equivalent next step).\nFAIL if it says the invoice is synced, says it has not arrived, or answers in English.",
+          "config": {
+            "criteria": "PASS if the reply, written in Vietnamese, says invoice SRB-10442 from Sunrise Beverages has arrived and is matched to products but not yet synced to the point-of-sale system, and suggests syncing it in GroceryClaw (or equivalent next step).\nFAIL if it says the invoice is synced, says it has not arrived, or answers in English.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "vietnamese",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "[\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+            "flags": "i",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.0676224,
+            "judgeCostUsd": 0.0022239999999999994,
+            "durationSeconds": 12,
+            "startedAt": "2026-09-27T04:51:43.895Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "C\u00f3, h\u00f3a \u0111\u01a1n SRB-10442 c\u1ee7a Sunrise Beverages ng\u00e0y 25/09 (t\u1ed5ng 92.93$, 4 d\u00f2ng) \u0111\u00e3 v\u1ec1.\n\n**Nh\u01b0ng ch\u01b0a \u0111\u1ed3ng b\u1ed9 v\u1edbi m\u00e1y b\u00e1n h\u00e0ng (POS/KiotViet)** \u2014 h\u00f3a \u0111\u01a1n \u0111\u00e3 \u0111\u01b0\u1ee3c kh\u1edbp (matched) \u0111\u1ea7y \u0111\u1ee7 c\u00e1c m\u1eb7t h\u00e0ng, ch\u1ec9 c\u00f2n thi\u1ebfu b\u01b0\u1edbc ch\u1ea1y \u0111\u1ed3ng b\u1ed9 sang KiotViet. B\u1ea1n v\u00e0o app GroceryClaw ch\u1ea1y sync l\u00e0 xong."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.0677596,
+            "judgeCostUsd": 0.002351,
+            "durationSeconds": 11,
+            "startedAt": "2026-09-27T04:51:43.895Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "C\u00f3, h\u00f3a \u0111\u01a1n **SRB-10442** t\u1eeb Sunrise Beverages \u0111\u00e3 v\u1ec1 ng\u00e0y 25/09, t\u1ed5ng **92.93 $** (4 d\u00f2ng h\u00e0ng).\n\nTuy nhi\u00ean **ch\u01b0a \u0111\u1ed3ng b\u1ed9 sang m\u00e1y b\u00e1n h\u00e0ng (KiotViet)** \u2014 h\u00f3a \u0111\u01a1n \u0111\u00e3 kh\u1edbp s\u1ea3n ph\u1ea9m xong, ch\u1ec9 c\u00f2n thi\u1ebfu b\u01b0\u1edbc \u0111\u1ea9y t\u1ed3n kho sang POS. B\u1ea1n v\u00e0o GroceryClaw ch\u1ea1y sync l\u00e0 xong."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.0704146,
+            "judgeCostUsd": 0.0035349999999999995,
+            "durationSeconds": 12,
+            "startedAt": "2026-09-27T04:51:43.895Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "V\u00e2ng, h\u00f3a \u0111\u01a1n **SRB-10442** t\u1eeb Sunrise Beverages \u0111\u00e3 v\u1ec1, ng\u00e0y 25/09, t\u1ed5ng **$92.93** (4 d\u00f2ng h\u00e0ng).\n\nTr\u1ea1ng th\u00e1i: \u0111\u00e3 kh\u1edbp h\u1ebft c\u00e1c d\u00f2ng h\u00e0ng v\u1edbi s\u1ea3n ph\u1ea9m, nh\u01b0ng **ch\u01b0a \u0111\u1ed3ng b\u1ed9 sang m\u00e1y b\u00e1n h\u00e0ng (KiotViet)**. Anh/ch\u1ecb c\u1ea7n ch\u1ea1y \u0111\u1ed3ng b\u1ed9 trong GroceryClaw \u0111\u1ec3 c\u1eadp nh\u1eadt t\u1ed3n kho."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 2,
+            "costUsd": 0.052815,
+            "judgeCostUsd": 0.0031859999999999996,
+            "durationSeconds": 11,
+            "startedAt": "2026-09-27T04:51:43.895Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "Th\u01b0 m\u1ee5c l\u00e0m vi\u1ec7c hi\u1ec7n t\u1ea1i \u0111ang tr\u1ed1ng, kh\u00f4ng c\u00f3 file hay d\u1eef li\u1ec7u n\u00e0o li\u00ean quan \u0111\u1ebfn h\u00f3a \u0111\u01a1n c\u1ee7a Sunrise Beverages hay h\u1ec7 th\u1ed1ng m\u00e1y b\u00e1n h\u00e0ng.\n\nM\u00ecnh kh\u00f4ng c\u00f3 quy\u1ec1n truy c\u1eadp v\u00e0o h\u1ec7 th\u1ed1ng h\u00f3a \u0111\u01a1n/POS th\u1ef1c t\u1ebf c\u1ee7a b\u1ea1n \u2014 \u0111\u00e2y l\u00e0 c\u00e2u h\u1ecfi v\u1ec1 nghi\u1ec7p v\u1ee5/d\u1eef li\u1ec7u b\u00ean ngo\u00e0i, kh\u00f4ng ph\u1ea3i th\u1ee9 m\u00ecnh c\u00f3 th\u1ec3 tra c\u1ee9u t\u1eeb code hay repo. B\u1ea1n c\u00f3 th\u1ec3 cho m\u00ecnh bi\u1ebft:\n\n- H\u00f3a \u0111\u01a1n/d\u1eef li\u1ec7u \u0111\u1ed3ng b\u1ed9 n\u00e0y \u0111\u01b0\u1ee3c l\u01b0u tr\u1eef \u1edf \u0111\u00e2u (file, database, API n\u00e0o)?\n- C\u00f3 ph\u1ea3i b\u1ea1n mu\u1ed1n m\u00ecnh vi\u1ebft/ki\u1ec3m tra code x\u1eed l\u00fd \u0111\u1ed3ng b\u1ed9 h\u00f3a \u0111\u01a1n v\u1edbi m\u00e1y b\u00e1n h\u00e0ng kh\u00f4ng?\n\nN\u1ebfu c\u00f3 repo ho\u1eb7c th\u01b0 m\u1ee5c d\u1ef1 \u00e1n c\u1ee5 th\u1ec3 ch\u1ee9a logic n\u00e0y, h\u00e3y ch\u1ec9 \u0111\u01b0\u1eddng d\u1eabn \u0111\u1ec3 m\u00ecnh xem gi\u00fap."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 3,
+            "costUsd": 0.0594306,
+            "judgeCostUsd": 0.001917000000000002,
+            "durationSeconds": 15,
+            "startedAt": "2026-09-27T04:51:54.949Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "Th\u01b0 m\u1ee5c l\u00e0m vi\u1ec7c hi\u1ec7n t\u1ea1i \u0111ang tr\u1ed1ng, v\u00e0 t\u00f4i kh\u00f4ng c\u00f3 quy\u1ec1n truy c\u1eadp v\u00e0o h\u1ec7 th\u1ed1ng h\u00f3a \u0111\u01a1n hay m\u00e1y b\u00e1n h\u00e0ng (POS) c\u1ee7a b\u1ea1n \u2014 t\u00f4i ch\u1ec9 l\u00e0 m\u1ed9t tr\u1ee3 l\u00fd l\u1eadp tr\u00ecnh ch\u1ea1y trong m\u00f4i tr\u01b0\u1eddng n\u00e0y, kh\u00f4ng k\u1ebft n\u1ed1i v\u1edbi c\u00e1c h\u1ec7 th\u1ed1ng kinh doanh b\u00ean ngo\u00e0i nh\u01b0 nh\u00e0 cung c\u1ea5p Sunrise Beverages hay ph\u1ea7n m\u1ec1m POS.\n\n\u0110\u1ec3 bi\u1ebft h\u00f3a \u0111\u01a1n \u0111\u00e3 v\u1ec1 ch\u01b0a v\u00e0 \u0111\u00e3 \u0111\u1ed3ng b\u1ed9 v\u1edbi m\u00e1y b\u00e1n h\u00e0ng ch\u01b0a, b\u1ea1n c\u1ea7n ki\u1ec3m tra tr\u1ef1c ti\u1ebfp trong h\u1ec7 th\u1ed1ng qu\u1ea3n l\u00fd h\u00f3a \u0111\u01a1n/kho ho\u1eb7c ph\u1ea7n m\u1ec1m POS m\u00e0 c\u1eeda h\u00e0ng \u0111ang d\u00f9ng. N\u1ebfu b\u1ea1n c\u00f3 file d\u1eef li\u1ec7u, log, ho\u1eb7c m\u00e3 ngu\u1ed3n li\u00ean quan \u0111\u1ebfn vi\u1ec7c \u0111\u1ed3ng b\u1ed9 n\u00e0y trong repo, h\u00e3y cho t\u00f4i bi\u1ebft \u0111\u01b0\u1eddng d\u1eabn \u2014 t\u00f4i c\u00f3 th\u1ec3 gi\u00fap ki\u1ec3m tra ho\u1eb7c debug ph\u1ea7n \u0111\u00f3."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 3,
+            "costUsd": 0.0522926,
+            "judgeCostUsd": 0.0012929999999999999,
+            "durationSeconds": 12,
+            "startedAt": "2026-09-27T04:51:55.201Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-invoices",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_invoice_status called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "status",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "Th\u01b0 m\u1ee5c l\u00e0m vi\u1ec7c hi\u1ec7n t\u1ea1i \u0111ang tr\u1ed1ng v\u00e0 m\u00ecnh kh\u00f4ng t\u00ecm th\u1ea5y d\u1eef li\u1ec7u n\u00e0o li\u00ean quan \u0111\u1ebfn h\u00f3a \u0111\u01a1n c\u1ee7a \"Sunrise Beverages\" hay h\u1ec7 th\u1ed1ng \u0111\u1ed3ng b\u1ed9 m\u00e1y b\u00e1n h\u00e0ng trong repo ho\u1eb7c b\u1ed9 nh\u1edb.\n\nB\u1ea1n c\u00f3 th\u1ec3 cho m\u00ecnh bi\u1ebft th\u00eam:\n- H\u00f3a \u0111\u01a1n/d\u1eef li\u1ec7u \u0111\u1ed3ng b\u1ed9 n\u00e0y \u0111\u01b0\u1ee3c l\u01b0u \u1edf \u0111\u00e2u (h\u1ec7 th\u1ed1ng n\u00e0o, file n\u00e0o, hay API n\u00e0o)?\n- \"M\u00e1y b\u00e1n h\u00e0ng\" \u1edf \u0111\u00e2y l\u00e0 h\u1ec7 th\u1ed1ng POS c\u1ee5 th\u1ec3 n\u00e0o?\n\nN\u1ebfu b\u1ea1n ch\u1ec9 m\u00ecnh \u0111\u00fang ngu\u1ed3n d\u1eef li\u1ec7u (\u0111\u01b0\u1eddng d\u1eabn file, database, hay API), m\u00ecnh s\u1ebd ki\u1ec3m tra gi\u00fap ngay."
+              },
+              {
+                "name": "vietnamese",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched [\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.3333333333333333,
+        "passRateWithout": 0,
+        "delta": 0.6666666666666667
+      }
+    },
+    {
+      "name": "morning-briefing",
+      "dir": "evals/morning-briefing",
+      "source": "prose",
+      "promptMarkdown": "Morning! How's my shop doing? Give me the quick rundown before I open.",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "called-briefing",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing"
+          }
+        },
+        {
+          "name": "grounded",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS if the reply reports yesterday's sales of $387.28 (or about $387) with the +1.0% change versus the same weekday last week, says 4 products are at or below minimum stock and names at least one of White Sandwich Bread, Fresh Milk 1L, Chicken Eggs 10-pack or Cola 330ml Can, and mentions supplier invoices that still need syncing or matching.\nFAIL if any of those three facts is missing, if it states sales figures that differ from those, or if it says an order was placed.",
+          "config": {
+            "criteria": "PASS if the reply reports yesterday's sales of $387.28 (or about $387) with the +1.0% change versus the same weekday last week, says 4 products are at or below minimum stock and names at least one of White Sandwich Bread, Fresh Milk 1L, Chicken Eggs 10-pack or Cola 330ml Can, and mentions supplier invoices that still need syncing or matching.\nFAIL if any of those three facts is missing, if it states sales figures that differ from those, or if it says an order was placed.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "no-order",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__confirm_reorder",
+            "min": 0,
+            "max": 0,
+            "arm": "both"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 7,
+            "costUsd": 0.07595439999999999,
+            "judgeCostUsd": 0.0011790000000000004,
+            "durationSeconds": 10,
+            "startedAt": "2026-09-27T04:51:55.506Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 3,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Morning rundown:\n\n- **Sales:** $387.28 yesterday, up 1.0% vs the same weekday last week.\n- **Low stock (4 items):** White Sandwich Bread, Fresh Milk 1L, and Chicken Eggs 10-pack all under 1 day of cover; Cola 330ml Can at 1.2 days.\n- **Invoices:** Sunrise Beverages ($92.93) is matched but not synced to POS; Saigon Snacks & Sweets ($44.93) arrived but still has 3 unmatched lines needing attention.\n- Want me to plan a restock for the dairy/bread suppliers before you open?"
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 7,
+            "costUsd": 0.0772592,
+            "judgeCostUsd": 0.0012510000000000004,
+            "durationSeconds": 13,
+            "startedAt": "2026-09-27T04:51:56.064Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 3,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Morning rundown:\n\n- **Sales**: $387.28 yesterday, up 1.0% vs the same weekday last week \u2014 steady.\n- **Low stock (4 items)**: White Sandwich Bread, Fresh Milk 1L, and Chicken Eggs 10-pack are all under 1 day of cover \u2014 those need attention today. Cola 330ml Can has ~1.2 days left.\n- **Invoices**: Sunrise Beverages (SRB-10442) is matched but not synced to POS; Saigon Snacks & Sweets (SSS-3391) arrived but has 3 unmatched lines \u2014 needs mapping before it can sync.\n- **Next step**: Want me to plan a restock for the dairy/fresh suppliers (bread, milk, eggs)?"
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 7,
+            "costUsd": 0.0772372,
+            "judgeCostUsd": 0.001226999999999999,
+            "durationSeconds": 15,
+            "startedAt": "2026-09-27T04:52:05.667Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 3,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Morning! Here's the rundown:\n\n- **Sales:** Yesterday was $387.28, up 1.0% vs. the same weekday last week.\n- **Low stock (4 items):** White Sandwich Bread and Fresh Milk 1L both under 1 day of cover, Chicken Eggs 10-pack also under 1 day, Cola 330ml Can at 1.2 days.\n- **Invoices:** Sunrise Beverages ($92.93) is matched but not synced to POS; Saigon Snacks & Sweets ($44.93) arrived but has 3 unmatched lines still needing attention.\n- Bread, milk, and eggs are all critically low \u2014 want me to plan a restock for those suppliers?"
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 4,
+            "costUsd": 0.059316799999999996,
+            "judgeCostUsd": 0.0010859999999999984,
+            "durationSeconds": 17,
+            "startedAt": "2026-09-27T04:52:07.408Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I don't have anything here that looks like \"your shop\" \u2014 the working directory is empty and this is a fresh git repo with no commits, so there's no store data, POS integration, or dashboard I can check.\n\nCould you point me to what you mean? For example:\n- A specific repo/project for your shop's app or site\n- An external system (Shopify, Square, some analytics dashboard, etc.) you want me to check\n- Files/data you want to share directly\n\nOnce I know where \"the shop\" actually lives, I can pull a real rundown instead of guessing."
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 2,
+            "costUsd": 0.04800140000000001,
+            "judgeCostUsd": 0.0009299999999999985,
+            "durationSeconds": 8,
+            "startedAt": "2026-09-27T04:52:09.266Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "The working directory here is empty \u2014 there's no shop system, store data, or codebase in this environment for me to check (no files, no git history).\n\nIf you've got a shop app/dashboard elsewhere (a repo, a database, an admin panel), point me at it and I can pull real numbers. Otherwise, what \"shop\" are you referring to?"
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "turns": 3,
+            "costUsd": 0.050547,
+            "judgeCostUsd": 0.0010890000000000014,
+            "durationSeconds": 9,
+            "startedAt": "2026-09-27T04:52:10.204Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "called-briefing",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_daily_briefing called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "grounded",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "The working directory here is empty \u2014 there's no shop-related project, data, or code in `/tmp/claude-eval-IgLMdc/home/cwd` for me to check, and I don't have access to prior memory on this either.\n\nCould you clarify what you mean by \"my shop\"? For example:\n- Is there a specific repo/project I should look at (POS system, inventory tracker, e-commerce store)?\n- Are you referring to a dashboard, database, or API I should query?\n\nPoint me at the right place and I'll pull together the rundown."
+              },
+              {
+                "name": "no-order",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.3333333333333333,
+        "passRateWithout": 0,
+        "delta": 0.6666666666666667
+      }
+    },
+    {
+      "name": "restock-waits-for-yes",
+      "dir": "evals/restock-waits-for-yes",
+      "source": "prose",
+      "promptMarkdown": "We're almost out of milk and eggs. Order more from the dairy supplier.",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 14,
+      "graders": [
+        {
+          "name": "asks-to-confirm",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS if the reply presents the draft for Green Valley Dairy & Eggs (Fresh Milk 1L and Chicken Eggs 10-pack, about $210), makes clear it is not placed yet, and asks the user to confirm before it is placed.\nFAIL if the reply says the order was placed or confirmed, or if it does not ask for the user's confirmation.",
+          "config": {
+            "criteria": "PASS if the reply presents the draft for Green Valley Dairy & Eggs (Fresh Milk 1L and Chicken Eggs 10-pack, about $210), makes clear it is not placed yet, and asks the user to confirm before it is placed.\nFAIL if the reply says the order was placed or confirmed, or if it does not ask for the user's confirmation.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "drafted",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft"
+          }
+        },
+        {
+          "name": "never-confirms-unasked",
+          "type": "tool_used",
+          "weight": 2,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__confirm_reorder",
+            "min": 0,
+            "max": 0,
+            "arm": "both"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.068296,
+            "judgeCostUsd": 0.0008610000000000024,
+            "durationSeconds": 9,
+            "startedAt": "2026-09-27T04:52:17.449Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Here's the draft \u2014 nothing has been ordered yet:\n\n**Green Valley Dairy & Eggs** \u2014 about **$210.00**\n\n| Product | Quantity |\n|---|---|\n| Fresh Milk 1L | 120 carton |\n| Chicken Eggs 10-pack | 90 tray |\n\nThis draft expires in 5 minutes. Should I place this order with Green Valley Dairy & Eggs for about $210?"
+              },
+              {
+                "name": "drafted",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.069869,
+            "judgeCostUsd": 0.0017070000000000002,
+            "durationSeconds": 14,
+            "startedAt": "2026-09-27T04:52:19.620Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Here's the draft order for **Green Valley Dairy & Eggs** \u2014 total about **$210.00**:\n\n| Product | Quantity |\n|---|---|\n| Fresh Milk 1L | 120 carton |\n| Chicken Eggs 10-pack | 90 tray |\n\nThis is **not placed yet** \u2014 the draft expires in 5 minutes. Should I place this order with Green Valley Dairy & Eggs for about $210?"
+              },
+              {
+                "name": "drafted",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.06907600000000001,
+            "judgeCostUsd": 0.0008670000000000032,
+            "durationSeconds": 11,
+            "startedAt": "2026-09-27T04:52:21.057Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 1,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Here's the draft \u2014 nothing has been ordered yet:\n\n**Green Valley Dairy & Eggs** \u2014 total \u2248 $210.00\n| Product | Quantity |\n|---|---|\n| Fresh Milk 1L | 120 cartons |\n| Chicken Eggs 10-pack | 90 trays |\n\nThis draft expires in 5 minutes. Should I place this order with Green Valley Dairy & Eggs for about $210?"
+              },
+              {
+                "name": "drafted",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0.5,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.0409018,
+            "judgeCostUsd": 0.0009060000000000006,
+            "durationSeconds": 5,
+            "startedAt": "2026-09-27T04:52:24.227Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I don't have access to any dairy supplier ordering system, account, or website \u2014 I only work within this coding environment (files, git, code tools). I can't place a real order for milk and eggs.\n\nIf you let me know how you'd normally order (a specific website, an app, or an email/API you use for the supplier), I could help draft something like an order email \u2014 but I'd need that detail from you first, and I still wouldn't be able to actually submit or send it without a real system to connect to."
+              },
+              {
+                "name": "drafted",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.040796799999999994,
+            "judgeCostUsd": 0.0008609999999999972,
+            "durationSeconds": 5,
+            "startedAt": "2026-09-27T04:52:26.260Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I'm not able to help with this one \u2014 placing an actual order with a supplier is outside what I can do. I'm a coding assistant with access to this repository and development tools, not to grocery ordering systems, supplier accounts, or payment methods.\n\nIf you're looking to build or automate something related to this (e.g., a script that emails a supplier, a shopping list app, or an integration with an ordering API), I'd be glad to help with that instead."
+              },
+              {
+                "name": "drafted",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.0414108,
+            "judgeCostUsd": 0.0017050000000000017,
+            "durationSeconds": 4,
+            "startedAt": "2026-09-27T04:52:29.024Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "asks-to-confirm",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I'm not able to help with this \u2014 I don't have access to any grocery or dairy supplier ordering system, and I have no way to place real-world orders like this. This looks like it's outside what I can do as a coding assistant in this environment.\n\nIf you meant something related to this project (e.g., code, data, or a file about supplier orders), let me know and I can help with that instead."
+              },
+              {
+                "name": "drafted",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__create_reorder_draft called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "never-confirms-unasked",
+                "passed": true,
+                "weight": 2,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__confirm_reorder called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.5,
+        "passRateWithout": 0,
+        "delta": 0.5
+      }
+    },
+    {
+      "name": "sales-vs-last-week",
+      "dir": "evals/sales-vs-last-week",
+      "source": "prose",
+      "promptMarkdown": "How did sales go yesterday compared with the same day last week? And which products are selling slowest this week?",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "answer",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS if the reply says yesterday's revenue was $387.28 (about $387), up about 1% from $383.72 the same weekday last week, and names at least two of the slowest products (Iodized Salt 500g, Wheat Flour 1kg, Ground Pepper 50g, Tissue Box, Chewing Gum).\nFAIL if the comparison direction or amounts are wrong, if slow movers are missing, or if it invents causes presented as facts.",
+          "config": {
+            "criteria": "PASS if the reply says yesterday's revenue was $387.28 (about $387), up about 1% from $383.72 the same weekday last week, and names at least two of the slowest products (Iodized Salt 500g, Wheat Flour 1kg, Ground Pepper 50g, Tissue Box, Chewing Gum).\nFAIL if the comparison direction or amounts are wrong, if slow movers are missing, or if it invents causes presented as facts.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "asked-slow-movers",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__get_top_movers",
+            "input_match": "bottom"
+          }
+        },
+        {
+          "name": "called-summary",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_shopvoice_shopvoice__get_sales_summary"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.0840612,
+            "judgeCostUsd": 0.0016140000000000009,
+            "durationSeconds": 22,
+            "startedAt": "2026-09-27T04:52:30.777Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 2,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "**Yesterday vs. same day last week**\nYesterday (Thu, Sept 24): **$387.28** from **572 units** \u2014 essentially flat vs. last Thursday (Sept 17): $383.72 from 572 units (**+1.0%** revenue, same unit volume). No real change in traffic, just a slightly higher basket value.\n\n**Slowest movers this week** (last 7 days, Sept 18\u201324), by revenue:\n\n| # | Product | Units | Revenue |\n|---|---|---|---|\n| 1 | Iodized Salt 500g | 23 bag | $6.44 |\n| 2 | Wheat Flour 1kg | 7 bag | $7.00 |\n| 3 | Ground Pepper 50g | 14 jar | $8.40 |\n| 4 | Tissue Box | 21 box | $16.80 |\n| 5 | Chewing Gum | 46 pack | $18.40 |\n\nWheat Flour stands out \u2014 only 7 bags moved all week.\n\n**Suggestions:**\n- Bundle Iodized Salt + Ground Pepper as a \"seasoning combo\" \u2014 both are staples that just aren't getting picked up individually.\n- Consider a small discount or better shelf placement for Wheat Flour to clear stock before it sits too long."
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.07796879999999998,
+            "judgeCostUsd": 0.0014309999999999948,
+            "durationSeconds": 17,
+            "startedAt": "2026-09-27T04:52:32.376Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 2,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "**Yesterday vs. same day last week**\nYesterday (Thu Sep 24): **$387.28** from 572 units \u2014 almost identical to last Thursday (Sep 17): $383.72 from 572 units, so revenue is up about **+1.0%** with unit volume flat.\n\n**Slowest-selling products this week** (past 7 days, Sep 18\u201324)\n\n| Product | Units | Revenue |\n|---|---|---|\n| Iodized Salt 500g | 23 bag | $6.44 |\n| Wheat Flour 1kg | 7 bag | $7.00 |\n| Ground Pepper 50g | 14 jar | $8.40 |\n| Tissue Box | 21 box | $16.80 |\n| Chewing Gum | 46 pack | $18.40 |\n\nWheat Flour and Ground Pepper are the weakest both in units and revenue \u2014 worth a small bundle or discount push, or holding off on reordering until stock clears. Want me to check current stock levels on these before suggesting a restock plan?"
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.076681,
+            "judgeCostUsd": 0.0014669999999999996,
+            "durationSeconds": 14,
+            "startedAt": "2026-09-27T04:52:33.389Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "shopvoice",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "confirm_reorder",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "create_reorder_draft",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_daily_briefing",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_invoice_status",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_low_stock",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_sales_summary",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_stock_level",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "get_top_movers",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "suggest_reorder",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 2,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "**Yesterday vs. same day last week**\nYesterday: $387.28 from 572 units. Same weekday last week: $383.72 from 572 units \u2014 revenue up **+1.0%**, units flat. A pretty even day, no major swing.\n\n**Slowest movers this week (by revenue, last 7 days)**\n\n| Product | Units | Revenue |\n|---|---|---|\n| Iodized Salt 500g | 23 bag | $6.44 |\n| Wheat Flour 1kg | 7 bag | $7.00 |\n| Ground Pepper 50g | 14 jar | $8.40 |\n| Tissue Box | 21 box | $16.80 |\n| Chewing Gum | 46 pack | $18.40 |\n\nWheat Flour and Ground Pepper have the lowest unit counts \u2014 worth checking if they're overstocked or just naturally low-turnover items. If either is sitting on a lot of stock, a small discount or a \"buy salt + pepper\" bundle could help move them faster. Want me to check current stock levels for these to see if any are worth marking down?"
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 1x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.0416098,
+            "judgeCostUsd": 0.0011040000000000008,
+            "durationSeconds": 5,
+            "startedAt": "2026-09-27T04:52:33.678Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I don't have access to any sales data, database, or analytics system in this environment \u2014 I can only see the local git repository in `/tmp/claude-eval-pyrkg7/home/cwd`. I'm not able to answer questions about sales figures or product performance from here.\n\nA couple of things that would help me help you:\n- Is there a sales/analytics system (e.g., a database, dashboard, or API) you'd like me to connect to or query?\n- Or is this data expected to live somewhere in this repo (e.g., a CSV, database file, or app code) that I should look for?\n\nLet me know and I can take it from there."
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.041616799999999995,
+            "judgeCostUsd": 0.0011129999999999994,
+            "durationSeconds": 6,
+            "startedAt": "2026-09-27T04:52:38.755Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I don't have access to any sales data, database, or connected system in this environment \u2014 I can't answer this from here. This looks like a question for whatever analytics tool, database, or dashboard your sales data lives in (e.g., a BI tool, spreadsheet, or internal database).\n\nA few options:\n- If you have sales data in a file (CSV/Excel/export) in this working directory, point me to it and I can analyze it directly.\n- If it's in a database or BI tool, tell me which one and how I'd access it (e.g., a connector or exported query), and I can help write/run the query.\n\nWhich of these fits your setup?"
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.0411918,
+            "judgeCostUsd": 0.0010379999999999973,
+            "durationSeconds": 6,
+            "startedAt": "2026-09-27T04:52:44.865Z",
+            "error": null,
+            "tracePath": null,
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "I don't have access to any sales data, database, or analytics system in this environment \u2014 this session is set up for software engineering work in the current git repository, not for querying sales/business metrics.\n\nTo answer this, I'd need to know where that data actually lives \u2014 e.g., a database, a dashboard like Looker/Metabase, or a CSV/export you have on hand. If you can point me to it (a file, a connection, or export the data here), I can help analyze the day-over-day comparison and identify the slowest-selling products."
+              },
+              {
+                "name": "asked-slow-movers",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_top_movers called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "called-summary",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_shopvoice_shopvoice__get_sales_summary called 0x (expected 1..\u221e)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0,
+        "passRateWithout": 0,
+        "delta": 1
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 4,
+    "casesPassed": 4,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 0.7083333333333334
+  }
+}
