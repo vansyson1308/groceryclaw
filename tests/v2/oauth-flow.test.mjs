@@ -10,6 +10,7 @@ import {
 } from './oauth-harness.mjs';
 import { TOKEN_A } from './mcp-harness.mjs';
 import { isAnthropicEgress } from '../../apps/mcp-server/dist/oauth/server.js';
+import { clientIpFrom } from '../../apps/mcp-server/dist/client-ip.js';
 
 const sha = (v) => createHash('sha256').update(v).digest('hex');
 let n = 0;
@@ -120,6 +121,33 @@ test('DCR from Anthropic egress (160.79.104.0/21) shares a large bucket instead 
   } finally {
     await srv.close();
   }
+});
+
+test('X-Forwarded-For: only the hop appended by the trusted proxy counts, so spoofed entries cannot pick the bucket', async () => {
+  const srv = await startOAuthServer({ env: { OAUTH_DCR_PER_HOUR: '2', MCP_TRUST_PROXY: 'true' } });
+  try {
+    const reg = (xff) => fetch(`${srv.url}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': xff }, body: JSON.stringify({ redirect_uris: [CLAUDE_CALLBACK] }) });
+    // CloudFront appends the real viewer address to whatever the viewer sent.
+    const spoofAnthropic = [];
+    for (let i = 0; i < 3; i += 1) spoofAnthropic.push((await reg(`160.79.104.${10 + i}, 203.0.113.7`)).status);
+    assert.deepEqual(spoofAnthropic, [201, 201, 429], 'a spoofed Anthropic address does not reach the shared bucket');
+    const rotating = [];
+    for (let i = 0; i < 3; i += 1) rotating.push((await reg(`198.51.100.${10 + i}, 203.0.113.8`)).status);
+    assert.deepEqual(rotating, [201, 201, 429], 'rotating a spoofed address does not reset the per-IP limit');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('clientIpFrom: rightmost X-Forwarded-For entry behind a trusted proxy, socket address otherwise', () => {
+  const req = (xff, remote = '10.0.0.5') => ({ headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: remote } });
+  assert.equal(clientIpFrom(req('1.2.3.4, 203.0.113.9'), true), '203.0.113.9');
+  assert.equal(clientIpFrom(req('203.0.113.9'), true), '203.0.113.9');
+  assert.equal(clientIpFrom(req(' 1.2.3.4 ,  203.0.113.9 '), true), '203.0.113.9');
+  assert.equal(clientIpFrom(req(''), true), '10.0.0.5');
+  assert.equal(clientIpFrom(req(undefined), true), '10.0.0.5');
+  assert.equal(clientIpFrom(req('1.2.3.4, 203.0.113.9'), false), '10.0.0.5', 'untrusted: header ignored');
+  assert.equal(clientIpFrom({ headers: {}, socket: {} }, false), 'unknown');
 });
 
 test('full flow (DCR + Claude callback): signup provisions a sandbox shop, code -> tokens -> MCP tools', async () => {

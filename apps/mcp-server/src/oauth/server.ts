@@ -15,6 +15,7 @@ import type { OAuthUrls } from './metadata.js';
 import { pickLocale, renderAccountPage, renderAuthPage, renderConsentPage, renderErrorPage } from './pages.js';
 import type { HiddenFields, Locale, MessageKey } from './pages.js';
 import { isLoopbackRedirect, redirectHost, redirectUriMatches, validateRegisteredRedirectUri } from './redirect.js';
+import { clientIpFrom } from '../client-ip.js';
 import { AccountExistsError } from './store.js';
 import type { OAuthClient, OAuthStore, WebAccount } from './store.js';
 
@@ -151,13 +152,7 @@ export function createOAuthServer(deps: OAuthServerDeps): OAuthServer {
   const loginLimiter = new InMemoryTokenBucketRateLimiter(config.loginPerMinute, config.loginPerMinute);
   const sandboxChecked = new Map<string, string>();
 
-  function clientIp(req: IncomingMessage): string {
-    if (config.trustProxy) {
-      const fwd = header(req, 'x-forwarded-for');
-      if (fwd) return fwd.split(',')[0]?.trim() ?? 'unknown';
-    }
-    return req.socket.remoteAddress ?? 'unknown';
-  }
+  const clientIp = (req: IncomingMessage): string => clientIpFrom(req, config.trustProxy);
 
   function cookie(name: string, value: string, maxAgeSeconds: number): string {
     return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure ? '; Secure' : ''}`;

@@ -17,6 +17,7 @@ import type { OAuthStore } from './oauth/store.js';
 import type { CimdResolver } from './oauth/cimd.js';
 import { CHALLENGE_SCOPE, WRITE_SCOPE, wwwAuthenticate } from './oauth/metadata.js';
 import { createSite } from './site.js';
+import { clientIpFrom } from './client-ip.js';
 
 interface Session {
   readonly transport: StreamableHTTPServerTransport;
@@ -105,14 +106,6 @@ export function isOriginAllowed(origin: string | undefined, allowList: readonly 
 function header(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name];
   return Array.isArray(value) ? value[0] : value;
-}
-
-function clientIp(req: IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = header(req, 'x-forwarded-for');
-    if (forwarded) return forwarded.split(',')[0]?.trim() ?? 'unknown';
-  }
-  return req.socket.remoteAddress ?? 'unknown';
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void {
@@ -248,7 +241,7 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       return;
     }
 
-    const ip = clientIp(req, config.trustProxy);
+    const ip = clientIpFrom(req, config.trustProxy);
     const auth = header(req, 'authorization') ?? '';
     const match = /^Bearer\s+([A-Za-z0-9._~+/=-]{16,256})$/i.exec(auth.trim());
     const token = match?.[1] ?? '';

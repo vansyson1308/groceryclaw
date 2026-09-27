@@ -90,9 +90,23 @@ cat > /etc/cron.d/shopvoice-reseed <<CRON
 5 17 * * * root $COMPOSE --profile ops run --rm ops >> /var/log/shopvoice-reseed.log 2>&1
 CRON
 
+# Dump to a temp file and check it is complete before uploading, so a failed
+# pg_dump can never overwrite that day's backup with an empty or partial one.
+cat > /usr/local/bin/shopvoice-backup <<SCRIPT
+#!/bin/bash
+set -euo pipefail
+tmp=\\$(mktemp /tmp/shopvoice-backup.XXXXXX)
+trap 'rm -f "\\$tmp"' EXIT
+$COMPOSE exec -T postgres pg_dump -U postgres -d groceryclaw_v2 | gzip > "\\$tmp"
+gzip -dc "\\$tmp" | tail -n 5 | grep -q 'PostgreSQL database dump complete'
+aws s3 cp "\\$tmp" "s3://${bucket}/postgres/groceryclaw_v2-\\$(date -u +%Y-%m-%d).sql.gz" --region ${region} --only-show-errors
+echo "backup ok \\$(date -u +%FT%TZ)"
+SCRIPT
+chmod 755 /usr/local/bin/shopvoice-backup
+
 cat > /etc/cron.d/shopvoice-backup <<CRON
 # 01:15 Asia/Ho_Chi_Minh = 18:15 UTC: pg_dump to S3 (the bucket expires objects after 7 days).
-15 18 * * * root $COMPOSE exec -T postgres pg_dump -U postgres -d groceryclaw_v2 | gzip | aws s3 cp - s3://${bucket}/postgres/groceryclaw_v2-\\$(date -u +\\%Y-\\%m-\\%d).sql.gz --region ${region} >> /var/log/shopvoice-backup.log 2>&1
+15 18 * * * root /usr/local/bin/shopvoice-backup >> /var/log/shopvoice-backup.log 2>&1
 CRON
 echo "ShopVoice bootstrap complete"
 `;
