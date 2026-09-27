@@ -108,14 +108,14 @@ Nên để **anh tự dán** ở bước này. Nếu cho Claude in Chrome làm, 
 4. Bấm **Save**. Quay lại tab AWS và bấm **Done**.
 5. **Mở phiên Claude Code MỚI.** Môi trường chỉ được nạp khi phiên bắt đầu, phiên đang chạy không thấy key mới.
    - Repo: `vansyson1308/groceryclaw`
-   - Nhánh: `feat/claude-directory`
+   - Nhánh: `main` (PR #27 đã merge vào `main`)
 
    Dán lời nhắn ở Phần 6.
 
 ## Phần 6: Lời nhắn cho phiên Claude Code mới (dán nguyên văn)
 
 ```text
-Tiếp tục SPEC 04 (ShopVoice lên Claude directory) trên nhánh feat/claude-directory, PR #27. Đọc docs/directory/STATUS.md, BLOCKERS.md và DEPLOYMENT.md trước. Anh đã thay AWS key mới vào môi trường (IAM user shopvoice-deploy, us-east-1). Domain: dùng domain CloudFront. Làm tiếp:
+Tiếp tục SPEC 04 (ShopVoice lên Claude directory). PR #27 đã merge vào main; tạo nhánh mới từ main là feat/claude-directory-deploy cho phần deploy (push nhánh đó, mở PR mới). Đọc docs/directory/STATUS.md, BLOCKERS.md và DEPLOYMENT.md trước. Anh đã thay AWS key mới vào môi trường (IAM user shopvoice-deploy, us-east-1). Domain: dùng domain CloudFront. Làm tiếp:
 1. aws sts get-caller-identity để kiểm tra key (không in secret).
 2. SUPPORT_EMAIL=sonnv.hd34@gmail.com ALARM_EMAIL=sonnv.hd34@gmail.com scripts/aws/deploy.sh (không dùng --show-secrets).
 3. create_reviewer.mjs cho sonnv.hd34+shopvoice-reviewer@gmail.com, mật khẩu chỉ lưu SSM /shopvoice/demo/reviewer-password.
@@ -144,8 +144,7 @@ Dùng khi Phần 5 không làm được, ví dụ không tìm thấy chỗ sửa
 1. AWS Console (region us-east-1), bấm biểu tượng **CloudShell** (hình `>_` trên thanh trên cùng). Đợi terminal sẵn sàng.
 2. Dán từng khối lệnh:
    ```bash
-   git clone https://github.com/vansyson1308/groceryclaw && cd groceryclaw
-   git checkout feat/claude-directory     # hoặc main nếu PR #27 đã merge
+   git clone https://github.com/vansyson1308/groceryclaw && cd groceryclaw   # nhánh main
    node -v && npm -v && openssl version   # cần Node 18 trở lên
    ```
    ```bash

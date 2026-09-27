@@ -3,7 +3,7 @@
 Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), the requirements in `REQUIREMENTS_DIGEST.md`, and deviations in `DECISIONS.md`.
 
 **Last update:** 2026-09-27. Phases 0–2, 4, 5 and 7 are done; Phase 6 is done locally. The deploy (Phase 3) and everything that needs the public URL are **blocked on AWS credentials (DB1)**.
-**Branch:** `feat/claude-directory`
+**Branch:** `feat/claude-directory` (PR #27, merged into `main` once green, at the owner's request). Deploy follow-ups go on a new branch from `main`
 
 ## Checklist
 
