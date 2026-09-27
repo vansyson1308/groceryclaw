@@ -62,7 +62,15 @@ Updated at the end of every phase. The plan is in `SPEC.md` (source: SPEC 04), t
 
 ## Next
 
-Phase 3: the deploy is blocked on AWS (DB1). Before it, do Phase 4 (pages and icon), Phase 5 (plugin) and the CDK changes that can be synthesized without credentials.
+Phase 3: the deploy is blocked on AWS (DB1). The owner confirmed on 2026-09-27 that the CloudFront domain is fine. `AWS_SETUP_CHROME.md` is the owner's step-by-step guide, for Claude in Chrome:
+- budget alert;
+- IAM user and access key;
+- Bedrock Nova access;
+- replacing the key in the Claude Code environment;
+- a hand-off prompt for a new session;
+- a keyless CloudShell fallback.
+
+Once a new session has a working key: deploy → reviewer → smoke/Inspector evidence → push the plugin repo → `check_kit --host` → Checkpoint B.
 
 ## Blockers
 

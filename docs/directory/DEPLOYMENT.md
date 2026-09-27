@@ -19,6 +19,8 @@ The instance cannot know the CloudFront hostname when it boots, so it waits for 
 
 ## One-time owner setup
 
+Click-by-click version for Claude in Chrome, in Vietnamese, with a keyless AWS CloudShell fallback: `AWS_SETUP_CHROME.md`.
+
 1. Create an IAM user `shopvoice-deploy` (never root) with programmatic access. Attach policies covering CloudFormation, EC2, CloudFront, S3, SSM, IAM (role/instance-profile creation), CloudWatch/Logs, SNS, Route 53 health checks, Lambda (the S3 auto-delete custom resource), and read access to STS. For a short-lived hackathon account, `AdministratorAccess` on this user is the simplest choice; delete the key afterwards.
 2. Put the key in the environment where the deploy runs: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION=us-east-1`.
 3. **Domain (optional, recommended before submitting to the directory):** see *Custom domain* below. Decide this **before** submitting. The directory listing, the plugin's `.mcp.json` and every user's OAuth tokens are bound to the URL.
