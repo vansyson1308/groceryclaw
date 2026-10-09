@@ -62,3 +62,45 @@ The installed `dist/esm/types.js` has `LATEST_PROTOCOL_VERSION = '2025-11-25'`, 
 - The rules brain produces only the same MCP tool calls, then speaks the tools' own text.
 
 **D17. Speech input uses the Web Speech API. Amazon Transcribe streaming is deferred to the stretch list.**
+
+## 2026-10-09 (no-AWS pass, M0)
+
+**D18. No AWS runtime for the rest of the hackathon.**
+- The owner's AWS account is locked and the appeal failed. Amazon ran out of credit codes on Oct 7, and opening a second account to get around a suspension may break AWS terms, so it is not an option.
+- Bedrock, Polly, EC2 and CloudFront never ran for real. `infra/aws` and the Bedrock/Polly adapters stay in the repo, labelled "implemented, not deployed: AWS account unavailable", and leave the demo path, the video and the Devpost claims.
+- Plan: `SPEC_NO_AWS.md`. Blocker: B7.
+
+**D19. AWS Builder through Kiro Crew, run by the owner on Windows; Kiro IDE is the fallback.**
+What Kiro's docs say (read 2026-10-09: `/docs/crew/`, `/docs/crew/installation/`, `/docs/crew/features/task-runner/`, `/docs/crew/troubleshooting/`, `/docs/getting-started/authentication/`, `/docs/getting-started/installation/`, `/docs/specs/`, `/docs/specs/feature-specs/`, `/docs/steering/`, `/pricing/`):
+- **What Crew is.** "An open-source personal AI agent that runs locally or remotely on your hardware." A signed Windows `.exe` desktop app exists, and native Windows is supported (`pod api` is the only feature missing there).
+- **How Crew reaches the model.** Through `kiro-cli` over ACP; that is the only provider. The desktop app walks through installing `kiro-cli` and signing in.
+- **Sign-in.** `kiro-cli` supports GitHub, Google and AWS Builder ID, all of which work with the device flow. API-key auth is paid-only and not needed.
+- **Plans.** "Kiro subscriptions can be used with Kiro IDE, Kiro CLI, Kiro Web, Kiro Crew". Kiro Free is perpetual: 50 credits a month, Claude Sonnet 4.5 and open-weight models, rate-limited, no credit card. "Executing a spec task, typically cost[s] more than 1 credit"; Auto is the cheapest model setting. Credits reset monthly and do not roll over.
+- **Crew's Task Runner.** It "isn't picky": it takes any markdown spec (`kirocrew run TASK.md`, or Dashboard → Projects → From Spec). It plans steps and runs each one in a `git worktree` on branch `kirocrew/task/{task_id}`. It runs tests, has an independent reviewer read `git diff HEAD~1`, and commits per step with `git add -A && git commit`. It does **not** open PRs.
+- **Spec format.** Kiro IDE specs live in `.kiro/specs/<name>/` as `requirements.md` (EARS: "WHEN [condition/event] THE SYSTEM SHALL [expected behavior]"), `design.md` and `tasks.md`.
+- **Steering.** `.kiro/steering/{product,tech,structure}.md`, with optional front matter `inclusion: always|fileMatch|manual|auto`.
+- **Shared config.** Every Kiro surface shares the `.kiro` folder.
+
+Decision:
+- The rules name **Kiro Crew** as qualifying on its own, and Crew runs natively on Windows on the free tier, so Crew is the primary path.
+- The spec is written in Kiro's IDE format (`.kiro/specs/hosted-demo/`), so the same files work in Crew (hand `tasks.md` to the Task Runner) and in the IDE fallback.
+- **Credit budget.** 50 credits is tight for a planner, worker and reviewer loop with retries. The spec is therefore cut into about 6 small tasks, with Auto as the model.
+- **Running out.** If credits run out, the owner chooses: finish in the October allowance, or upgrade to Pro ($20/month; the first upgrade gets a $20 sign-up credit, prorated). The agent must not decide this, since it is the owner's money.
+- **Trailer.** Crew writes its own commit messages, so the runbook installs a `prepare-commit-msg` hook in the owner's clone that appends `Built-with: Kiro`. Hooks are shared by every worktree of a clone.
+- **Missing trailers.** If any commit lacks the trailer, the runbook adds it on the owner's own `kiro/hosted-demo` branch before the PR. That branch is his, not `main`.
+- **If only the IDE works.** The owner posts the question drafted in `KIRO_RUNBOOK.md` on Devpost Discussions: "Does Kiro IDE also qualify for AWS Builder?" Office hours #2 on Oct 19 is a second chance to ask. The Resources page already lists plain "Kiro" among the AWS Builder services.
+
+**D20. A hosted demo is built even though the FAQ says hosting is optional.**
+- FAQ: "A locally runnable public repo plus your demo video is enough". Judges may score from the description, images and video alone.
+- A URL that opens straight into the simulator still lowers the effort for any judge who wants to try it, and helps on Design and Impact.
+- The rules require the project to stay "available free of charge … until the Judging Period ends" (Nov 20). The demo stays up until winners are announced (about Dec 3): roughly 2 months at ≤$25/month.
+
+**D21. Render: Postgres runs as a private service (`pserv`), not Render's managed Postgres.**
+- Same reason as D13: migration 004 needs a superuser for `BYPASSRLS`, which managed Postgres does not grant.
+- The app logs in as a plain role under RLS, as `shopvoice-pay`'s working blueprint does; it is used only as a reference.
+- Price check (render.com/pricing, 2026-10-09): web `0.5c-512mb` $7/month; private service $7/month plus disk at $0.25/GB. Estimated total: $14–22/month.
+- The final topology is fixed in `.kiro/specs/hosted-demo/design.md`.
+
+**D22. Local test baseline: `REDIS_URL` must be unset for the unit suite.**
+- With `REDIS_URL` pointing at a live Redis, two readiness tests (gateway and admin "503 when dependencies are missing") fail, because the dependencies are present. CI's unit step does not set it.
+- The M0 numbers in `STATUS.md` are therefore run with `DATABASE_URL` set and `REDIS_URL` unset, like CI.

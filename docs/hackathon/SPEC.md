@@ -6,18 +6,80 @@
 | Primary track | **Alexa+** (1st $25,000 cash + $15,000 AWS credits; 2nd $15,000; 3rd $4,000) |
 | Mini challenges (stack on same project) | **AWS Builder** ($5,000 + $5,000 credits) and **Open Source** ($5,000 + $5,000 credits) |
 | Base repo | https://github.com/vansyson1308/groceryclaw (TypeScript monorepo, npm workspaces, Postgres 16 + RLS) |
-| Submission deadline | **Oct 24, 2026 03:00 GMT+8 (= 02:00 Vietnam time, Oct 24)**. Internal target: code freeze Oct 20, submit Oct 22 |
+| Submission deadline | **Oct 24, 2026 03:00 GMT+8 (= 02:00 Vietnam time, Oct 24)**. Internal target (2026-10-09): code freeze Oct 19, video Oct 20, QC Oct 21, submit Oct 22 |
 | Demo video | **REQUIRED** — under 3 minutes, public YouTube or Vimeo, in English (see §9) |
 
 ---
 
-## 0. Owner actions (Việc anh Sơn phải tự làm — agent KHÔNG làm được)
+> **2026-10-09:** the owner's AWS account is locked (BLOCKERS B7). The AWS runtime parts of §3, §4 and §7 (Bedrock, Polly, EC2/CloudFront) are implemented but not deployed, and are no longer the plan. See `SPEC_NO_AWS.md`.
 
-1. **License decision**: repo hiện chưa có LICENSE. Spec mặc định: thêm **MIT** và để repo public (bắt buộc cho Open Source mini challenge). Nếu anh muốn private thì phải mời 6 reviewer của Amazon lúc nộp bài (xem §10).
-2. Cấp cho agent: AWS account (IAM user/role có quyền Bedrock + Lambda/App Runner + Polly), region `us-east-1`; bật model access cho **Amazon Nova** (và Anthropic Claude trên Bedrock nếu có).
-3. Xin **$150 AWS credits** qua form trên trang Resources của cuộc thi.
-4. Tự upload video lên YouTube (public), điền form Devpost, bấm Submit.
-5. (Tuỳ chọn) Nếu có quyền truy cập Alexa+ Preview cho developer thì kết nối MCP server với Alexa thật; không có thì dùng đường "simulated Alexa+ web app" (được luật cho phép).
+## 0. Official rules digest (re-verified 2026-10-09) and owner actions
+
+Source: `/rules` (last rules update Sep 16, 2026), `/resources`, `/updates` and the FAQ tab, all read on 2026-10-09. The no-AWS plan is in `SPEC_NO_AWS.md`.
+
+**Dates.**
+- Submission period: Aug 31, 2026 10:15 PT to **Oct 23, 2026 12:00 PT** (= Oct 24 02:00 Vietnam).
+- Judging: **Nov 9–20, 2026**. Winners are announced on or around **Dec 3, 2026**.
+- "The Entrant must make the Project available free of charge and without any restriction, for testing, evaluation and use by the Sponsor, Administrator and Judges **until the Judging Period ends**." So the hosted demo must stay up until at least Nov 20; the plan keeps it up to Dec 3.
+
+**Alexa+ track.**
+- A working Agent Skill or self-hosted MCP server, MCP spec 2025-11-25 or later, over Streamable HTTP. Alternatively, "a simulated Alexa+ experience … built using any AI or agentic tool of their choice". That path is exempt from the runtime-technology hook, but "the code repository must still include the simulation's source code, and the demo video must clearly show the simulated experience".
+- Otherwise the repo must show the track technology "imported and actually called".
+- FAQ: the gated Alexa+ developer tools (Category SDK, MCP Toolkit, CLI, Web Simulator) are partner-only and not available to entrants.
+- FAQ: "A web page that acts as an actual MCP client (sending initialize, tools-list, and tools-call requests over Streamable HTTP) satisfies the requirement". `apps/alexa-sim` does exactly this.
+- FAQ: "A locally runnable public repo plus your demo video is enough … hosting isn't required". A new conversational feature on an existing app can count as a significant update; "focus your demo on a clear before-and-after".
+- Judging hint: "Obvious: single-turn Q&A bot, basic MCP wrapper". "Creative: agentic workflow …, context-aware add-on that maintains state across sessions, …, MCP Apps, Agent Skills."
+
+**AWS Builder.**
+- "Any primary track project that incorporates AWS services (i.e. Amazon Bedrock, AgentCore, Strands SDK, Kiro Crew, SageMaker, etc.) with documented integrations."
+- "Kiro Crew qualifies on its own as a development tool used during the hackathon — a submission does not need to also call a runtime AWS service".
+- Form: "Describe which AWS service(s) you used and how, in your Product Feedback answer."
+- The Resources page lists "Kiro", and the rules list "Kiro Crew".
+
+**Open Source.**
+- A new repo with an OSS licence, a branch, a fork or a PR, made during the window.
+- Required: contribution URL, project repository URL, GitHub username, and a description of what you did, how it works and why it matters.
+- `vansyson1308/kiotviet-mcp`: first commit `90a03ca`, 2026-09-25, inside the window.
+
+**Repository.**
+- Public with an OSS licence file detectable in the GitHub About box (MIT is detected). It must hold all source, assets and instructions, with "clear setup and run instructions".
+
+**Video.**
+- "should be less than three (3) minutes"; judges need not watch past 3:00.
+- Public on YouTube or Vimeo.
+- Shows the project functioning; no third-party trademarks or copyrighted music without permission. CC footage only brief and attributed (FAQ).
+- English, or English translations of every material.
+
+**Form fields** (from the rules' submission requirements):
+- the text description;
+- the GitHub repo URL;
+- the video URL;
+- Product Feedback for **each** tool, API or SDK: what for, what worked well, what needs work, onboarding (zero to hello world), and would you build again (yes/no and why);
+- the primary track(s);
+- the mini challenge(s);
+- the AWS services used, inside Product Feedback;
+- the Open Source fields;
+- optional Feature Requests (description, why it matters, priority: Critical / Important / Nice-to-have);
+- optional Friction Log entries (task, steps, expected vs actual, severity, workaround, actionable suggestion), worth "up to 10% bonus";
+- testing instructions, with credentials if anything is private.
+- "Strong Submission Tips" update (Oct 5): feedback goes straight to the product teams, so be specific and name the tool.
+
+**Pre-existing projects.** They must be "significantly updated after the start of the Hackathon Submission Period", and the entrant must "clearly describe and demo the feature updates". Baseline: tag `pre-hackathon-baseline` (`a9f3cdb`).
+
+**Credits.** "October 7th Update: We are out of credit codes and will no longer be accepting credit requests."
+
+**Judging criteria** (equal weight): Tech Implementation, Design, Potential Impact, Quality of the Idea. Stage One is pass/fail on fit and on use of the required tech.
+
+**Office hours.** #2 is Mon Oct 19, 9:00–10:00 PT (23:00 Vietnam).
+
+### Owner actions (current; the 2026-09 list is superseded)
+
+1. Put `ANTHROPIC_API_KEY` in the agent environment settings (not in chat), and set a spend limit in the Anthropic Console.
+2. Run Kiro Crew per `docs/hackathon/KIRO_RUNBOOK.md` and push `kiro/hosted-demo`. Target Oct 15.
+3. Render: connect GitHub, New → Blueprint, and paste the secrets.
+4. Upload the video to YouTube (Public), fill Devpost from `NOP_BAI.md`, and submit by Oct 22.
+
+Superseded (AWS account locked, B7): AWS IAM credentials, Bedrock model access, the $150 credits. The MIT licence and the public repo were done on 2026-09-26.
 
 ---
 
