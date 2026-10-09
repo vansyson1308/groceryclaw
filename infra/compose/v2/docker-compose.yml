@@ -276,9 +276,15 @@ services:
       SIM_PORT: "8091"
       SIM_MCP_URL: http://mcp-server:8090/mcp
       SIM_MCP_TOKEN: ${MCP_DEMO_TOKEN:-}
-      SIM_BRAIN: ${SIM_BRAIN:-rules}
+      # Empty: Claude when ANTHROPIC_API_KEY is set, else the offline rules brain.
+      SIM_BRAIN: ${SIM_BRAIN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-sonnet}
+      CLAUDE_DAILY_TURN_CAP: ${CLAUDE_DAILY_TURN_CAP:-400}
+      CLAUDE_DAILY_BUDGET_USD: ${CLAUDE_DAILY_BUDGET_USD:-1}
       SIM_TTS: ${SIM_TTS:-browser}
       SIM_ACCESS_CODE: ${SIM_ACCESS_CODE:-}
+      # Implemented, not deployed (AWS account unavailable): SIM_BRAIN=bedrock / SIM_TTS=polly.
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-us.amazon.nova-2-lite-v1:0}
       POLLY_VOICE_ID: ${POLLY_VOICE_ID:-Joanna}
       AWS_REGION: ${AWS_REGION:-us-east-1}

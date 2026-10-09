@@ -1,0 +1,14 @@
+GroceryClaw / ShopVoice
+Copyright (c) 2026 vansyson1308 and GroceryClaw contributors
+Licensed under the MIT License (see LICENSE).
+
+apps/alexa-sim/src/claude-brain.ts is ported from ShopVoice Pay
+(https://github.com/vansyson1308/shopvoice-pay, apps/console/src/claude-brain.ts,
+MIT License, Copyright (c) 2026 vansyson1308 and ShopVoice Pay contributors).
+Same author; ShopVoice Pay itself began as an import of this repository.
+Only the generic Claude brain was ported; no payment code.
+
+Third-party packages keep their own licenses (see package-lock.json).
+"Alexa", "Alexa+" and "Amazon" are trademarks of Amazon.com, Inc. or its
+affiliates; "Claude" and "Anthropic" are trademarks of Anthropic, PBC. This
+project is not affiliated with or endorsed by either.

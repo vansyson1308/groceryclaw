@@ -24,6 +24,25 @@ This file lists required runtime variables from the technical PRD.
 | `N8N_WEBHOOK_BASE_URL` | Public callback URL for Zalo webhook registration | Often ngrok in dev; real domain + HTTPS in prod. |
 | `LOG_LEVEL` | Structured logging verbosity | Prefer `info` in production, `debug` only for short-lived troubleshooting. |
 
+## ShopVoice simulator (`apps/alexa-sim`)
+
+The full annotated list is in `.env.example`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SIM_BRAIN` | `claude` if `ANTHROPIC_API_KEY` is set, else `rules` | `claude` (Anthropic API), `rules` (offline), or `bedrock` (implemented, not deployed: AWS account unavailable; untested). |
+| `ANTHROPIC_API_KEY` | none | **Secret.** Key for the Claude brain. Set a spend limit in the Anthropic Console. |
+| `CLAUDE_MODEL` | `sonnet` | `sonnet` → `claude-sonnet-5-5` (low effort), `haiku` → `claude-haiku-4-5-20251001`. Opus models are refused at start-up. |
+| `CLAUDE_EFFORT` / `CLAUDE_MAX_TOKENS` | `low` / `2048` | Sonnet effort and the per-call output cap. |
+| `CLAUDE_DAILY_TURN_CAP` / `CLAUDE_DAILY_BUDGET_USD` | `400` / `1` | Per-UTC-day limits. Past either, turns use the rules brain and the UI shows an "offline brain" badge. |
+| `SIM_TURN_DEADLINE_MS` | `8000` | Claude's share of one turn. After it, the rules brain answers. |
+| `SIM_MCP_URL` or `SIM_MCP_HOSTPORT` | `http://127.0.0.1:8090/mcp` | MCP endpoint the simulator calls; `SIM_MCP_HOSTPORT` is for Render's private network. |
+| `SIM_PUBLIC_MCP_URL` | `SIM_MCP_URL` | MCP URL shown on the page. |
+| `SIM_MCP_TOKEN` | `MCP_DEMO_TOKEN` | **Secret.** The simulator's bearer token for the demo tenant. |
+| `SIM_TURNS_PER_MINUTE` / `SIM_GLOBAL_TURNS_PER_MINUTE` | `20` / `60` | Per-viewer and global turn rate limits. |
+| `SIM_TRUST_PROXY` | `0` | Trusted proxy hops for the viewer IP (Render: `2`). |
+| `SIM_ACCESS_CODE` | empty | Optional passcode for `/api/*`. Empty means open, rate limits still apply. |
+
 ## Example Placeholder Block
 ```env
 DATABASE_URL=postgresql://app_user:CHANGEME@postgres:5432/kiotviet_taphoa

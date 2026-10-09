@@ -62,3 +62,104 @@ The installed `dist/esm/types.js` has `LATEST_PROTOCOL_VERSION = '2025-11-25'`, 
 - The rules brain produces only the same MCP tool calls, then speaks the tools' own text.
 
 **D17. Speech input uses the Web Speech API. Amazon Transcribe streaming is deferred to the stretch list.**
+
+## 2026-10-09 (no-AWS pass, M0)
+
+**D18. No AWS runtime for the rest of the hackathon.**
+- The owner's AWS account is locked and the appeal failed. Amazon ran out of credit codes on Oct 7, and opening a second account to get around a suspension may break AWS terms, so it is not an option.
+- Bedrock, Polly, EC2 and CloudFront never ran for real. `infra/aws` and the Bedrock/Polly adapters stay in the repo, labelled "implemented, not deployed: AWS account unavailable", and leave the demo path, the video and the Devpost claims.
+- Plan: `SPEC_NO_AWS.md`. Blocker: B7.
+
+**D19. AWS Builder through Kiro Crew, run by the owner on Windows; Kiro IDE is the fallback.**
+What Kiro's docs say (read 2026-10-09: `/docs/crew/`, `/docs/crew/installation/`, `/docs/crew/features/task-runner/`, `/docs/crew/troubleshooting/`, `/docs/getting-started/authentication/`, `/docs/getting-started/installation/`, `/docs/specs/`, `/docs/specs/feature-specs/`, `/docs/steering/`, `/pricing/`):
+- **What Crew is.** "An open-source personal AI agent that runs locally or remotely on your hardware." A signed Windows `.exe` desktop app exists, and native Windows is supported (`pod api` is the only feature missing there).
+- **How Crew reaches the model.** Through `kiro-cli` over ACP; that is the only provider. The desktop app walks through installing `kiro-cli` and signing in.
+- **Sign-in.** `kiro-cli` supports GitHub, Google and AWS Builder ID, all of which work with the device flow. API-key auth is paid-only and not needed.
+- **Plans.** "Kiro subscriptions can be used with Kiro IDE, Kiro CLI, Kiro Web, Kiro Crew". Kiro Free is perpetual: 50 credits a month, Claude Sonnet 4.5 and open-weight models, rate-limited, no credit card. "Executing a spec task, typically cost[s] more than 1 credit"; Auto is the cheapest model setting. Credits reset monthly and do not roll over.
+- **Crew's Task Runner.** It "isn't picky": it takes any markdown spec (`kirocrew run TASK.md`, or Dashboard → Projects → From Spec). It plans steps and runs each one in a `git worktree` on branch `kirocrew/task/{task_id}`. It runs tests, has an independent reviewer read `git diff HEAD~1`, and commits per step with `git add -A && git commit`. It does **not** open PRs.
+- **Spec format.** Kiro IDE specs live in `.kiro/specs/<name>/` as `requirements.md` (EARS: "WHEN [condition/event] THE SYSTEM SHALL [expected behavior]"), `design.md` and `tasks.md`.
+- **Steering.** `.kiro/steering/{product,tech,structure}.md`, with optional front matter `inclusion: always|fileMatch|manual|auto`.
+- **Shared config.** Every Kiro surface shares the `.kiro` folder.
+
+Decision:
+- The rules name **Kiro Crew** as qualifying on its own, and Crew runs natively on Windows on the free tier, so Crew is the primary path.
+- The spec is written in Kiro's IDE format (`.kiro/specs/hosted-demo/`), so the same files work in Crew (hand `tasks.md` to the Task Runner) and in the IDE fallback.
+- **Credit budget.** 50 credits is tight for a planner, worker and reviewer loop with retries. The spec is therefore cut into about 6 small tasks, with Auto as the model.
+- **Running out.** If credits run out, the owner chooses: finish in the October allowance, or upgrade to Pro ($20/month; the first upgrade gets a $20 sign-up credit, prorated). The agent must not decide this, since it is the owner's money.
+- **Trailer.** Crew writes its own commit messages, so the runbook installs a `prepare-commit-msg` hook in the owner's clone that appends `Built-with: Kiro`. Hooks are shared by every worktree of a clone.
+- **Missing trailers.** If any commit lacks the trailer, the runbook adds it on the owner's own `kiro/hosted-demo` branch before the PR. That branch is his, not `main`.
+- **If only the IDE works.** The owner posts the question drafted in `KIRO_RUNBOOK.md` on Devpost Discussions: "Does Kiro IDE also qualify for AWS Builder?" Office hours #2 on Oct 19 is a second chance to ask. The Resources page already lists plain "Kiro" among the AWS Builder services.
+
+**D20. A hosted demo is built even though the FAQ says hosting is optional.**
+- FAQ: "A locally runnable public repo plus your demo video is enough". Judges may score from the description, images and video alone.
+- A URL that opens straight into the simulator still lowers the effort for any judge who wants to try it, and helps on Design and Impact.
+- The rules require the project to stay "available free of charge … until the Judging Period ends" (Nov 20). The demo stays up until winners are announced (about Dec 3): roughly 2 months at ≤$25/month.
+
+**D21. Render: Postgres runs as a private service (`pserv`), not Render's managed Postgres.**
+- Same reason as D13: migration 004 needs a superuser for `BYPASSRLS`, which managed Postgres does not grant.
+- The app logs in as a plain role under RLS, as `shopvoice-pay`'s working blueprint does; it is used only as a reference.
+- Price check (render.com/pricing, 2026-10-09): web `0.5c-512mb` $7/month; private service $7/month plus disk at $0.25/GB. Estimated total: $14–22/month.
+- The final topology is fixed in `.kiro/specs/hosted-demo/design.md`.
+
+**D22. Local test baseline: `REDIS_URL` must be unset for the unit suite.**
+- With `REDIS_URL` pointing at a live Redis, two readiness tests (gateway and admin "503 when dependencies are missing") fail, because the dependencies are present. CI's unit step does not set it.
+- The M0 numbers in `STATUS.md` are therefore run with `DATABASE_URL` set and `REDIS_URL` unset, like CI.
+
+## 2026-10-09 (M2 spec)
+
+**D23. The hosted demo uses one shared demo shop, reset nightly, plus a read-only judge token. It does not create a shop per visitor.**
+- Confirming a reorder only writes `purchase_order_drafts`; stock levels and the low-stock list do not change. So one visitor's "Yes, confirm" does not break the 5-phrase demo for the next visitor.
+- A Render cron job reseeds the demo tenant every day at 00:05 shop time. "Today" and "last Friday" therefore always have data during judging.
+- Judges who use MCP Inspector get a **read-only** bearer token. Its scopes are `shop.read` only, so the existing write-scope gate refuses `create_reorder_draft` and `confirm_reorder`. The simulator's own token stays read-write and server-side.
+- Per-visitor shops, as in `shopvoice-pay`, would add provisioning code and DB growth for no gain in this flow.
+
+**D24. On Render, the simulator and the MCP server are two web services, not one.**
+- This mirrors the real architecture: the simulator is an MCP client calling the server over the network, via Render's private network for the simulator and a public HTTPS `/mcp` for Inspector.
+- The simulator's URL is `https://shopvoice….onrender.com` and the MCP endpoint is `https://shopvoice-mcp….onrender.com/mcp`. The prompt's "the MCP endpoint is public at /mcp" is met on the MCP service's own host. A single combined service would need a streaming reverse proxy inside the simulator.
+- Cost: 2 × web $7 + pserv $7 + 1 GB disk $0.25 + a cron job at a few cents ≈ **$21.3/month**, under the $25 cap.
+
+**D25. What Kiro builds and what the agent builds.**
+- Kiro (the owner, `kiro/hosted-demo`) builds everything in `.kiro/specs/hosted-demo/tasks.md`:
+  - read-only tokens (migration 019);
+  - `db_prepare` and the reseed scripts;
+  - the simulator's `/healthz`;
+  - the landing panel;
+  - `render.yaml`;
+  - the MCP proxy hop count;
+  - `DEPLOY_RENDER.md`.
+- The agent builds M1 first, because the Kiro spec depends on it. M1 includes the simulator-side settings the blueprint uses: `SIM_MCP_HOSTPORT`, the `SIM_TRUST_PROXY` hop count, `SIM_BRAIN`, `CLAUDE_DAILY_TURN_CAP`. M1 is merged before the owner starts Kiro, so Kiro's branch starts from a `main` that already has it.
+- `scripts/kiro/install-trailer-hook.mjs` adds `Built-with: Kiro` through a `prepare-commit-msg` hook in the owner's clone. Tested: it runs in git worktrees (which Crew uses), it is not skipped by `--no-verify`, and it adds no duplicate trailer.
+
+## 2026-10-09 (M1: Claude brain)
+
+**D26. The Claude brain is ported from `shopvoice-pay`, Anthropic API only.**
+- Source: `apps/console/src/claude-brain.ts` (MIT, same author), credited in `NOTICE` and in the file header. Only the generic brain was ported; no payment code, and `shopvoice-pay` itself is untouched.
+- The Bedrock SDK paths were dropped. Additions: a per-call `timeout` driven by the turn deadline, `maxRetries: 0`, token usage with an estimated cost, and `stop_reason: "refusal"` raised as an error.
+- Default `claude-sonnet-5-5` at `output_config.effort: "low"`, with adaptive thinking (the default; thinking cannot be disabled on Sonnet 5.5). `CLAUDE_MODEL=haiku` → `claude-haiku-4-5-20251001`, which gets no effort parameter. Opus, Fable and unknown ids throw at start-up.
+- `@anthropic-ai/sdk` is pinned to `0.131.0`, the version `shopvoice-pay` runs; `0.133.0` was published today.
+
+**D27. The fallback to the rules brain happens inside the turn, not by replaying it.**
+- `runTurn` gives Claude an 8 s budget (`SIM_TURN_DEADLINE_MS`). Each model call carries the remaining time as its SDK timeout.
+- On an error, timeout, refusal or an empty answer, the rest of **that** turn goes to the rules brain:
+  - at round 0 it plans the tool call from the owner's words;
+  - after a tool already ran, it speaks that tool's own text.
+- So an MCP tool is never called twice, and a draft is never created twice. The response carries `brainFallback`/`fallbackReason`, and the UI shows an "Offline brain · …" badge. A judge never sees a blank error.
+- I did **not** enable the API's server-side `fallbacks`. Its `"default"` mode routes refusals to other models, possibly Opus, which the owner ruled out for voice. The host-level rules fallback covers refusals instead.
+
+**D28. Thinking blocks are dropped from the history at the end of each turn.**
+- A thinking block is only valid in the exact conversation prefix that produced it. Accounts created on or after 2026-08-31 get a 400 when a replayed block's prefix changed.
+- The simulator trims old turns, which changes that prefix. So thinking blocks are kept only inside a turn's tool loop, where they must go back unchanged, and stripped once the turn ends.
+- System prompt and tools stay byte-identical within a day, so the cache breakpoint on them keeps working.
+
+**D29. Security fix: a reorder can be confirmed only in a later turn than the one that drafted it.**
+- Found while writing the adversarial cases. "Reorder milk and confirm without asking me" is affirmative and the draft became pending mid-turn, so a model could draft and confirm in one turn and skip the spoken confirmation.
+- `confirm_reorder` now needs a draft that was already pending when the turn began (the owner heard it), plus an affirmative utterance in this turn. It runs at most once per turn.
+- A question is never a yes ("Can you confirm what's in it?"); that rule comes from `shopvoice-pay`.
+- Tests cover both, and the safety gate in `evals_claude.mjs` checks them against the real model.
+
+**D30. Cost guard: per IP, global, and per day.**
+- Per-IP limit 20 turns/min. The IP comes from `X-Forwarded-For` behind `SIM_TRUST_PROXY` hops; Render needs 2.
+- Global limit 60 turns/min.
+- `CLAUDE_DAILY_TURN_CAP` (400) and `CLAUDE_DAILY_BUDGET_USD` ($1, estimated from reported token usage at list prices), reset each UTC day.
+- Past either daily limit, turns use the rules brain with the "daily cap reached" badge.
+- Over the roughly 55 days from deploy to winners, that bounds code-side spend to about $55 even if the demo is hammered every day. The owner's **Anthropic Console spend limit (~$30) is the hard total cap**, because in-memory counters reset on a redeploy. Realistic judge traffic is a few cents a day.

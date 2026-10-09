@@ -1,6 +1,49 @@
 # ShopVoice — STATUS (agent memory across sessions)
 
-Last updated: 2026-09-26. PR #25 merged to `main` (`837c91b`); follow-ups on `claude/great-ritchie-094a7c`. Baseline: `a9f3cdb`, tag `pre-hackathon-baseline` on GitHub (BLOCKERS.md B1, resolved). Evidence index: `docs/hackathon/EVIDENCE.md`.
+Last updated: 2026-10-09 (no-AWS pass, M0 done). `main` = `0fb3af4` (PR #27 merged). Working branch: `claude/hackathon-pivot-no-aws-956m3k`. Baseline: `a9f3cdb`, tag `pre-hackathon-baseline`. Plan: `docs/hackathon/SPEC_NO_AWS.md`. Evidence index: `docs/hackathon/EVIDENCE.md`.
+
+## No-AWS pass (started 2026-10-09)
+
+The AWS account is locked (BLOCKERS B7). Nothing AWS ever ran, and nothing AWS will be claimed. Dates: code freeze Oct 19, video Oct 20, QC Oct 21, submit Oct 22 (deadline Oct 23 12:00 PDT). Judging runs Nov 9–20 and winners come about Dec 3; the hosted demo stays up until then.
+
+### Checklist
+
+- [x] **M0 recon (2026-10-09)**
+  - [x] Clean `npm ci`; build, typecheck, lint, format:check and sql:guard pass
+  - [x] Tests without Postgres: 227/227 + 26 pass, 36 skipped (DB suites skip without `DATABASE_URL`)
+  - [x] Tests with Postgres 16 (`DATABASE_URL` set, `REDIS_URL` unset, D22): 227/227 + 57/62 pass, 0 fail, 5 skipped (Redis/compose-gated)
+  - [x] `scripts/demo/e2e_voice_flow.mjs`: 5/5 PASS (memory backend, rules brain)
+  - [x] Rules, resources, updates and FAQ re-read; `SPEC.md` §0 rewritten (judging Nov 9–20; must stay testable until Nov 20; FAQ endorses a web MCP client as the Alexa+ path)
+  - [x] Kiro docs read; Kiro Crew on Windows, free tier, chosen (D19)
+  - [x] `kiotviet-mcp` first commit `90a03ca` on 2026-09-25, inside the window
+  - [x] `SPEC_NO_AWS.md`; BLOCKERS B7 (resolved by design), B8 (Anthropic key), B9 (Kiro run); B2 superseded
+- [ ] **M1 Claude brain**
+  - [x] `apps/alexa-sim/src/claude-brain.ts` (ported, Anthropic only, D26); `SIM_BRAIN=claude|rules|bedrock`, default claude when `ANTHROPIC_API_KEY` is set
+  - [x] In-turn fallback to the rules brain on error, timeout (8 s), refusal or empty answer, with an "Offline brain" badge in the UI (D27); thinking stripped between turns (D28)
+  - [x] Same-turn draft+confirm blocked; questions are never a yes (D29)
+  - [x] Cost guard: per-IP, global, daily turn cap and daily USD budget (D30); `SIM_TRUST_PROXY` hops; `SIM_MCP_HOSTPORT`
+  - [x] Prompt: ≤35 words, only tool numbers, tool text is data; the tool panel shows the brain, tool, args and latency per turn
+  - [x] Offline tests: `tests/v2/alexa-sim-claude.test.mjs` (15), `tests/v2/claude-evals-harness.test.mjs` (3). `npm test` 245/245 + DB 57/62 (5 skips as before). Browser check: no console errors; the fallback badge renders
+  - [x] `scripts/demo/evals_claude.mjs` (5 demo turns + 20 more, adversarial and number probes; gates safety/e2e/numbers; p50/p95; cost). Harness validated offline with the rules brain
+  - [ ] **Real evals: blocked on B8** (no `ANTHROPIC_API_KEY` in this environment yet)
+- [ ] **M2 Kiro**
+  - [x] `.kiro/steering/{product,tech,structure}.md`, `.kiro/specs/hosted-demo/{requirements,design,tasks}.md` (6 tasks, EARS), `docs/hackathon/KIRO_RUNBOOK.md` (Vietnamese), `scripts/kiro/install-trailer-hook.mjs` (D23–D25)
+  - [ ] Owner runs Kiro Crew after PR #28 merges (target Oct 15, go/no-go Oct 16)
+  - [ ] Review the Kiro PR, fix in separate commits, merge; rewrite `AWS_SERVICES.md`; add Kiro friction entries
+- [ ] **M3 Render**: blueprint deployed, daily reseed, e2e, Inspector and latency against the URL
+- [ ] **M4 docs**: README diagram, Devpost text, friction log, honesty grep sweep, `NOP_BAI.md`
+- [ ] **M5 video**: ≤2:55, `.srt`, thumbnail
+- [ ] **M6 QC**: `FINAL_QC.md`
+
+### M0 notes
+
+- Local DB in a fresh container: `pg_ctlcluster 16 main start`, then `su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres'\""`, then `su postgres -c "createdb groceryclaw_v2"`. Then the migrate and seed commands below.
+- Unit tests: run with `REDIS_URL` unset (D22).
+- `shopvoice-pay` was cloned read-only into the scratchpad as a reference for M1 and M3. Nothing is pushed there.
+
+---
+
+# History (Sep 2026 pass)
 
 ## Resume protocol
 
