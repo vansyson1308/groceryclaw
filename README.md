@@ -27,15 +27,16 @@
 
 ## ShopVoice (Alexa+ MCP)
 
-**ShopVoice** lets a busy grocery owner run the shop by voice: *"What's running low?"*, *"How were sales today compared to last Friday?"*, *"Reorder milk and eggs"* → *"Yes, confirm"*, *"Did the Sunrise Beverages invoice arrive?"*. It is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) backed by GroceryClaw's tenant-isolated Postgres. Alexa+ connects to it the way it connects to any MCP integration. The repo also ships a voice simulator, powered by Amazon Bedrock and Polly, for people without Alexa+ Preview access. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon; see `docs/hackathon/`.
+**ShopVoice** lets a busy grocery owner run the shop by voice: *"What's running low?"*, *"How were sales today compared to last Friday?"*, *"Reorder milk and eggs"* → *"Yes, confirm"*, *"Did the Sunrise Beverages invoice arrive?"*. It is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) backed by GroceryClaw's tenant-isolated Postgres. Alexa+ connects to it the way it connects to any MCP integration. Alexa+'s developer tooling is partner-only, so the repo also ships a **simulated Alexa+ experience** (`apps/alexa-sim`): a voice web app whose server is a real MCP client. A Claude agent (Anthropic API) chooses the MCP tools, and an offline rules brain takes over if Claude is unavailable. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon; see `docs/hackathon/`.
 
 ![ShopVoice architecture](docs/hackathon/architecture.png)
 
 ```mermaid
 flowchart LR
-  owner(["Shop owner (voice)"]) --> alexa["Alexa+"] & sim["apps/alexa-sim<br/>Bedrock agent + Polly"]
-  alexa -- "MCP over HTTPS (CloudFront)" --> mcp["apps/mcp-server<br/>MCP 2025-11-25"]
-  sim -- "MCP client" --> mcp
+  owner(["Shop owner (voice)"]) --> sim["apps/alexa-sim<br/>simulated Alexa+<br/>Claude agent · browser voice"]
+  owner -.-> alexa["Alexa+ (same MCP interface;<br/>partner-only tooling)"]
+  sim -- "MCP client · Streamable HTTP" --> mcp["apps/mcp-server<br/>MCP 2025-11-25"]
+  alexa -.-> mcp
   mcp -- "runTenantScopedTransaction (RLS)" --> pg[("Postgres 16<br/>stock · sales · drafts · audit")]
 ```
 
@@ -44,9 +45,10 @@ flowchart LR
 | MCP server entry point (Streamable HTTP on `/mcp`) | `apps/mcp-server/src/server.ts`, `apps/mcp-server/src/http.ts` |
 | Tools, prompt, resource (voice-first contract) | `apps/mcp-server/src/tools.ts`, `apps/mcp-server/src/mcp.ts` |
 | MCP client config (voice simulator → MCP) | `apps/alexa-sim/src/toolbox.ts` (`SIM_MCP_URL`, `SIM_MCP_TOKEN`) |
-| Bedrock agent + Polly | `apps/alexa-sim/src/brain.ts`, `apps/alexa-sim/src/speech.ts` |
+| Claude agent (Anthropic API) + host-held confirmation | `apps/alexa-sim/src/claude-brain.ts`, `apps/alexa-sim/src/agent.ts` |
+| Offline rules brain (fallback, CI) | `apps/alexa-sim/src/brain.ts` |
 | Data (migration 017 + demo seed) | `db/v2/migrations/017_v2_inventory_sales.sql`, `db/v2/seed/002_demo_shop_seed.sql` |
-| AWS deployment (CDK) | `infra/aws/`, `scripts/aws/deploy.sh` |
+| AWS deployment (CDK), Bedrock brain, Polly voice: implemented, not deployed (AWS account unavailable) | `infra/aws/`, `scripts/aws/deploy.sh`, `apps/alexa-sim/src/brain.ts`, `apps/alexa-sim/src/speech.ts` |
 | Open-source extraction | `oss/kiotviet-mcp/` |
 
 **Tools:**
@@ -82,6 +84,8 @@ SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js
 # open http://localhost:8091 and hold the mic button (or type)
 ```
 
+Without `ANTHROPIC_API_KEY` the simulator uses the offline rules brain. To use Claude, export `ANTHROPIC_API_KEY` before starting it. It then uses Claude Sonnet 5.5 at low effort, or `CLAUDE_MODEL=haiku` for Claude Haiku 4.5. Daily caps on turns and spend apply (see `.env.example`), with the rules brain as the fallback.
+
 Check it with the official Inspector:
 
 ```bash
@@ -89,9 +93,9 @@ npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8090/mcp --transport 
   --header "Authorization: Bearer $MCP_DEMO_TOKEN" --method tools/list
 ```
 
-Or run the scripted voice flow: `npm run demo:e2e`. It sends the 5 demo utterances end to end and asserts which tools were called.
+Or run the scripted voice flow: `npm run demo:e2e`. It sends the 5 demo utterances end to end and asserts which tools were called. With a key set, `node scripts/demo/evals_claude.mjs` runs the Claude evals: the demo flow plus adversarial and number-hallucination cases, with gates on safety, e2e and spoken numbers.
 
-**Using real AWS for the simulator:** set `SIM_BRAIN=bedrock` and `SIM_TTS=polly`, and provide AWS credentials allowed to call Bedrock (default model `us.amazon.nova-2-lite-v1:0`) and Polly. **Deploying to AWS:** `scripts/aws/deploy.sh --show-secrets`; tear down with `scripts/aws/teardown.sh`. See `docs/hackathon/AWS_SERVICES.md`.
+**AWS (implemented, not deployed: AWS account unavailable).** `SIM_BRAIN=bedrock`, `SIM_TTS=polly` and the CDK stack in `infra/aws/` are in the repo but have never run against a live AWS account. See `docs/hackathon/AWS_SERVICES.md`.
 
 **Security:**
 - Per-tenant bearer tokens are stored hashed. Mint one with `npm run mcp:token -- <tenant-uuid>`.
@@ -99,7 +103,7 @@ Or run the scripted voice flow: `npm run demo:e2e`. It sends the 5 demo utteranc
 - `Origin` is validated.
 - Per-tenant rate limits apply.
 - Every query runs inside `runTenantScopedTransaction`, so RLS applies.
-- Reorders need an explicit "yes", and the Bedrock agent never sees the confirmation token.
+- Reorders need an explicit "yes" to a draft the owner already heard. The agent never sees the confirmation token: the simulator host holds it and injects it only after its own code matches the yes.
 
 ### Claude connector and plugin
 

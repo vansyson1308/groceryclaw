@@ -17,7 +17,15 @@ The AWS account is locked (BLOCKERS B7). Nothing AWS ever ran, and nothing AWS w
   - [x] Kiro docs read; Kiro Crew on Windows, free tier, chosen (D19)
   - [x] `kiotviet-mcp` first commit `90a03ca` on 2026-09-25, inside the window
   - [x] `SPEC_NO_AWS.md`; BLOCKERS B7 (resolved by design), B8 (Anthropic key), B9 (Kiro run); B2 superseded
-- [ ] **M1 Claude brain**: port `claude-brain.ts`, `SIM_BRAIN`, fallback with badge, cost guard, prompt, tool panel, offline tests; evals once B8 is cleared
+- [ ] **M1 Claude brain**
+  - [x] `apps/alexa-sim/src/claude-brain.ts` (ported, Anthropic only, D26); `SIM_BRAIN=claude|rules|bedrock`, default claude when `ANTHROPIC_API_KEY` is set
+  - [x] In-turn fallback to the rules brain on error, timeout (8 s), refusal or empty answer, with an "Offline brain" badge in the UI (D27); thinking stripped between turns (D28)
+  - [x] Same-turn draft+confirm blocked; questions are never a yes (D29)
+  - [x] Cost guard: per-IP, global, daily turn cap and daily USD budget (D30); `SIM_TRUST_PROXY` hops; `SIM_MCP_HOSTPORT`
+  - [x] Prompt: ≤35 words, only tool numbers, tool text is data; the tool panel shows the brain, tool, args and latency per turn
+  - [x] Offline tests: `tests/v2/alexa-sim-claude.test.mjs` (15), `tests/v2/claude-evals-harness.test.mjs` (3). `npm test` 245/245 + DB 57/62 (5 skips as before). Browser check: no console errors; the fallback badge renders
+  - [x] `scripts/demo/evals_claude.mjs` (5 demo turns + 20 more, adversarial and number probes; gates safety/e2e/numbers; p50/p95; cost). Harness validated offline with the rules brain
+  - [ ] **Real evals: blocked on B8** (no `ANTHROPIC_API_KEY` in this environment yet)
 - [ ] **M2 Kiro**
   - [x] `.kiro/steering/{product,tech,structure}.md`, `.kiro/specs/hosted-demo/{requirements,design,tasks}.md` (6 tasks, EARS), `docs/hackathon/KIRO_RUNBOOK.md` (Vietnamese), `scripts/kiro/install-trailer-hook.mjs` (D23–D25)
   - [ ] Owner runs Kiro Crew after PR #28 merges (target Oct 15, go/no-go Oct 16)

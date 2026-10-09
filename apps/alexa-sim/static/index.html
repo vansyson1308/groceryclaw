@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ShopVoice Simulator</title>
-  <meta name="description" content="Voice assistant simulator for the ShopVoice MCP server: push-to-talk, Bedrock tool-use agent, Polly speech.">
+  <meta name="description" content="Simulated Alexa+ experience for the ShopVoice MCP server: push-to-talk, a Claude agent acting as an MCP client, browser speech.">
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 </head>
@@ -31,6 +31,7 @@
         <p class="state-label" id="state-label">Hold the button or press Space, then speak</p>
         <p class="heard" id="heard" aria-live="polite"></p>
         <p class="reply" id="reply" aria-live="polite">Hi! Ask me what's running low, how sales are going, or to reorder something.</p>
+        <p class="brain-badge" id="brain-badge" hidden></p>
 
         <div class="card confirm" id="confirm-card" hidden>
           <div class="card-head">
@@ -74,13 +75,13 @@
         <h2>MCP tool calls</h2>
         <button class="btn ghost small" id="btn-reset" type="button">New conversation</button>
       </div>
-      <p class="panel-sub">Every call goes over Streamable HTTP to the ShopVoice MCP server, scoped to this shop's tenant.</p>
+      <p class="panel-sub">The agent picks the tools; the simulator's server is the MCP client. Every call goes over Streamable HTTP to the ShopVoice MCP server, scoped to this shop's tenant.</p>
       <ol class="calls" id="calls"></ol>
       <p class="empty" id="calls-empty">No tool calls yet.</p>
     </aside>
   </main>
 
-  <footer class="foot">Simulated voice assistant for demonstration. Speech in: browser speech recognition. Speech out: Amazon Polly (or browser voice). Agent: Amazon Bedrock Converse tool use (or offline rules).</footer>
+  <footer class="foot">Simulated Alexa+ experience for demonstration; not an Amazon product. Speech in: browser speech recognition. Speech out: browser voice. Agent: Claude (Anthropic API) tool use, with an offline rules brain as fallback.</footer>
 
   <dialog id="access-dialog">
     <form method="dialog" id="access-form">

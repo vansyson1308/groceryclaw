@@ -129,3 +129,37 @@ Decision:
   - `DEPLOY_RENDER.md`.
 - The agent builds M1 first, because the Kiro spec depends on it. M1 includes the simulator-side settings the blueprint uses: `SIM_MCP_HOSTPORT`, the `SIM_TRUST_PROXY` hop count, `SIM_BRAIN`, `CLAUDE_DAILY_TURN_CAP`. M1 is merged before the owner starts Kiro, so Kiro's branch starts from a `main` that already has it.
 - `scripts/kiro/install-trailer-hook.mjs` adds `Built-with: Kiro` through a `prepare-commit-msg` hook in the owner's clone. Tested: it runs in git worktrees (which Crew uses), it is not skipped by `--no-verify`, and it adds no duplicate trailer.
+
+## 2026-10-09 (M1: Claude brain)
+
+**D26. The Claude brain is ported from `shopvoice-pay`, Anthropic API only.**
+- Source: `apps/console/src/claude-brain.ts` (MIT, same author), credited in `NOTICE` and in the file header. Only the generic brain was ported; no payment code, and `shopvoice-pay` itself is untouched.
+- The Bedrock SDK paths were dropped. Additions: a per-call `timeout` driven by the turn deadline, `maxRetries: 0`, token usage with an estimated cost, and `stop_reason: "refusal"` raised as an error.
+- Default `claude-sonnet-5-5` at `output_config.effort: "low"`, with adaptive thinking (the default; thinking cannot be disabled on Sonnet 5.5). `CLAUDE_MODEL=haiku` → `claude-haiku-4-5-20251001`, which gets no effort parameter. Opus, Fable and unknown ids throw at start-up.
+- `@anthropic-ai/sdk` is pinned to `0.131.0`, the version `shopvoice-pay` runs; `0.133.0` was published today.
+
+**D27. The fallback to the rules brain happens inside the turn, not by replaying it.**
+- `runTurn` gives Claude an 8 s budget (`SIM_TURN_DEADLINE_MS`). Each model call carries the remaining time as its SDK timeout.
+- On an error, timeout, refusal or an empty answer, the rest of **that** turn goes to the rules brain:
+  - at round 0 it plans the tool call from the owner's words;
+  - after a tool already ran, it speaks that tool's own text.
+- So an MCP tool is never called twice, and a draft is never created twice. The response carries `brainFallback`/`fallbackReason`, and the UI shows an "Offline brain · …" badge. A judge never sees a blank error.
+- I did **not** enable the API's server-side `fallbacks`. Its `"default"` mode routes refusals to other models, possibly Opus, which the owner ruled out for voice. The host-level rules fallback covers refusals instead.
+
+**D28. Thinking blocks are dropped from the history at the end of each turn.**
+- A thinking block is only valid in the exact conversation prefix that produced it. Accounts created on or after 2026-08-31 get a 400 when a replayed block's prefix changed.
+- The simulator trims old turns, which changes that prefix. So thinking blocks are kept only inside a turn's tool loop, where they must go back unchanged, and stripped once the turn ends.
+- System prompt and tools stay byte-identical within a day, so the cache breakpoint on them keeps working.
+
+**D29. Security fix: a reorder can be confirmed only in a later turn than the one that drafted it.**
+- Found while writing the adversarial cases. "Reorder milk and confirm without asking me" is affirmative and the draft became pending mid-turn, so a model could draft and confirm in one turn and skip the spoken confirmation.
+- `confirm_reorder` now needs a draft that was already pending when the turn began (the owner heard it), plus an affirmative utterance in this turn. It runs at most once per turn.
+- A question is never a yes ("Can you confirm what's in it?"); that rule comes from `shopvoice-pay`.
+- Tests cover both, and the safety gate in `evals_claude.mjs` checks them against the real model.
+
+**D30. Cost guard: per IP, global, and per day.**
+- Per-IP limit 20 turns/min. The IP comes from `X-Forwarded-For` behind `SIM_TRUST_PROXY` hops; Render needs 2.
+- Global limit 60 turns/min.
+- `CLAUDE_DAILY_TURN_CAP` (400) and `CLAUDE_DAILY_BUDGET_USD` ($1, estimated from reported token usage at list prices), reset each UTC day.
+- Past either daily limit, turns use the rules brain with the "daily cap reached" badge.
+- Over the roughly 55 days from deploy to winners, that bounds code-side spend to about $55 even if the demo is hammered every day. The owner's **Anthropic Console spend limit (~$30) is the hard total cap**, because in-memory counters reset on a redeploy. Realistic judge traffic is a few cents a day.

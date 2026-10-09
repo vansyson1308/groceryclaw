@@ -1,7 +1,7 @@
-// "Brain" = the LLM that plans tool calls. The contract mirrors the Amazon
-// Bedrock Converse API (messages + toolConfig -> content blocks + stopReason)
-// so the agent loop is identical for the real Bedrock brain and the offline
-// rules brain used in tests and when no AWS credentials are available.
+// "Brain" = the model that plans tool calls. The history is Converse-shaped
+// ({text}, {toolUse}, {toolResult}) so the agent loop is identical for Claude
+// (claude-brain.ts, Anthropic API), the offline rules brain used in tests and
+// as the per-turn fallback, and the Bedrock brain below.
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import type { ContentBlock, Message, Tool } from '@aws-sdk/client-bedrock-runtime';
 
@@ -27,16 +27,31 @@ export interface ToolSpec {
   inputSchema: Record<string, unknown>;
 }
 
+export interface BrainUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+}
+
 export interface BrainResponse {
   content: Block[];
   stopReason: 'tool_use' | 'end_turn' | 'max_tokens' | 'other';
   latencyMs: number;
+  /** Token usage and its estimated cost, for brains that bill (Claude). */
+  usage?: BrainUsage;
+  costUsd?: number;
+}
+
+export interface BrainCallOptions {
+  /** Time left in the turn's deadline; the brain aborts its call after this. */
+  readonly timeoutMs?: number;
 }
 
 export interface Brain {
-  readonly kind: 'bedrock' | 'rules';
+  readonly kind: 'claude' | 'bedrock' | 'rules';
   readonly model: string;
-  converse(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<BrainResponse>;
+  converse(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }, opts?: BrainCallOptions): Promise<BrainResponse>;
 }
 
 export function isToolUse(block: Block): block is ToolUseBlock {
@@ -47,6 +62,9 @@ export function isText(block: Block): block is TextBlock {
   return typeof block === 'object' && block !== null && 'text' in block && typeof (block as TextBlock).text === 'string';
 }
 
+// Implemented, not deployed: AWS account unavailable. This Bedrock Converse
+// brain (SIM_BRAIN=bedrock) has never run against a live AWS account; it is
+// kept for a future AWS deployment and is not part of the demo path.
 export class BedrockBrain implements Brain {
   readonly kind = 'bedrock' as const;
   private readonly client: BedrockRuntimeClient;
@@ -78,8 +96,9 @@ export class BedrockBrain implements Brain {
 }
 
 // ---------------------------------------------------------------------------
-// Offline rules brain: deterministic intent rules for demos without AWS
-// credentials and for CI. It only ever emits the same tool calls a Bedrock
+// Offline rules brain: deterministic intent rules for CI, for demos without an
+// Anthropic API key, and as the per-turn fallback when Claude errors, times
+// out or the spend cap is reached. It only ever emits the same tool calls a
 // model would, and then speaks the tool's own spoken text.
 // ---------------------------------------------------------------------------
 
@@ -87,8 +106,11 @@ const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satur
 export const AFFIRMATIVE = /\b(yes|yeah|yep|yup|confirm|confirmed|go ahead|place (it|them|the orders?)|do it|sure|ok(ay)?|please do)\b/i;
 export const NEGATIVE = /\b(no|nope|don't|do not|cancel|stop|wait|never ?mind)\b/i;
 
+/** Questions are never a yes ("Can you confirm what's in the draft?"). */
+const QUESTION = /\?\s*$|^\s*(why|what|how|when|where|who|which|whose|did|does|do you|can|could|is|are|was|were|should|would|will)\b/i;
+
 export function isAffirmative(text: string): boolean {
-  return AFFIRMATIVE.test(text) && !NEGATIVE.test(text);
+  return !QUESTION.test(text) && AFFIRMATIVE.test(text) && !NEGATIVE.test(text);
 }
 
 function lastUserText(messages: ChatMessage[]): string {

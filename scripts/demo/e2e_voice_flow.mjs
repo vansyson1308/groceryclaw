@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // End-to-end voice flow: the 5 demo utterances go text -> simulator
-// /api/turn -> brain (Bedrock or offline rules) -> MCP server -> spoken reply,
-// and the script asserts which MCP tools were called.
+// /api/turn -> brain (Claude or the offline rules brain) -> MCP server ->
+// spoken reply, and the script asserts which MCP tools were called.
 //
 // Usage:
 //   node scripts/demo/e2e_voice_flow.mjs                     # starts local MCP (memory) + sim (rules brain)
 //   node scripts/demo/e2e_voice_flow.mjs --sim-url https://sim.example [--access-code X]
-//   SIM_BRAIN=bedrock node scripts/demo/e2e_voice_flow.mjs  # local, but with the real Bedrock brain
+//   SIM_BRAIN=claude node scripts/demo/e2e_voice_flow.mjs   # local, with Claude (needs ANTHROPIC_API_KEY)
 // Exit code 0 = all assertions passed. Prints a JSON report (use --json-out file).
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -80,6 +80,8 @@ export async function runVoiceFlow(simUrl, { accessCode } = {}) {
     if (step.expectCard && !data.confirmationCard) failures.push('expected a confirmation card');
     if (step.expectOrder && data.orderResult?.status !== step.expectOrder) failures.push(`expected order ${step.expectOrder}, got ${data.orderResult?.status}`);
     if (JSON.stringify(data).match(/"rc_[A-Za-z0-9_-]{16}"/)) failures.push('confirmation token leaked to the client');
+    // With a model brain configured, a turn answered by the offline fallback is not a pass.
+    if (config.brain !== 'rules' && data.brainFallback) failures.push(`answered by the offline fallback brain (${data.fallbackReason ?? 'unknown'})`);
     report.turns.push({
       utterance: step.text,
       tools,
@@ -88,6 +90,7 @@ export async function runVoiceFlow(simUrl, { accessCode } = {}) {
       toolLatencyMs: (data.toolCalls ?? []).map((c) => c.latencyMs),
       turnLatencyMs: Math.round(performance.now() - started),
       brainFallback: data.brainFallback ?? false,
+      fallbackReason: data.fallbackReason ?? null,
       ok: failures.length === 0,
       failures
     });

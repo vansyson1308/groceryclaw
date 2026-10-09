@@ -1,6 +1,7 @@
 // ShopVoice simulator client: push-to-talk (Web Speech API) or typed input,
-// POST /api/turn, speak the reply (Polly via /api/tts, else speechSynthesis),
-// render tool calls and confirmation cards. DOM is built with textContent only.
+// POST /api/turn, speak the reply (browser speechSynthesis; /api/tts only when
+// a server voice is configured), render the MCP tool calls the brain made and
+// confirmation cards. DOM is built with textContent only.
 
 const $ = (id) => document.getElementById(id);
 const screen = $('screen');
@@ -12,6 +13,7 @@ const callsEmpty = $('calls-empty');
 const confirmCard = $('confirm-card');
 const doneCard = $('done-card');
 const mic = $('mic');
+const brainBadge = $('brain-badge');
 
 let conversationId = null;
 let accessCode = sessionStorage.getItem('shopvoice-access') ?? '';
@@ -89,10 +91,12 @@ async function loadConfig() {
   try {
     const res = await api('/api/config');
     config = await res.json();
-    $('chip-brain').textContent = config.brain === 'bedrock' ? `Bedrock · ${config.model}` : 'Offline rules brain';
-    $('chip-brain').className = `chip ${config.brain === 'bedrock' ? 'ok' : 'warn'}`;
+    const claudeUp = config.brain === 'claude' && config.claudeAvailable;
+    $('chip-brain').textContent = config.brain === 'claude' && !config.claudeAvailable ? 'Offline brain (daily cap reached)' : (config.brainLabel ?? config.brain);
+    $('chip-brain').className = `chip ${claudeUp ? 'ok' : 'warn'}`;
+    $('chip-brain').title = config.brainNote ?? 'Agent model that chooses the MCP tools';
     $('chip-voice').textContent = config.tts === 'polly' ? `Polly · ${config.voice}` : 'Browser voice';
-    $('chip-voice').className = `chip ${config.tts === 'polly' ? 'ok' : 'warn'}`;
+    $('chip-voice').className = 'chip ok';
     const ready = await fetch('/readyz');
     const readyBody = await ready.json();
     $('chip-mcp').textContent = ready.ok ? `MCP · ${readyBody.tools} tools` : 'MCP unreachable';
@@ -102,7 +106,28 @@ async function loadConfig() {
   }
 }
 
-function renderToolCalls(toolCalls) {
+const FALLBACK_TEXT = {
+  timeout: 'Claude took too long',
+  refusal: 'Claude declined',
+  error: 'Claude was unreachable',
+  empty: 'Claude gave no answer',
+  budget: "today's Claude limit is reached"
+};
+
+function turnBrainText(data) {
+  if (data.brainFallback) return `Offline brain · ${FALLBACK_TEXT[data.fallbackReason] ?? 'fallback'}`;
+  const b = data.brain ?? {};
+  const label = data.brainLabel ?? b.model ?? 'brain';
+  return b.kind === 'rules' ? label : `${label} · ${b.rounds} model call${b.rounds === 1 ? '' : 's'} · ${b.latencyMs} ms`;
+}
+
+function renderBrainBadge(data) {
+  const offline = data.brainFallback || data.brain?.kind === 'rules';
+  brainBadge.textContent = offline ? turnBrainText(data) : '';
+  brainBadge.hidden = !offline;
+}
+
+function renderToolCalls(toolCalls, data) {
   if (toolCalls.length === 0) return;
   callsEmpty.hidden = true;
   turnIndex += 1;
@@ -120,7 +145,7 @@ function renderToolCalls(toolCalls) {
     }
     calls.prepend(item);
   }
-  calls.prepend(el('li', { class: 'turn-sep' }, `Turn ${turnIndex}`));
+  calls.prepend(el('li', { class: 'turn-sep' }, `Turn ${turnIndex} · ${turnBrainText(data)}`));
 }
 
 function renderConfirmCard(card) {
@@ -209,7 +234,8 @@ async function sendTurn(text) {
     }
     conversationId = data.conversationId;
     reply.textContent = data.reply;
-    renderToolCalls(data.toolCalls ?? []);
+    renderBrainBadge(data);
+    renderToolCalls(data.toolCalls ?? [], data);
     if (data.confirmationCard) renderConfirmCard(data.confirmationCard);
     if (data.orderResult) renderOrderResult(data.orderResult);
     timeline.push({ text, reply: data.reply, tools: (data.toolCalls ?? []).map((c) => c.name), at: Date.now(), roundTripMs: Math.round(performance.now() - startedAt) });
@@ -300,6 +326,7 @@ $('btn-reset').addEventListener('click', async () => {
   confirmCard.hidden = true;
   doneCard.hidden = true;
   heard.textContent = '';
+  brainBadge.hidden = true;
   reply.textContent = 'New conversation. What would you like to know?';
 });
 
