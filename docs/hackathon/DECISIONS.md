@@ -104,3 +104,28 @@ Decision:
 **D22. Local test baseline: `REDIS_URL` must be unset for the unit suite.**
 - With `REDIS_URL` pointing at a live Redis, two readiness tests (gateway and admin "503 when dependencies are missing") fail, because the dependencies are present. CI's unit step does not set it.
 - The M0 numbers in `STATUS.md` are therefore run with `DATABASE_URL` set and `REDIS_URL` unset, like CI.
+
+## 2026-10-09 (M2 spec)
+
+**D23. The hosted demo uses one shared demo shop, reset nightly, plus a read-only judge token. It does not create a shop per visitor.**
+- Confirming a reorder only writes `purchase_order_drafts`; stock levels and the low-stock list do not change. So one visitor's "Yes, confirm" does not break the 5-phrase demo for the next visitor.
+- A Render cron job reseeds the demo tenant every day at 00:05 shop time. "Today" and "last Friday" therefore always have data during judging.
+- Judges who use MCP Inspector get a **read-only** bearer token. Its scopes are `shop.read` only, so the existing write-scope gate refuses `create_reorder_draft` and `confirm_reorder`. The simulator's own token stays read-write and server-side.
+- Per-visitor shops, as in `shopvoice-pay`, would add provisioning code and DB growth for no gain in this flow.
+
+**D24. On Render, the simulator and the MCP server are two web services, not one.**
+- This mirrors the real architecture: the simulator is an MCP client calling the server over the network, via Render's private network for the simulator and a public HTTPS `/mcp` for Inspector.
+- The simulator's URL is `https://shopvoice….onrender.com` and the MCP endpoint is `https://shopvoice-mcp….onrender.com/mcp`. The prompt's "the MCP endpoint is public at /mcp" is met on the MCP service's own host. A single combined service would need a streaming reverse proxy inside the simulator.
+- Cost: 2 × web $7 + pserv $7 + 1 GB disk $0.25 + a cron job at a few cents ≈ **$21.3/month**, under the $25 cap.
+
+**D25. What Kiro builds and what the agent builds.**
+- Kiro (the owner, `kiro/hosted-demo`) builds everything in `.kiro/specs/hosted-demo/tasks.md`:
+  - read-only tokens (migration 019);
+  - `db_prepare` and the reseed scripts;
+  - the simulator's `/healthz`;
+  - the landing panel;
+  - `render.yaml`;
+  - the MCP proxy hop count;
+  - `DEPLOY_RENDER.md`.
+- The agent builds M1 first, because the Kiro spec depends on it. M1 includes the simulator-side settings the blueprint uses: `SIM_MCP_HOSTPORT`, the `SIM_TRUST_PROXY` hop count, `SIM_BRAIN`, `CLAUDE_DAILY_TURN_CAP`. M1 is merged before the owner starts Kiro, so Kiro's branch starts from a `main` that already has it.
+- `scripts/kiro/install-trailer-hook.mjs` adds `Built-with: Kiro` through a `prepare-commit-msg` hook in the owner's clone. Tested: it runs in git worktrees (which Crew uses), it is not skipped by `--no-verify`, and it adds no duplicate trailer.

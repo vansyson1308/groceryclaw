@@ -18,7 +18,10 @@ The AWS account is locked (BLOCKERS B7). Nothing AWS ever ran, and nothing AWS w
   - [x] `kiotviet-mcp` first commit `90a03ca` on 2026-09-25, inside the window
   - [x] `SPEC_NO_AWS.md`; BLOCKERS B7 (resolved by design), B8 (Anthropic key), B9 (Kiro run); B2 superseded
 - [ ] **M1 Claude brain**: port `claude-brain.ts`, `SIM_BRAIN`, fallback with badge, cost guard, prompt, tool panel, offline tests; evals once B8 is cleared
-- [ ] **M2 Kiro**: `.kiro/steering`, `.kiro/specs/hosted-demo`, `KIRO_RUNBOOK.md` (Vietnamese); owner runs it; review, fix and merge; `AWS_SERVICES.md`
+- [ ] **M2 Kiro**
+  - [x] `.kiro/steering/{product,tech,structure}.md`, `.kiro/specs/hosted-demo/{requirements,design,tasks}.md` (6 tasks, EARS), `docs/hackathon/KIRO_RUNBOOK.md` (Vietnamese), `scripts/kiro/install-trailer-hook.mjs` (D23–D25)
+  - [ ] Owner runs Kiro Crew after PR #28 merges (target Oct 15, go/no-go Oct 16)
+  - [ ] Review the Kiro PR, fix in separate commits, merge; rewrite `AWS_SERVICES.md`; add Kiro friction entries
 - [ ] **M3 Render**: blueprint deployed, daily reseed, e2e, Inspector and latency against the URL
 - [ ] **M4 docs**: README diagram, Devpost text, friction log, honesty grep sweep, `NOP_BAI.md`
 - [ ] **M5 video**: ≤2:55, `.srt`, thumbnail
