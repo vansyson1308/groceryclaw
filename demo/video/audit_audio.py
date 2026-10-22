@@ -125,7 +125,7 @@ if retaken:
 for cid in skipped:
     report.append({"id": cid, "ok": None, "skipped": "Vietnamese; the English-only Whisper model cannot judge it"})
     print(f"SKIP  {cid:12} Vietnamese (English-only Whisper model)")
-json.dump(report, open("demo/video/out/audio-audit.json", "w"), indent=2)
+open("demo/video/out/audio-audit.json", "w").write(json.dumps(report, indent=2) + "\n")
 checked = [r for r in report if r["ok"] is not None]
 print(f"{sum(r['ok'] for r in checked)}/{len(checked)} clips pass, {len(skipped)} Vietnamese skipped; report: demo/video/out/audio-audit.json")
 sys.exit(1 if failed else 0)
