@@ -4,7 +4,8 @@
 // p50/p95/max per tool and overall. Optionally reads server-side latency from
 // voice_audit_log when --database-url is given.
 //
-// Usage: node scripts/demo/latency_probe.mjs --mcp-url http://127.0.0.1:8090/mcp --token <bearer> [--rounds 20] [--pace-ms 0] [--database-url postgres://...] [--json-out file]
+// Usage: node scripts/demo/latency_probe.mjs --mcp-url http://127.0.0.1:8090/mcp --token <bearer> [--rounds 20] [--pace-ms 0] [--read-only] [--database-url postgres://...] [--json-out file]
+// --read-only skips create_reorder_draft (for the hosted demo's read-only judge token).
 import { writeFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -44,10 +45,11 @@ if (isMain) {
   const client = new Client({ name: 'latency-probe', version: '1.0.0' });
   const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${token}` } } });
   await client.connect(transport);
-  const samples = new Map(CALLS.map(([name]) => [name, []]));
+  const calls = process.argv.includes('--read-only') ? CALLS.filter(([name]) => name !== 'create_reorder_draft') : CALLS;
+  const samples = new Map(calls.map(([name]) => [name, []]));
   const startedAt = new Date();
   for (let r = 0; r < rounds; r += 1) {
-    for (const [name, args] of CALLS) {
+    for (const [name, args] of calls) {
       const t0 = performance.now();
       const res = await client.callTool({ name, arguments: args });
       const ms = performance.now() - t0;
