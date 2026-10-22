@@ -31,6 +31,7 @@ function digits(s) {
 // Whole words or tokens -> how to say them. Order matters: longer first.
 const LEXICON = [
   [/\bShopVoice\b/g, 'Shop Voice'],
+  [/\bkiotviet-mcp\b/gi, 'Key-ott Vee-et M C P'],
   [/\bKiotViet\b/g, 'Key-ott Vee-et'], // close to the Vietnamese "Ki-ốt Việt"
   [/\bAlexa\+/g, 'Alexa Plus'],
   [/\bPostgres(QL)?\b/g, 'Post-gress'],
@@ -63,6 +64,7 @@ export function speakable(text) {
   s = s.replace(/(\d+(?:\.\d+)?)\s?%/g, (_, p) => `${p} percent`);
   // Units glued to numbers: "1L" -> "1 liter", "10-pack" -> "10 pack".
   s = s.replace(/\b(\d+)\s?L\b/g, (_, n) => `${n} liter${n === '1' ? '' : 's'}`);
+  s = s.replace(/\b(\d+)\s?ml\b/gi, (_, n) => `${n} milliliter`); // "Cola 330ml Can" was heard as "3 Hotha 30"
   s = s.replace(/\b(\d+)-(pack|kg|g|ml)\b/gi, (_, n, u) => `${n} ${u.toLowerCase() === 'ml' ? 'milliliter' : u.toLowerCase() === 'kg' ? 'kilo' : u.toLowerCase() === 'g' ? 'gram' : u}`);
   // Remaining plain numbers (with thousands separators) -> words.
   s = s.replace(/\b\d{1,3}(?:,\d{3})+\b|\b\d+\b/g, (m) => numberToWords(Number(m.replace(/,/g, ''))));

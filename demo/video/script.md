@@ -8,11 +8,13 @@ Voices (Piper, offline): narrator `en_US-bryce-medium` (public domain), owner `e
 
 | # | Time (approx.) | Shot | Audio |
 |---|---|---|---|
-| 1 | 0:00–0:12 | **Hook card**: "ShopVoice: an agent that watches the shop for you" | N1 |
-| 2 | 0:12–0:26 | **Before → after card**: GroceryClaw invoice sync (tag `pre-hackathon-baseline`) → voice agent, memory, MCP server, `kiotviet-mcp` | N2 |
-| 3 | 0:26–~2:05 | **Live hosted simulator** (`VIDEO_SIM_URL`, Claude brain), 1080p, with the MCP tool-call panel. The turns are listed below. | N3, then owner and assistant voices |
-| 4 | ~2:05–2:25 | **Architecture** (`docs/hackathon/architecture.png`), then the **MCP Inspector** against the live URL (`evidence/inspector-deployed-*.png`) | N4 |
-| 5 | ~2:25–2:45 | **Impact card**, then the **end card** (repo, MIT, voice credits) | N5 |
+| 1 | 0:00–0:09 | **Hook card**: "ShopVoice: an agent that watches the shop for you" | N1 |
+| 2 | 0:09–0:22 | **Before → after card**: GroceryClaw invoice sync (tag `pre-hackathon-baseline`) → voice agent, memory, MCP server, `kiotviet-mcp` | N2 |
+| 3 | 0:22–~2:15 | **Live hosted simulator** (`VIDEO_SIM_URL`, Claude brain), 1080p, with the MCP tool-call panel. The turns are listed below. | N3, then owner and assistant voices |
+| 4 | ~2:15–2:31 | **Architecture** (`docs/hackathon/architecture.png`), then the **MCP Inspector** against the live URL (`evidence/inspector-deployed-*.png`) | N4 |
+| 5 | ~2:31–2:47 | **Impact card**, then the **end card** (repo, MIT, voice credits) | N5 |
+
+**Editing note (disclosed):** the live segment is real, recorded on the hosted demo with Claude Sonnet 5.5. The wait between the owner's last word and each reply (Claude plus the network, 4–5 s from the recording machine) is shortened to 2.5 s so the cut fits 2:50; no speech or reply is cut. `assemble.mjs` lists the cuts in `out/report.json` (copied to `docs/hackathon/evidence/video-report.json`); the real latency is in `EVIDENCE.md` H2.
 
 ## Live turns
 

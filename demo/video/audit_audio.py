@@ -87,6 +87,11 @@ def role_of(cid):
     return "narrator" if cid.startswith("N") else cid.split("-")[0]
 
 
+# The English-only Whisper model cannot judge Vietnamese clips; they are listed as
+# skipped (their English subtitles come from narration.json / translations.json).
+VIETNAMESE = re.compile(r"[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]", re.I)
+skipped = [c[0] for c in clips if VIETNAMESE.search(c[2])]
+clips = [c for c in clips if c[0] not in skipped]
 spoken = speakable([c[2] for c in clips])
 report, failed, retaken = [], False, False
 for (cid, path, text), say in zip(clips, spoken):
@@ -117,6 +122,10 @@ if retaken:
     json.dump(durations, open("demo/video/narration/durations.json", "w"), indent=2)
     json.dump(timeline, open("demo/video/out/timeline.json", "w"), indent=2)
     print("retakes applied: run `node demo/video/assemble.mjs` to rebuild the video")
+for cid in skipped:
+    report.append({"id": cid, "ok": None, "skipped": "Vietnamese; the English-only Whisper model cannot judge it"})
+    print(f"SKIP  {cid:12} Vietnamese (English-only Whisper model)")
 json.dump(report, open("demo/video/out/audio-audit.json", "w"), indent=2)
-print(f"{sum(r['ok'] for r in report)}/{len(report)} clips pass; report: demo/video/out/audio-audit.json")
+checked = [r for r in report if r["ok"] is not None]
+print(f"{sum(r['ok'] for r in checked)}/{len(checked)} clips pass, {len(skipped)} Vietnamese skipped; report: demo/video/out/audio-audit.json")
 sys.exit(1 if failed else 0)

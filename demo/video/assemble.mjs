@@ -64,15 +64,31 @@ const pts = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_
 const lastPts = Math.max(...pts.stdout.split('\n').map(Number).filter((n) => Number.isFinite(n) && n > 0));
 if (!(lastPts > 0)) throw new Error('could not read sim.webm timestamps');
 const stretch = timeline.duration / lastPts;
-ff(['-i', simWebm, '-vf', `setpts=PTS*${stretch.toFixed(6)},${FIT}`, '-t', timeline.duration.toFixed(3), ...VIDEO, simOut]);
+// The wait between the owner's last word and the reply (Claude plus the network,
+// 4-5 s on the hosted demo) is shortened to VIDEO_MAX_WAIT seconds (default 2.5)
+// so the cut fits 2:50; the real per-turn latency is in EVIDENCE.md H2. Each cut
+// lies strictly inside a wait, so no speech is touched; report.json lists them.
+const maxWait = Number(process.env.VIDEO_MAX_WAIT ?? '2.5');
+const cuts = [];
+for (const [i, e] of timeline.events.entries()) {
+  const prev = timeline.events[i - 1];
+  if (e.role !== 'assistant' || prev?.role !== 'owner') continue;
+  const ownerEnd = prev.start + prev.seconds;
+  const wait = e.start - ownerEnd;
+  if (wait > maxWait) cuts.push({ from: ownerEnd + 0.5, to: ownerEnd + 0.5 + (wait - maxWait) });
+}
+const cutBefore = (t) => cuts.reduce((sum, c) => sum + (c.to <= t ? c.to - c.from : 0), 0);
+const keep = cuts.length ? `,select='not(${cuts.map((c) => `between(t,${c.from.toFixed(3)},${c.to.toFixed(3)})`).join('+')})',setpts=N/30/TB` : '';
+ff(['-i', simWebm, '-vf', `setpts=PTS*${stretch.toFixed(6)},fps=30${keep},${FIT}`, '-t', (timeline.duration - cutBefore(Infinity)).toFixed(3), ...VIDEO, simOut]);
 const simSec = durationSec(simOut);
+const simExpected = timeline.duration - cutBefore(Infinity);
 // The speech events are placed on the wall-clock timeline, so the recording must cover it.
-if (Math.abs(simSec - timeline.duration) > 1) {
-  throw new Error(`sim recording is ${simSec.toFixed(1)}s but the timeline is ${timeline.duration.toFixed(1)}s; re-run record.mjs`);
+if (Math.abs(simSec - simExpected) > 1) {
+  throw new Error(`sim recording is ${simSec.toFixed(1)}s but the timeline is ${simExpected.toFixed(1)}s; re-run record.mjs`);
 }
 // Optional fine-tuning of the sim audio against the picture (seconds, default 0).
 const simAvOffset = Number(process.env.VIDEO_SIM_AV_OFFSET ?? '0');
-for (const e of timeline.events) speech.push({ ...e, start: cursor + e.start + simAvOffset });
+for (const e of timeline.events) speech.push({ ...e, start: cursor + e.start - cutBefore(e.start) + simAvOffset });
 segs.push({ out: simOut, seconds: simSec });
 cursor += simSec;
 
@@ -146,7 +162,7 @@ const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-s
 const info = JSON.parse(probe.stdout);
 const duration = Number(info.format.duration);
 const v = info.streams[0];
-const report = { file: FINAL, duration_seconds: Math.round(duration * 10) / 10, width: v.width, height: v.height, codec: v.codec_name, under_3_minutes: duration < 180, segments: segs.length, speech_clips: speech.length };
+const report = { file: FINAL, duration_seconds: Math.round(duration * 10) / 10, width: v.width, height: v.height, codec: v.codec_name, under_3_minutes: duration < 180, segments: segs.length, speech_clips: speech.length, sim_url: timeline.simUrl, waits_shortened_to_seconds: maxWait, cuts_seconds: cuts.map((c) => [Math.round(c.from * 10) / 10, Math.round(c.to * 10) / 10]) };
 writeFileSync(join(OUT, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report));
 if (!report.under_3_minutes || v.width !== 1920 || v.height !== 1080 || v.codec_name !== 'h264') process.exit(1);
