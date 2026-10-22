@@ -1,6 +1,6 @@
 # Devpost submission: ShopVoice (paste-ready)
 
-Every section below maps to one Devpost form field (SPEC.md §0). Every value comes from an evidence file. The **⟪OWNER⟫** marker flags the one value only the owner can supply (the YouTube link after upload); replace it before pasting.
+Every section below maps to one Devpost form field (SPEC.md §0). Every value comes from an evidence file or the owner (the YouTube link).
 
 **Honesty rule for this text:** every number comes from a file in `docs/hackathon/evidence/`. Nothing AWS ran: the AWS code is labelled "implemented, not deployed: AWS account unavailable".
 
@@ -20,7 +20,7 @@ A voice agent that watches a corner shop for its owner: a morning briefing, a re
 - **Try it (no account):** https://shopvoice-78h7.onrender.com. It is labelled on the page as a simulated Alexa+ experience.
 - **MCP endpoint:** https://shopvoice-mcp-78h7.onrender.com/mcp, with the read-only judge token `shopvoice-public-judge-token-read-only-2026` (see Testing instructions).
 - **Repository:** https://github.com/vansyson1308/groceryclaw (MIT). Start with the README section "ShopVoice in 60 seconds".
-- **Demo video:** ⟪OWNER: YouTube URL after upload⟫
+- **Demo video:** https://youtu.be/D2axxkZ9SZE
 - **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md
 - **Open-source package:** https://github.com/vansyson1308/kiotviet-mcp
 

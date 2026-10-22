@@ -37,7 +37,7 @@
   3. "Always order eggs from Dawn Bakery and Farm"
   4. "What do you remember about my shop?"
   5. "Mặt hàng nào sắp hết?" (Vietnamese: "Which items are running low?")
-- **Video:** ⟪OWNER: YouTube URL after upload⟫. **Evidence:** [`docs/hackathon/EVIDENCE.md`](docs/hackathon/EVIDENCE.md).
+- **Video:** https://youtu.be/D2axxkZ9SZE. **Evidence:** [`docs/hackathon/EVIDENCE.md`](docs/hackathon/EVIDENCE.md).
 
 | | Before the hackathon (tag [`pre-hackathon-baseline`](https://github.com/vansyson1308/groceryclaw/tree/pre-hackathon-baseline), Mar 31) | After (Sep 1 – Oct 23, 2026) |
 |---|---|---|

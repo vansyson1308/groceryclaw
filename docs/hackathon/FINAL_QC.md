@@ -83,8 +83,6 @@ All requests ran from the agent's cloud sandbox to Render Singapore.
 
 ## 8. Owner actions before submitting
 
-`final_qc` lists these as owner actions; they are not failures:
-
-1. Upload `shopvoice_demo.mp4` to YouTube as **Public**, then put the link in `DEVPOST_SUBMISSION.md` and `README.md` (the ⟪OWNER⟫ markers). Steps in `NOP_BAI.md`.
+1. Done: the owner uploaded the video as Public, https://youtu.be/D2axxkZ9SZE. It is reachable without signing in (YouTube oEmbed returns its title, Oct 23), and the link is in `DEVPOST_SUBMISSION.md` and `README.md`. `final_qc` now reports no owner markers.
 2. Kiro go/no-go at Oct 23 10:00. Default: AWS Builder is not claimed.
 3. Set (or confirm) the Anthropic Console spend limit.

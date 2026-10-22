@@ -28,10 +28,11 @@ Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits b
 - [x] Hosted evidence: smoke 8/8 (p50 256 ms, p95 286 ms), Inspector against the URL, judge token 403 on writes (EVIDENCE H1, H3) — PR #31
 - [x] P0-B Claude evals on the hosted demo, 31 cases / 53 turns. Run 1 (8 s budget): safety 53/53, 2 timeouts → D37 (11 s). Run 2: safety 53/53, numbers 53/53, tools 48/48, e2e 5/5, 0 fallbacks, p50 3.2 s, p95 4.2 s, $0.27 (EVIDENCE H2) — PR #32
 - [x] P1 morning plan, shop memory (migration 020), Vietnamese yes/no (#29); MCP Apps view (#30). Not done: per-browser voice profile from the page (each conversation gets its own profile; waits on Kiro task 4/5 files)
-- [x] P0-C docs: README 60 s, DEVPOST (no PENDING left; one ⟪OWNER⟫ YouTube marker), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F1–F17, DECISIONS D31–D39 — PR #32
+- [x] P0-C docs: README 60 s, DEVPOST (no PENDING left; YouTube https://youtu.be/D2axxkZ9SZE), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F1–F17, DECISIONS D31–D39 — PR #32
 - [x] M5 video v2: hosted, Claude brain, 2:48, waits shortened and disclosed (D38), thumbnail 3:2, `.srt` with English for the Vietnamese lines (EVIDENCE H7)
 - [x] M6 FINAL_QC.md: rules, clean clone, hosted smoke, cost guard, secrets (gitleaks full history), self-score — PR #32
-- [ ] Owner: upload the video (Public), paste the YouTube link, submit by Oct 24 00:00 ICT
+- [x] Owner uploaded the video (Public): https://youtu.be/D2axxkZ9SZE; link filled in DEVPOST and README
+- [ ] Owner: submit on Devpost by Oct 24 00:00 ICT. AWS Builder = No unless the Kiro PR merges by 10:00 (D39)
 
 ---
 
