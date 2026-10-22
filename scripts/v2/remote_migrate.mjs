@@ -41,7 +41,9 @@ async function main() {
   // Internal K8s URLs (.svc.cluster.local) don't use SSL;
   // external connections may need it — auto-detect based on hostname.
   const isInternal = DB_URL.includes('.svc.cluster.local') || DB_URL.includes('localhost') || DB_URL.includes('127.0.0.1');
-  const sslConfig = isInternal ? false : { rejectUnauthorized: false };
+  // PGSSLMODE=disable or ?sslmode=disable forces plain TCP (e.g. a private Postgres on Render's network).
+  const sslDisabled = process.env.PGSSLMODE === 'disable' || /[?&]sslmode=disable\b/.test(DB_URL);
+  const sslConfig = isInternal || sslDisabled ? false : { rejectUnauthorized: false };
   const client = new Client({ connectionString: DB_URL, ssl: sslConfig });
   await client.connect();
   console.log('Connected to database.');

@@ -16,12 +16,15 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 export function runMigrations(connectionString) {
   const result = spawnSync(process.execPath, ['scripts/v2/remote_migrate.mjs'], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL: connectionString, DB_APP_URL: '' },
+    // db_prepare's own client connects without TLS (the private Postgres has no certificate),
+    // so the migration child must too, unless the operator set PGSSLMODE explicitly.
+    env: { ...process.env, DATABASE_URL: connectionString, DB_APP_URL: '', PGSSLMODE: process.env.PGSSLMODE || 'disable' },
     encoding: 'utf8'
   });
   const applied = (result.stdout.match(/^ {2}OK /gm) ?? []).length;
   if (result.status !== 0) {
-    const failed = (result.stdout + result.stderr).split('\n').find((l) => l.includes('FAIL')) ?? 'see logs';
+    const lines = (result.stdout + result.stderr).split('\n');
+    const failed = lines.find((l) => l.includes('FAIL')) ?? lines.find((l) => l.startsWith('Migration failed')) ?? 'see logs';
     throw new Error(`migrations failed: ${failed.trim()}`);
   }
   return applied;
