@@ -46,6 +46,7 @@ The owner talks, the agent acts:
   - *"How many eggs do we have?"* For an ambiguous product it asks "which one?" instead of guessing.
 - **Vietnamese.** *"Mặt hàng nào sắp hết?"* gets a Vietnamese answer from the same tools with the same safety rules. *"Có, xác nhận"* confirms; *"Đơn này bao nhiêu tiền?"* is a question, so it never confirms.
 - **Safety.** Nothing is ever ordered without an explicit spoken yes to a draft the owner has already heard. The model never sees the confirmation token.
+- **MCP Apps view.** In hosts that render MCP Apps, `suggest_reorder` comes with an interactive plan (`ui://shopvoice/reorder-plan`): one table per supplier with editable quantities, and "Draft" then "Confirm" buttons. Hosts without MCP Apps keep the spoken answer, which is complete on its own. We checked the view in a sandboxed-iframe host harness (`evidence/mcp-app-reorder-plan.png`); the voice simulator does not render it.
 
 ### Before → after
 | | Before the hackathon (tag `pre-hackathon-baseline`, Mar 31) | After (Oct 23) |
@@ -75,6 +76,7 @@ The owner talks, the agent acts:
 - **Host-side safety:**
   - The host holds the confirmation token and injects it only when the owner's own words in this turn are a yes to a draft created in an earlier turn.
   - The host also fills in who is speaking, and the model never sees that field, so one person's rules cannot leak into another's.
+- **MCP Apps:** `suggest_reorder` declares `_meta.ui.resourceUri = ui://shopvoice/reorder-plan`. The server serves a self-contained `text/html;profile=mcp-app` view that speaks the MCP Apps postMessage JSON-RPC: `ui/initialize`, `tool-result`, `size-changed`, and proxied `tools/call`. We did not add the `ext-apps` helper package, because its current 2.x line requires the v2 SDK and this server runs SDK 1.x.
 - **Hosting:** one Render Blueprint creates:
   - a private Postgres 16 service with a disk;
   - the MCP web service, with a pre-deploy migration and role setup;
@@ -110,7 +112,7 @@ MCP is the right seam for voice. The same server serves a voice simulator, the M
 
 ### What's next
 - Live KiotViet inventory and sales through the existing worker adapter, and sending confirmed drafts to KiotViet `POST /purchaseorders`.
-- An MCP Apps UI for the reorder plan (an editable table with per-supplier confirm), served by the same server.
+- Rendering the MCP Apps reorder view inside the simulator too, next to the voice answer.
 - A real Alexa+ integration once partner access opens.
 - Vietnamese spoken directly by the tools (today Claude translates them).
 - Moving the hosting back to AWS when an account is available; the CDK stack is already written.

@@ -192,3 +192,11 @@ Decision:
 - The MCP tools still speak English. Claude translates their text and keeps numbers and names as given, and the number gate in the evals checks this.
 - `isAffirmative` gains Vietnamese yes/no words and question particles ("… không?", "bao nhiêu"), so "Có, xác nhận" can confirm and "Đơn này bao nhiêu tiền?" cannot.
 - The offline rules brain maps Vietnamese intents to the same tools but answers in English. That is acceptable for a fallback, and the docs say so.
+
+**D36. MCP Apps without the helper package, and only for the reorder plan.**
+- `@modelcontextprotocol/ext-apps` 2.x needs the split v2 SDK packages; this server runs `@modelcontextprotocol/sdk` 1.30.1. The wire contract is small and plain JSON, so the view implements it directly:
+  - `_meta.ui.resourceUri`, plus the legacy `ui/resourceUri` key;
+  - a `ui://` resource with `text/html;profile=mcp-app`;
+  - postMessage JSON-RPC.
+- Only `suggest_reorder` gets a view. The plan is the one place where a table beats a sentence. The view still takes two explicit clicks, Draft then Confirm. Its confirmation token travels only in `structuredContent`, which hosts keep out of the model's context.
+- The voice path is unchanged. The simulator does not render the view; that is listed as next work.
