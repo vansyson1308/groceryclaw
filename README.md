@@ -12,7 +12,7 @@
 
 ## Muc luc
 
-- [ShopVoice (Alexa+ MCP)](#shopvoice-alexa-mcp)
+- [ShopVoice in 60 seconds](#shopvoice-in-60-seconds)
 - [GroceryClaw lam gi?](#groceryclaw-lam-gi)
 - [Kien truc tong quan](#kien-truc-tong-quan)
 - [Chon che do nao? Legacy hay V2?](#chon-che-do-nao-legacy-hay-v2)
@@ -25,20 +25,53 @@
 - [Danh cho developer](#danh-cho-developer)
 - [Tai lieu tham khao](#tai-lieu-tham-khao)
 
-## ShopVoice (Alexa+ MCP)
+## ShopVoice in 60 seconds
 
-**ShopVoice** lets a busy grocery owner run the shop by voice: *"What's running low?"*, *"How were sales today compared to last Friday?"*, *"Reorder milk and eggs"* → *"Yes, confirm"*, *"Did the Sunrise Beverages invoice arrive?"*. It is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) backed by GroceryClaw's tenant-isolated Postgres. Alexa+ connects to it the way it connects to any MCP integration. Alexa+'s developer tooling is partner-only, so the repo also ships a **simulated Alexa+ experience** (`apps/alexa-sim`): a voice web app whose server is a real MCP client. A Claude agent (Anthropic API) chooses the MCP tools, and an offline rules brain takes over if Claude is unavailable. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon; see `docs/hackathon/`.
+**ShopVoice is an agent that watches a corner shop for its owner, by voice.** It briefs them every morning, remembers their rules across days, and plans the reorder supplier by supplier. Nothing is bought without an explicit spoken "yes". Underneath is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) that any assistant can use. The page is a **simulated Alexa+ experience**, because Alexa+ developer tooling is partner-only. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon (`docs/hackathon/`).
+
+- **Try it live, no account needed:** ⟪PENDING live simulator URL⟫. Click a phrase or hold the mic, in Chrome.
+- **MCP endpoint:** ⟪PENDING live MCP URL⟫/mcp. Judges can use the public **read-only** token `shopvoice-public-judge-token-read-only-2026`. It reads everything; drafting, confirming and memory changes return `403 insufficient_scope`.
+- **Five phrases to try:**
+  1. "Good morning, how's the shop?"
+  2. "Yes", then "Yes, confirm"
+  3. "Always order eggs from Dawn Bakery and Farm"
+  4. "What do you remember about my shop?"
+  5. "Mặt hàng nào sắp hết?" (Vietnamese: "Which items are running low?")
+- **Video:** ⟪PENDING YouTube URL⟫. **Evidence:** [`docs/hackathon/EVIDENCE.md`](docs/hackathon/EVIDENCE.md).
+
+| | Before the hackathon (tag [`pre-hackathon-baseline`](https://github.com/vansyson1308/groceryclaw/tree/pre-hackathon-baseline), Mar 31) | After (Sep 1 – Oct 23, 2026) |
+|---|---|---|
+| What the owner gets | GroceryClaw: supplier invoices (photo, XML, Excel) synced into the KiotViet point of sale, by chat | A voice agent: morning briefing → reorder plan by supplier → spoken "yes" |
+| Memory | None | Shop memory across sessions: preferred supplier, order caps, skipped items, usual order day (explicit statements only, deletable) |
+| Languages | Vietnamese chat | English and Vietnamese voice, with the same safety rules |
+| Interface for assistants | None | An MCP server: 12 voice-first tools, a prompt and a resource, with read and read-write scopes |
+| Hosting | Self-hosted compose / Kubernetes | A public demo on Render: Postgres with RLS, a nightly reseed, a read-only judge token |
+| Open source | None | [`kiotviet-mcp`](https://github.com/vansyson1308/kiotviet-mcp) (MIT): the same tools for any KiotViet shop |
 
 ![ShopVoice architecture](docs/hackathon/architecture.png)
 
 ```mermaid
 flowchart LR
-  owner(["Shop owner (voice)"]) --> sim["apps/alexa-sim<br/>simulated Alexa+<br/>Claude agent · browser voice"]
-  owner -.-> alexa["Alexa+ (same MCP interface;<br/>partner-only tooling)"]
-  sim -- "MCP client · Streamable HTTP" --> mcp["apps/mcp-server<br/>MCP 2025-11-25"]
-  alexa -.-> mcp
-  mcp -- "runTenantScopedTransaction (RLS)" --> pg[("Postgres 16<br/>stock · sales · drafts · audit")]
+  owner(["Shop owner (voice, EN/VI)"]) --> sim["shopvoice: simulated Alexa+<br/>agent host holds confirmation tokens"]
+  sim -- "plans tool calls" --> claude["Claude Sonnet 5.5<br/>(rules brain fallback)"]
+  sim -- "MCP client · Streamable HTTP" --> mcp["shopvoice-mcp<br/>MCP 2025-11-25 · 12 tools"]
+  judge(["MCP Inspector · read-only token"]) --> mcp
+  alexa["Alexa+ or any MCP client"] -.-> mcp
+  mcp -- "RLS runtime role" --> pg[("Postgres 16 + RLS<br/>stock · sales · drafts · memory · audit")]
 ```
+
+**Run it locally in 1 minute** (Node 20+, no database, no keys):
+
+```bash
+npm ci && npm run build
+export MCP_DEMO_TOKEN=$(openssl rand -hex 24)
+MCP_DATA_BACKEND=memory node apps/mcp-server/dist/server.js &
+SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js   # open http://localhost:8091
+```
+
+Without `ANTHROPIC_API_KEY` the simulator uses the offline rules brain; export a key to use Claude. More details follow below. Hosting: [`docs/hackathon/DEPLOY_RENDER.md`](docs/hackathon/DEPLOY_RENDER.md). **AWS:** the Bedrock brain, Polly speech and CDK stack in this repo are *implemented, not deployed: AWS account unavailable*.
+
+### ShopVoice details
 
 | Piece | Where |
 |---|---|
@@ -47,13 +80,16 @@ flowchart LR
 | MCP client config (voice simulator → MCP) | `apps/alexa-sim/src/toolbox.ts` (`SIM_MCP_URL`, `SIM_MCP_TOKEN`) |
 | Claude agent (Anthropic API) + host-held confirmation | `apps/alexa-sim/src/claude-brain.ts`, `apps/alexa-sim/src/agent.ts` |
 | Offline rules brain (fallback, CI) | `apps/alexa-sim/src/brain.ts` |
-| Data (migration 017 + demo seed) | `db/v2/migrations/017_v2_inventory_sales.sql`, `db/v2/seed/002_demo_shop_seed.sql` |
+| Data (migrations 017–020 + demo seed) | `db/v2/migrations/017_v2_inventory_sales.sql` … `020_v2_shop_preferences.sql`, `db/v2/seed/002_demo_shop_seed.sql` |
+| Shop memory and the morning plan | `apps/mcp-server/src/memory-tools.ts`, `apps/mcp-server/src/preferences.ts`, `apps/alexa-sim/src/agent.ts` |
+| Hosted demo (Render Blueprint, deploy scripts) | `render.yaml`, `scripts/deploy/`, `docs/hackathon/DEPLOY_RENDER.md` |
 | AWS deployment (CDK), Bedrock brain, Polly voice: implemented, not deployed (AWS account unavailable) | `infra/aws/`, `scripts/aws/deploy.sh`, `apps/alexa-sim/src/brain.ts`, `apps/alexa-sim/src/speech.ts` |
 | Open-source extraction | `oss/kiotviet-mcp/` |
 
 **Tools:**
-- Read: `get_low_stock`, `get_stock_level`, `get_sales_summary`, `get_top_movers`, `get_invoice_status`, `suggest_reorder`, `get_daily_briefing`.
+- Read: `get_low_stock`, `get_stock_level`, `get_sales_summary`, `get_top_movers`, `get_invoice_status`, `suggest_reorder`, `get_daily_briefing`, `list_shop_rules`.
 - Write, in two steps: `create_reorder_draft` returns a token valid for 5 minutes, and `confirm_reorder` uses it.
+- Shop memory (voice clients): `remember_shop_rule` and `forget_shop_rule`.
 - Also a `morning_briefing` prompt and a `shop://profile` resource.
 
 Every tool returns a spoken answer of 35 words or fewer, plus `structuredContent` that matches its `outputSchema`. Every call is logged to `voice_audit_log`.
