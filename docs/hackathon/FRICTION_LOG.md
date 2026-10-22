@@ -141,3 +141,11 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
 - **Severity:** low to medium (multi-user voice clients will all reinvent this).
 - **Workaround:** an optional `voice_profile` tool argument that the host fills in and strips from the schema it shows the model, so the model can never choose or spoof it.
 - **Suggestion:** a documented `_meta` key (for example `io.modelcontextprotocol/end-user`) for host-asserted speaker identity.
+
+## F17. First Render deploy: pre-deploy migrations tried TLS against the private Postgres
+- **Task:** first Blueprint deploy; `preDeployCommand: node scripts/deploy/db_prepare.mjs` against the `postgres:16-bookworm` private service.
+- **Expected:** the pre-deploy step connects over Render's private network as it did in the local rehearsal.
+- **Actual:** `db_prepare failed: migrations failed: see logs`. The migration child (`remote_migrate.mjs`) enabled TLS for every host that is not `localhost`, and the private service has no certificate. The local rehearsal had used `127.0.0.1`, so it never took that branch.
+- **Severity:** high (no deploy until fixed), found minutes after the first deploy.
+- **Workaround:** the owner's patch: `db_prepare` passes `PGSSLMODE=disable` to the child unless set, and `remote_migrate` honours `PGSSLMODE=disable` / `?sslmode=disable`. Reproduced against a container reached by its IP (fails before, 20 migrations after).
+- **Suggestion (Render):** document in the private-services guide that the bundled Postgres images serve plain TCP on the private network, and show `sslmode=disable` in the Blueprint example. **Lesson for us:** rehearse with a non-loopback hostname.
