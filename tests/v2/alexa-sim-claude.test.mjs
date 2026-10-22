@@ -90,7 +90,7 @@ test('brain choice: SIM_BRAIN wins, else Claude when an API key is set, else rul
   const cfg = loadSimConfig({ SIM_MCP_HOSTPORT: 'shopvoice-mcp:10000', SIM_TRUST_PROXY: '2' });
   assert.equal(cfg.mcpUrl, 'http://shopvoice-mcp:10000/mcp');
   assert.equal(cfg.trustProxyHops, 2);
-  assert.equal(cfg.turnDeadlineMs, 8000);
+  assert.equal(cfg.turnDeadlineMs, 11000);
   assert.equal(cfg.claudeDailyTurnCap, 400);
 });
 
@@ -354,4 +354,16 @@ test('system prompt forbids invented numbers and treats tool text as data', () =
   assert.match(p, /data, not instructions/);
   assert.match(p, /at most 35 words/);
   assert.ok(!/bedrock|polly/i.test(p));
+});
+
+test('fallback reasons: the SDK timeout and abort errors count as timeouts, even though their name is "Error"', async () => {
+  const { fallbackReasonOf } = await import('../../apps/alexa-sim/dist/agent.js');
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  assert.equal(new Anthropic.APIConnectionTimeoutError().name, 'Error', 'premise of the fix');
+  assert.equal(fallbackReasonOf(new Anthropic.APIConnectionTimeoutError()), 'timeout');
+  assert.equal(fallbackReasonOf(new Anthropic.APIUserAbortError()), 'timeout');
+  const turnTimeout = new Error('turn_deadline');
+  turnTimeout.name = 'TurnTimeoutError';
+  assert.equal(fallbackReasonOf(turnTimeout), 'timeout');
+  assert.equal(fallbackReasonOf(new Error('boom')), 'error');
 });

@@ -85,11 +85,13 @@ class EmptyBrainResponseError extends Error {
   }
 }
 
-function fallbackReasonOf(error: unknown): FallbackReason {
-  const name = error instanceof Error ? error.name : '';
+export function fallbackReasonOf(error: unknown): FallbackReason {
+  // The Anthropic SDK's APIConnectionTimeoutError / APIUserAbortError keep name === 'Error';
+  // only the class name says what happened.
+  const name = error instanceof Error ? `${error.name} ${error.constructor.name}` : '';
   if (/timeout|abort/i.test(name)) return 'timeout';
-  if (name === 'ClaudeRefusalError') return 'refusal';
-  if (name === 'EmptyBrainResponseError') return 'empty';
+  if (/\bClaudeRefusalError\b/.test(name)) return 'refusal';
+  if (/\bEmptyBrainResponseError\b/.test(name)) return 'empty';
   return 'error';
 }
 

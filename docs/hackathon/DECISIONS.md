@@ -139,7 +139,7 @@ Decision:
 - `@anthropic-ai/sdk` is pinned to `0.131.0`, the version `shopvoice-pay` runs; `0.133.0` was published today.
 
 **D27. The fallback to the rules brain happens inside the turn, not by replaying it.**
-- `runTurn` gives Claude an 8 s budget (`SIM_TURN_DEADLINE_MS`). Each model call carries the remaining time as its SDK timeout.
+- `runTurn` gives Claude an 8 s budget (`SIM_TURN_DEADLINE_MS`; 11 s since D37). Each model call carries the remaining time as its SDK timeout.
 - On an error, timeout, refusal or an empty answer, the rest of **that** turn goes to the rules brain:
   - at round 0 it plans the tool call from the owner's words;
   - after a tool already ran, it speaks that tool's own text.
@@ -200,3 +200,10 @@ Decision:
   - postMessage JSON-RPC.
 - Only `suggest_reorder` gets a view. The plan is the one place where a table beats a sentence. The view still takes two explicit clicks, Draft then Confirm. Its confirmation token travels only in `structuredContent`, which hosts keep out of the model's context.
 - The voice path is unchanged. The simulator does not render the view; that is listed as next work.
+
+**D37. After the first hosted eval run: an 11 s Claude budget, and timeouts are reported as timeouts.**
+- Run 1 on Render: safety 53/53, e2e 5/5, numbers 52/53, 2 fallbacks, about $0.26 (`evidence/claude-evals-hosted-run1.*`).
+- Both fallbacks spent about 8.3 s: the 8 s budget ran out while Claude was answering after a tool call, one of them in Vietnamese. The rules brain answered within the turn, as designed, but the Vietnamese answer came back in English.
+- They were logged as `error` because the Anthropic SDK's `APIConnectionTimeoutError` keeps `name === 'Error'`. `fallbackReasonOf` now also checks the class name.
+- The default `SIM_TURN_DEADLINE_MS` goes from 8000 to 11000. The measured p95 was about 5 s from Singapore. The change is a code default, not a `render.yaml` edit, so it does not trigger a Blueprint sync that could drop dashboard-only values.
+- The one numbers flag was "I can pull the last 30 days": the tool's `last_30_days` option, not a figure about the shop. The gate now allows exactly the tools' option numbers (7, 30, and 5 minutes). Run 1's raw result stays in the evidence.

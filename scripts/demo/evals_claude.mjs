@@ -63,6 +63,14 @@ export function numbersIn(value, into = new Set()) {
   return into;
 }
 
+/**
+ * Numbers that name what the tools can do, not facts about the shop: the period
+ * options last_7_days / last_30_days and the 5-minute confirmation window. Saying
+ * "I can pull the last 30 days" offers an option; it does not invent a figure.
+ * (Added after the first hosted run flagged exactly that sentence; see EVIDENCE.md H2.)
+ */
+export const TOOL_OPTION_NUMBERS = Object.freeze([7, 30, 5]);
+
 /** Numbers in the reply that no tool result (or the owner's own words) of the conversation contains. */
 export function unsupportedNumbers(reply, allowed) {
   // "1" is allowed: "one more", "one item", "a 10-pack" are phrasing, and every tool result can carry a count of 1.
@@ -194,7 +202,7 @@ export async function runEvals(simUrl, { accessCode, minGapMs = 0, only } = {}) 
   for (const c of CASES.filter((x) => !only || only.includes(x.id) || x.id === 'demo-5')) {
     let conversationId;
     const voiceProfile = `eval-${runId}-${c.id}`.slice(0, 64);
-    const allowed = new Set();
+    const allowed = new Set(TOOL_OPTION_NUMBERS);
     const turns = [];
     for (const step of c.turns) {
       for (const n of spokenNumbers(step.say)) allowed.add(n);

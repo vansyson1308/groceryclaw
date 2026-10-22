@@ -30,7 +30,7 @@
 **ShopVoice is an agent that watches a corner shop for its owner, by voice.** It briefs them every morning, remembers their rules across days, and plans the reorder supplier by supplier. Nothing is bought without an explicit spoken "yes". Underneath is a standard **MCP server** (Streamable HTTP, protocol `2025-11-25`) that any assistant can use. The page is a **simulated Alexa+ experience**, because Alexa+ developer tooling is partner-only. It was built for the *Build, Ship, Shape* Amazon Developer Hackathon (`docs/hackathon/`).
 
 - **Try it live, no account needed:** ⟪PENDING live simulator URL⟫. Click a phrase or hold the mic, in Chrome.
-- **MCP endpoint:** ⟪PENDING live MCP URL⟫/mcp. Judges can use the public **read-only** token `shopvoice-public-judge-token-read-only-2026`. It reads everything; drafting, confirming and memory changes return `403 insufficient_scope`.
+- **MCP endpoint:** https://shopvoice-mcp-78h7.onrender.com/mcp. Judges can use the public **read-only** token `shopvoice-public-judge-token-read-only-2026`. It reads everything; drafting, confirming and memory changes return `403 insufficient_scope`.
 - **Five phrases to try:**
   1. "Good morning, how's the shop?"
   2. "Yes", then "Yes, confirm"

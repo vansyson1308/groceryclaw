@@ -18,7 +18,7 @@ A voice agent that watches a corner shop for its owner: a morning briefing, a re
 
 ## Links
 - **Try it (no account):** ⟪PENDING live simulator URL⟫. It is labelled on the page as a simulated Alexa+ experience.
-- **MCP endpoint:** ⟪PENDING live MCP URL⟫/mcp, with the read-only judge token `shopvoice-public-judge-token-read-only-2026` (see Testing instructions).
+- **MCP endpoint:** https://shopvoice-mcp-78h7.onrender.com/mcp, with the read-only judge token `shopvoice-public-judge-token-read-only-2026` (see Testing instructions).
 - **Repository:** https://github.com/vansyson1308/groceryclaw (MIT). Start with the README section "ShopVoice in 60 seconds".
 - **Demo video:** ⟪PENDING YouTube URL⟫
 - **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md
@@ -134,7 +134,7 @@ No account and nothing to install.
 2. **MCP Inspector against the hosted server** (read-only judge token):
    ```bash
    JUDGE=shopvoice-public-judge-token-read-only-2026   # public on purpose: read-only scope
-   npx @modelcontextprotocol/inspector --cli ⟪PENDING live MCP URL⟫/mcp --transport http \
+   npx @modelcontextprotocol/inspector --cli https://shopvoice-mcp-78h7.onrender.com/mcp --transport http \
      --header "Authorization: Bearer $JUDGE" --method tools/list
    ```
    The judge token can call every read tool, but `create_reorder_draft` and `confirm_reorder` return `403 insufficient_scope`, so the shared demo cannot be changed through it.

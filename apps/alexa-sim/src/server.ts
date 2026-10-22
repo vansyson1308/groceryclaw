@@ -82,7 +82,8 @@ export function loadSimConfig(env: Record<string, string | undefined>): SimConfi
     turnsPerMinute: positiveInt(env.SIM_TURNS_PER_MINUTE, 20),
     globalTurnsPerMinute: positiveInt(env.SIM_GLOBAL_TURNS_PER_MINUTE, 60),
     trustProxyHops: parseTrustProxy(env.SIM_TRUST_PROXY),
-    turnDeadlineMs: positiveInt(env.SIM_TURN_DEADLINE_MS, 8000),
+    // Measured on Render (Singapore) to the Anthropic API: p95 about 5 s, tool-and-answer outliers past 8 s (D37).
+    turnDeadlineMs: positiveInt(env.SIM_TURN_DEADLINE_MS, 11000),
     claudeDailyTurnCap: positiveInt(env.CLAUDE_DAILY_TURN_CAP, 400),
     claudeDailyBudgetUsd: Number.isFinite(budget) && budget > 0 ? budget : 1,
     anchorDate: env.DEMO_ANCHOR_DATE ?? '',
