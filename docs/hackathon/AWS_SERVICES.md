@@ -14,7 +14,7 @@ The rules say "Kiro Crew qualifies on its own as a development tool used during 
 |---|---|---|
 | **Kiro Crew** (spec-driven development, Windows, free tier) | The `.kiro/` steering files and the `hosted-demo` spec (requirements, design and tasks, in EARS). The owner ran tasks 4 (simulator `/healthz` covering the MCP server) and 5 (the judges' "Try these 5 phrases" panel) in Kiro Crew. | `.kiro/steering/*`, `.kiro/specs/hosted-demo/*`, commits with the trailer `Built-with: Kiro` on `kiro/hosted-demo`, `docs/hackathon/KIRO_RUNBOOK.md` |
 
-> **Status:** ⟪PENDING Kiro go/no-go, Oct 23 10:00⟫. If there is no Kiro PR by then, this section is removed and the AWS Builder mini challenge is **not** claimed.
+> **Status: not claimed.** At final QC (Oct 23, about 05:00 Vietnam time) no Kiro PR had merged, so the submission does **not** enter the AWS Builder mini challenge and the table above describes a plan, not work done. The owner's go/no-go is Oct 23 10:00: only if the Kiro PR merges by then does this status change, together with the Devpost text.
 
 ## Implemented, not deployed: AWS account unavailable
 

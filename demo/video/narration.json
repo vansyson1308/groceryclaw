@@ -36,11 +36,11 @@
     }
   },
   "lines": {
-    "N1": "A corner shop in Saigon. Two hundred products, a queue at the counter, and the owner's hands are never free. Reorders happen from memory, and often too late.",
-    "N2": "Before the hackathon, our project only synced supplier invoices. Now ShopVoice watches the shop: a morning briefing, a reorder plan that remembers the owner's rules, and nothing bought without a spoken yes.",
+    "N1": "A corner shop in Saigon. The owner's hands are never free, so reorders happen from memory, and often too late.",
+    "N2": "Before the hackathon, our project only synced supplier invoices. Now ShopVoice watches the shop: a morning plan that remembers the owner's rules, and nothing bought without a spoken yes.",
     "N3": "A simulated Alexa+ experience, live on our hosted demo. The MCP calls appear on the right.",
-    "N4": "Under the hood: a standard MCP server over streamable HTTP, twelve voice-first tools on Postgres with row-level security, hosted on Render. Claude plans the calls, and the host keeps every confirmation token. The official MCP Inspector connects with a public, read-only judge token.",
-    "N5": "Vietnam has over a million corner shops. ShopVoice gives each one an agent that keeps watch, and our open-source kiotviet-mcp lets any KiotViet shop plug in. ShopVoice is open source, built during Build, Ship, Shape. Try it: the link is below."
+    "N4": "Under the hood: a standard MCP server, twelve voice-first tools on Postgres with row-level security, hosted on Render. The host keeps every confirmation token. The MCP Inspector connects with a read-only judge token.",
+    "N5": "Vietnam has over a million corner shops. ShopVoice gives each one an agent that keeps watch, and our open-source kiotviet-mcp lets any KiotViet shop plug in. Try it now. The link is below."
   },
   "turns": [
     {

@@ -1,6 +1,6 @@
 # ShopVoice — STATUS (agent memory across sessions)
 
-## Final sprint, started 2026-10-22 22:05 ICT
+## Final sprint, started 2026-10-22 22:05 ICT (last update Oct 23 04:55 ICT)
 
 Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits by Oct 24 00:00 ICT. All times below are ICT.
 
@@ -15,24 +15,23 @@ Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits b
 
 ### Sprint checklist
 - [x] Recon + owner asks (cut-off Oct 23 01:00)
-- [~] P0-A hosting: Kiro tasks 1, 2, 3, 6 by the agent; `render.yaml`; evidence against the URL (cut-off 09:00)
+- [x] P0-A hosting: Kiro tasks 1, 2, 3, 6 by the agent; `render.yaml`; evidence against the URL (cut-off 09:00)
   - [x] Task 1 read-only tokens (migration 019), task 2 `db_prepare` + privileged-user guard, task 3 reseed, task 6 `render.yaml` + proxy hops + `DEPLOY_RENDER.md` (commits `87838cd`, `bb04353`, task-6 commit)
   - [x] Rehearsal on a fresh `postgres:16-bookworm` container with the Render env layout: `db_prepare` twice (19 migrations, then 0), reseed, MCP as `shopvoice_app`, simulator over `SIM_MCP_HOSTPORT`; `hosted_smoke.mjs` 8/8 (`evidence/hosted-smoke-render-rehearsal-local.md`)
   - [x] Tests: 255/255 unit; with Postgres the DB glob is 63 pass, 5 skipped
   - Note: `docker build` cannot finish `npm ci` inside this sandbox (npm "Exit handler never called", a sandbox network limit); Render builds it remotely
   - [x] PR #29 merged into `main` (`62082c9`, 22:40 ICT) with v2-ci green (the E2E gate's first run hit a runner port collision on 55432 before any test ran; one re-run passed)
-  - [ ] Owner applies the Blueprint; agent runs `hosted_smoke.mjs --label deployed`, Inspector and latency against the URL
+  - [x] Owner applies the Blueprint; agent runs `hosted_smoke.mjs --label deployed`, Inspector and latency against the URL
   - Judge token (read-only, public by design): `shopvoice-public-judge-token-read-only-2026`
-- [ ] Kiro go/no-go (10:00)
-- [ ] P0-B real Claude evals ≥25 (11:00)
-- [~] P1 differentiators (17:00): morning plan, shop memory (migration 020), Vietnamese yes/no merged in #29; per-browser voice profile wiring waits for the Kiro files (D31); MCP Apps UI not started
-- [x] P1 #3 MCP Apps: `ui://shopvoice/reorder-plan` on `suggest_reorder`, checked in a sandboxed-iframe host (`evidence/mcp-app-reorder-plan.png`) — PR #30
-- [~] P0-C docs: README 60 s + before/after, DEVPOST (PENDING markers), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F13–F16, honest architecture diagram — PR #30
-- [~] M5 video: v2 pipeline (storyboard per brief, hosted recording via VIDEO_SIM_URL, Vietnamese turn with EN subtitles, thumbnail); local rehearsal 155.6 s; final render waits for the hosted URL
-- [~] M6: `scripts/demo/final_qc.mjs` ready; fails only on PENDING markers and hosted evidence
-- Resume note (23:05): waiting for the owner's Render deploy (two URLs). Then: hosted_smoke, inspector --label deployed, evals_claude --sim-url, record video on the URL, fill PENDING, final_qc. Piper voices are in /tmp/piper-voices (re-download per VIDEO_RUNBOOK if the container is new).
-- [ ] P0-C docs + video (21:00)
-- [ ] P0-D FINAL_QC + hand-off (23:00)
+- [ ] Kiro go/no-go (10:00, owner). Default if no Kiro PR: AWS Builder not claimed (D39)
+- [x] Hosting live on Render (Singapore): simulator https://shopvoice-78h7.onrender.com, MCP https://shopvoice-mcp-78h7.onrender.com/mcp (PR #30, pre-deploy TLS fix F17)
+- [x] Hosted evidence: smoke 8/8 (p50 256 ms, p95 286 ms), Inspector against the URL, judge token 403 on writes (EVIDENCE H1, H3) — PR #31
+- [x] P0-B Claude evals on the hosted demo, 31 cases / 53 turns. Run 1 (8 s budget): safety 53/53, 2 timeouts → D37 (11 s). Run 2: safety 53/53, numbers 53/53, tools 48/48, e2e 5/5, 0 fallbacks, p50 3.2 s, p95 4.2 s, $0.27 (EVIDENCE H2) — PR #32
+- [x] P1 morning plan, shop memory (migration 020), Vietnamese yes/no (#29); MCP Apps view (#30). Not done: per-browser voice profile from the page (each conversation gets its own profile; waits on Kiro task 4/5 files)
+- [x] P0-C docs: README 60 s, DEVPOST (no PENDING left; one ⟪OWNER⟫ YouTube marker), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F1–F17, DECISIONS D31–D39 — PR #32
+- [x] M5 video v2: hosted, Claude brain, 2:48, waits shortened and disclosed (D38), thumbnail 3:2, `.srt` with English for the Vietnamese lines (EVIDENCE H7)
+- [x] M6 FINAL_QC.md: rules, clean clone, hosted smoke, cost guard, secrets (gitleaks full history), self-score — PR #32
+- [ ] Owner: upload the video (Public), paste the YouTube link, submit by Oct 24 00:00 ICT
 
 ---
 

@@ -17,6 +17,8 @@ test('speakable: money, percentages, units and plain numbers', () => {
   assert.equal(speakable('$1'), 'one dollar');
   assert.equal(speakable("That's 68% of"), "That's sixty-eight percent of");
   assert.equal(speakable('Fresh Milk 1L and Eggs 10-pack'), 'Fresh Milk one liter and Eggs ten pack');
+  assert.equal(speakable('Cola 330ml Can'), 'Cola three hundred thirty milliliter Can');
+  assert.equal(speakable('our open-source kiotviet-mcp'), 'our open-source Key-ott Vee-et M C P');
   assert.equal(speakable('482 items'), 'four hundred eighty-two items');
 });
 

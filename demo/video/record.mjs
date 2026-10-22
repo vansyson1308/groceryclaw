@@ -7,9 +7,10 @@
 //
 // The owner's lines are known in advance and synthesized before recording
 // (neural TTS mid-recording starves Chromium and freezes frames). Claude's
-// replies are not deterministic, so each reply gets a slot sized from its word
-// count; its voice is synthesized after recording and, if it runs long,
-// sped up slightly (at most 1.2x) to fit the slot.
+// replies are not deterministic, so each reply gets a slot sized from its spoken
+// word count (numbers and money expanded: "$177.36" is about eight words), at a
+// slightly brisk 1.1x; its voice is synthesized after recording and, if it runs
+// long, sped up (at most 1.2x) to fit the slot.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -21,6 +22,7 @@ const cfg = JSON.parse(readFileSync('demo/video/narration.json', 'utf8'));
 const narr = JSON.parse(readFileSync('demo/video/narration/durations.json', 'utf8')).durations;
 const OUT = 'demo/video/out';
 const SECONDS_PER_WORD = { en: 0.37, vi: 0.33 };
+const TARGET_TEMPO = 1.1;
 const MAX_TEMPO = 1.2;
 mkdirSync(join(OUT, 'turns'), { recursive: true });
 process.env.DEMO_ANCHOR_DATE = process.env.DEMO_ANCHOR_DATE ?? '2026-10-16'; // local stack only: a Friday
@@ -28,6 +30,25 @@ rmSync(join(OUT, 'raw'), { recursive: true, force: true });
 
 const voiceFor = (role, lang) => (lang === 'vi' ? cfg.voices.vietnamese : cfg.voices[role]);
 const words = (text) => text.trim().split(/\s+/).filter(Boolean).length;
+// Words a TTS voice says for a whole number: 387 -> "three hundred eighty seven" = 4.
+function numberWords(n) {
+  if (n === 0) return 1;
+  let count = 0;
+  for (const [unit, size] of [[1e6, 1], [1e3, 1]]) {
+    if (n >= unit) { count += numberWords(Math.floor(n / unit)) + size; n %= unit; }
+  }
+  if (n >= 100) { count += 2; n %= 100; }
+  if (n > 0) count += n < 20 || n % 10 === 0 ? 1 : 2;
+  return count;
+}
+// Spoken length of a reply: "$177.36" -> "one hundred seventy seven dollars thirty six" = 8 words.
+const spokenWords = (text) =>
+  text.trim().split(/\s+/).filter(Boolean).reduce((sum, token) => {
+    const m = token.match(/(\d[\d,]*)(?:\.(\d+))?/);
+    if (!m) return sum + 1;
+    const extra = (token.includes('$') ? 1 : 0) + (token.includes('%') ? 1 : 0) + (/[a-z]/i.test(token.replace(m[0], '')) ? 1 : 0);
+    return sum + numberWords(Number(m[1].replace(/,/g, ''))) + (m[2] ? numberWords(Number(m[2])) : 0) + extra;
+  }, 0);
 const isVietnamese = (text) => /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/iu.test(text);
 
 // Owner clips first.
@@ -68,12 +89,12 @@ try {
     const data = await page.evaluate(([t, d]) => window.shopvoice.say(t, { wordDelayMs: d }), [turn.text, Math.max(120, Math.round((o.seconds * 1000) / words(turn.text)))]);
     const reply = data?.reply ?? '';
     const lang = isVietnamese(reply) ? 'vi' : 'en';
-    const slot = words(reply) * SECONDS_PER_WORD[lang] + 0.4;
+    const slot = (spokenWords(reply) * SECONDS_PER_WORD[lang]) / TARGET_TEMPO + 0.4;
     const start = at() + 0.2;
     replies.push({ index: i, start, slot, reply, lang, tools: (data?.toolCalls ?? []).map((c) => c.name), brain: data?.brainLabel ?? data?.brain?.model ?? null, fallback: data?.brainFallback ?? false });
-    await page.waitForTimeout((slot + 0.9) * 1000);
+    await page.waitForTimeout((slot + 0.6) * 1000);
   }
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(800);
 } finally {
   const duration = at();
   await context.close();

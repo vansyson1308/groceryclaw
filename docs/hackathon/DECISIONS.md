@@ -207,3 +207,13 @@ Decision:
 - They were logged as `error` because the Anthropic SDK's `APIConnectionTimeoutError` keeps `name === 'Error'`. `fallbackReasonOf` now also checks the class name.
 - The default `SIM_TURN_DEADLINE_MS` goes from 8000 to 11000. The measured p95 was about 5 s from Singapore. The change is a code default, not a `render.yaml` edit, so it does not trigger a Blueprint sync that could drop dashboard-only values.
 - The one numbers flag was "I can pull the last 30 days": the tool's `last_30_days` option, not a figure about the shop. The gate now allows exactly the tools' option numbers (7, 30, and 5 minutes). Run 1's raw result stays in the evidence.
+
+**D38. The final video shortens the waits before each reply, and says so.**
+- Recorded on the hosted demo with Claude, the cut came to 186 s: Claude's replies are longer than the rules brain's, and each turn waits 4–5 s for Claude and the network.
+- First the narration was tightened (N1, N2, N4, N5: 186 → 179 s). Cutting a turn would have dropped memory, the spoken confirm, the safety refusal or Vietnamese, which are the points of the demo.
+- `assemble.mjs` then shortens each wait between the owner's last word and the reply to 2.5 s (`VIDEO_MAX_WAIT`). The cuts lie strictly inside the waits, so no speech or reply is cut. They are listed in `video-report.json`, stated in the YouTube description and `script.md`, and the real latency is in EVIDENCE H2.
+- Reply slots are now sized from spoken length (money and numbers expanded), so a reply's voice no longer runs into the next owner line.
+
+**D39. The AWS Builder mini challenge is not claimed by default.**
+- At final QC (Oct 23, about 05:00 Vietnam time) no Kiro PR had merged. The Devpost text and `AWS_SERVICES.md` therefore claim only Open Source.
+- If the owner's Kiro PR merges by the 10:00 go/no-go, the Kiro Crew block, the AWS Builder tick and the Kiro friction rows go back in, in the same PR.
