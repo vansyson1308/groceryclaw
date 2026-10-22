@@ -17,6 +17,7 @@ import {
 import type { MoneyFormat } from './speech.js';
 import { applyPreferences, asYouAsked, normalizeVoiceProfile } from './preferences.js';
 import type { AppliedRule, ReorderLine } from './preferences.js';
+import { REORDER_PLAN_TOOL_META } from './ui-reorder-plan.js';
 
 export interface ToolContext {
   readonly repo: ShopRepository;
@@ -45,6 +46,8 @@ export interface ToolDefinition<I extends z.ZodRawShape, O extends z.ZodRawShape
   readonly input: I;
   readonly output: O;
   readonly annotations: ToolAnnotations;
+  /** Extra tool `_meta`, e.g. the MCP Apps view (`ui.resourceUri`). */
+  readonly meta?: Record<string, unknown>;
   readonly redact?: (args: z.infer<z.ZodObject<I>>) => Record<string, unknown>;
   readonly run: (ctx: ToolContext, args: z.infer<z.ZodObject<I>>) => Promise<ToolOutcome<z.infer<z.ZodObject<O>>>>;
 }
@@ -581,6 +584,8 @@ export const suggestReorder = defineTool({
     applied_rules: appliedRulesOut
   },
   annotations: READ_ONLY,
+  // MCP Apps hosts render the plan as an editable table with per-supplier draft and confirm.
+  meta: REORDER_PLAN_TOOL_META,
   async run(ctx, args) {
     const stock = await ctx.repo.listStock();
     const ruled = await withShopRules(ctx, stock.filter(needsReorder).sort(byUrgency).map((row) => ({ row, qty: suggestedOrderQty(row) })), args.voice_profile, false);

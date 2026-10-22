@@ -74,7 +74,7 @@ test('SDK client lists all tools with annotations and output schemas', async () 
     assert.match(prompt.messages[0].content.text, /get_daily_briefing/);
 
     const { resources } = await client.listResources();
-    assert.deepEqual(resources.map((r) => r.uri), ['shop://profile']);
+    assert.deepEqual(resources.map((r) => r.uri).sort(), ['shop://profile', 'ui://shopvoice/reorder-plan']);
     const profile = await client.readResource({ uri: 'shop://profile' });
     assert.deepEqual(JSON.parse(profile.contents[0].text), {
       shop_name: 'Corner Mart Demo', display_currency: 'USD', vnd_per_display_unit: 25000, timezone: 'Asia/Ho_Chi_Minh', locale: 'en-US'
