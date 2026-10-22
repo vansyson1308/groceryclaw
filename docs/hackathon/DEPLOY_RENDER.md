@@ -76,7 +76,7 @@ Rehearsal: the same layout ran locally on a fresh `postgres:16-bookworm` contain
 | `shopvoice-reseed` cron | Starter, about 30 s a day | under 1.00 |
 | **Total** | | **about $22**, under the $25 cap |
 
-Anthropic: in the code, the simulator caps Claude at 400 turns and $1 a day (`CLAUDE_DAILY_TURN_CAP`, `CLAUDE_DAILY_BUDGET_USD`). Past either cap it answers with the offline rules brain and shows a badge, never an error page. The Console spend limit is the hard total cap, because the in-code counters reset on a redeploy.
+Anthropic: in the code, the simulator caps Claude at 400 turns and $2 a day (`CLAUDE_DAILY_TURN_CAP`, `CLAUDE_DAILY_BUDGET_USD`). Past either cap it answers with the offline rules brain and shows a badge, never an error page. The Console spend limit is the hard total cap, because the in-code counters reset on a redeploy.
 
 ## Cold start
 

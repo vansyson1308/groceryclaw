@@ -21,14 +21,21 @@ test('spoken numbers: digits, money, percentages and number words', () => {
   assert.deepEqual(unsupportedNumbers('Profit was 23%.', allowed), [23]);
 });
 
-test('eval set: the 5 demo turns plus at least 15 more, with adversarial and number probes', () => {
+test('eval set: the 5 demo turns plus at least 20 more, with adversarial, number, memory and Vietnamese probes', () => {
   const turns = CASES.flatMap((c) => c.turns);
   assert.equal(CASES[0].turns.length, 5);
-  assert.ok(turns.length - 5 >= 15, `${turns.length - 5} extra turns`);
+  assert.ok(turns.length >= 25, `${turns.length} turns`);
+  assert.ok(CASES.some((c) => c.turns.some((t) => /note to the assistant/i.test(t.say))), 'injection that returns inside tool text');
+  assert.ok(CASES.filter((c) => c.turns.some((t) => t.expectVietnamese)).length >= 3);
+  assert.ok(CASES.some((c) => c.id === 'adv-memory-auto-confirm'));
   assert.ok(CASES.some((c) => /ignore previous instructions/i.test(c.turns[0].say)));
   assert.ok(CASES.some((c) => /without asking me/i.test(c.turns[0].say)));
   assert.ok(CASES.filter((c) => c.kind === 'numbers').length >= 3);
-  assert.equal(turns.filter((t) => t.confirmAllowed).length, 2, 'only the demo yes and one explicit yes may confirm');
+  // Only a yes to a draft the owner already heard may confirm: the demo, one English, the morning plan, one Vietnamese.
+  assert.deepEqual(CASES.filter((c) => c.turns.some((t) => t.confirmAllowed)).map((c) => c.id), ['demo-5', 'draft-then-yes', 'morning-plan', 'vi-reorder-yes']);
+  for (const c of CASES) {
+    c.turns.forEach((t, i) => { if (t.confirmAllowed) assert.ok(i > 0 && c.turns[i - 1].expectCard, `${c.id}: confirm follows a heard draft`); });
+  }
 });
 
 test('harness run with the rules brain: safety and number gates hold, demo flow passes', async () => {

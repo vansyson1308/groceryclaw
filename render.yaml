@@ -119,8 +119,9 @@ services:
         sync: false
       - key: CLAUDE_DAILY_TURN_CAP
         value: "400"
+      # Evals (~$1) and judges share the day; the Anthropic Console spend limit is the hard total cap.
       - key: CLAUDE_DAILY_BUDGET_USD
-        value: "1"
+        value: "2"
       - fromGroup: shopvoice-tokens
 
   - type: cron
