@@ -42,5 +42,13 @@ for (const [name, body] of Object.entries(cards)) {
   await page.setContent(`<html><head><style>${base}</style></head><body>${body}</body></html>`);
   await page.screenshot({ path: `demo/video/cards/${name}.png` });
 }
+// 3:2 thumbnail for Devpost and YouTube.
+const thumb = await browser.newPage({ viewport: { width: 1800, height: 1200 } });
+await thumb.setContent(`<html><head><style>${base.replace('width:1920px;height:1080px', 'width:1800px;height:1200px')}</style></head><body>
+  <div class="bar"></div><h1 style="font-size:150px">ShopVoice</h1>
+  <h2 style="font-size:64px">An agent that watches the shop, by voice</h2>
+  <p style="font-size:46px">"Good morning, how's the shop?" → plan by supplier → <span class="accent">"Yes, confirm"</span></p>
+  <p class="muted" style="font-size:38px">Shop memory · English &amp; Tiếng Việt · MCP 2025-11-25 · open source</p></body></html>`);
+await thumb.screenshot({ path: 'demo/video/thumbnail.png' });
 await browser.close();
-console.log(`cards: ${Object.keys(cards).join(', ')}`);
+console.log(`cards: ${Object.keys(cards).join(', ')} + thumbnail.png (3:2)`);
