@@ -12,8 +12,13 @@ export interface ToolCallResult {
   readonly latencyMs: number;
 }
 
+/** Tool argument the host fills in (the speaker's voice profile); the model never sees it. */
+export const HOST_VOICE_PROFILE_ARG = 'voice_profile';
+
 export interface Toolbox {
   listTools(): Promise<ToolSpec[]>;
+  /** Tools whose input accepts `voice_profile` (filled by the host). Optional for test fakes. */
+  voiceProfileTools?(): ReadonlySet<string>;
   callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult>;
   protocolVersion(): string | undefined;
   close(): Promise<void>;
@@ -23,6 +28,7 @@ export class McpToolbox implements Toolbox {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;
   private tools: ToolSpec[] | null = null;
+  private profileTools = new Set<string>();
 
   constructor(private readonly url: string, private readonly token: string, private readonly extraHeaders: Record<string, string> = {}) {}
 
@@ -52,12 +58,21 @@ export class McpToolbox implements Toolbox {
   async listTools(): Promise<ToolSpec[]> {
     if (this.tools) return this.tools;
     const { tools } = await this.withReconnect((c) => c.listTools());
-    this.tools = tools.map((t) => ({
-      name: t.name,
-      description: t.description ?? t.title ?? t.name,
-      inputSchema: t.inputSchema as Record<string, unknown>
-    }));
+    this.tools = tools.map((t) => {
+      const schema = t.inputSchema as { properties?: Record<string, unknown> } & Record<string, unknown>;
+      if (!schema.properties || !(HOST_VOICE_PROFILE_ARG in schema.properties)) {
+        return { name: t.name, description: t.description ?? t.title ?? t.name, inputSchema: schema };
+      }
+      // The host, not the model, says who is speaking.
+      this.profileTools.add(t.name);
+      const { [HOST_VOICE_PROFILE_ARG]: _hidden, ...properties } = schema.properties;
+      return { name: t.name, description: t.description ?? t.title ?? t.name, inputSchema: { ...schema, properties } };
+    });
     return this.tools;
+  }
+
+  voiceProfileTools(): ReadonlySet<string> {
+    return this.profileTools;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
