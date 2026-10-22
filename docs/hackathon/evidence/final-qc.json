@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-10-22T21:51:58.485Z",
+  "ranAt": "2026-10-22T22:13:29.315Z",
   "passed": true,
   "checks": [
     {
@@ -108,7 +108,7 @@
       "area": "secrets",
       "name": "gitleaks over the git history finds nothing",
       "ok": true,
-      "detail": "189 commits, full history"
+      "detail": "194 commits, full history"
     },
     {
       "area": "secrets",
@@ -141,8 +141,5 @@
       "detail": ""
     }
   ],
-  "ownerActions": [
-    "README.md: YouTube URL after upload",
-    "docs/hackathon/DEVPOST_SUBMISSION.md: YouTube URL after upload"
-  ]
+  "ownerActions": []
 }

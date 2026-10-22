@@ -3,7 +3,7 @@
 **Hạn chót:** Devpost đóng lúc **12:00 trưa 23/10 giờ Thái Bình Dương = 02:00 sáng 24/10 giờ Việt Nam**. Kế hoạch là anh **bấm Submit trước 00:00 ngày 24/10** để còn 2 tiếng dự phòng.
 **Trang thi:** https://amazonappdev2026.devpost.com/
 
-Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVPOST_SUBMISSION.md), viết bằng tiếng Anh. File này chỉ hướng dẫn **dán cái gì vào ô nào, theo thứ tự nào**. Trước khi nộp, `FINAL_QC.md` phải xanh, và chỉ còn đúng một việc của anh: thay link YouTube vào chỗ đánh dấu ⟪OWNER⟫ trong `DEVPOST_SUBMISSION.md` và `README.md`.
+Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVPOST_SUBMISSION.md), viết bằng tiếng Anh. File này chỉ hướng dẫn **dán cái gì vào ô nào, theo thứ tự nào**. `FINAL_QC.md` đã xanh, và link YouTube (https://youtu.be/D2axxkZ9SZE) đã được điền vào `DEVPOST_SUBMISSION.md` và `README.md`.
 
 ---
 
@@ -30,7 +30,7 @@ Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVP
 6. **Audience:** chọn "No, it's not made for kids".
 7. **Subtitles:** mục Subtitles → **Upload file → With timing** → chọn `shopvoice_demo.srt`, ngôn ngữ English.
 8. **Visibility:** chọn **Public**. Không để Unlisted hay Private: luật thi yêu cầu Public.
-9. Mở link bằng **tab ẩn danh** để chắc chắn ai cũng xem được. Chép link dạng `https://youtu.be/...` gửi Claude để em điền vào `DEVPOST_SUBMISSION.md`, hoặc anh tự thay chỗ đánh dấu ⟪OWNER⟫ trong `DEVPOST_SUBMISSION.md` và `README.md`.
+9. Mở link bằng **tab ẩn danh** để chắc chắn ai cũng xem được. Link đã đăng: https://youtu.be/D2axxkZ9SZE (đã điền vào `DEVPOST_SUBMISSION.md` và `README.md`).
 
 ---
 
