@@ -26,7 +26,11 @@ Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits b
 - [ ] Kiro go/no-go (10:00)
 - [ ] P0-B real Claude evals ≥25 (11:00)
 - [~] P1 differentiators (17:00): morning plan, shop memory (migration 020), Vietnamese yes/no merged in #29; per-browser voice profile wiring waits for the Kiro files (D31); MCP Apps UI not started
-- [~] P0-C docs: AWS_SERVICES, DEVPOST_SUBMISSION (PENDING markers), FRICTION F13–F16, BUILT_DURING in PR #30
+- [x] P1 #3 MCP Apps: `ui://shopvoice/reorder-plan` on `suggest_reorder`, checked in a sandboxed-iframe host (`evidence/mcp-app-reorder-plan.png`) — PR #30
+- [~] P0-C docs: README 60 s + before/after, DEVPOST (PENDING markers), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F13–F16, honest architecture diagram — PR #30
+- [~] M5 video: v2 pipeline (storyboard per brief, hosted recording via VIDEO_SIM_URL, Vietnamese turn with EN subtitles, thumbnail); local rehearsal 155.6 s; final render waits for the hosted URL
+- [~] M6: `scripts/demo/final_qc.mjs` ready; fails only on PENDING markers and hosted evidence
+- Resume note (23:05): waiting for the owner's Render deploy (two URLs). Then: hosted_smoke, inspector --label deployed, evals_claude --sim-url, record video on the URL, fill PENDING, final_qc. Piper voices are in /tmp/piper-voices (re-download per VIDEO_RUNBOOK if the container is new).
 - [ ] P0-C docs + video (21:00)
 - [ ] P0-D FINAL_QC + hand-off (23:00)
 
