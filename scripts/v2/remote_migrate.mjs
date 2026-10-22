@@ -60,6 +60,13 @@ async function main() {
     'SELECT filename FROM v2_schema_migrations ORDER BY filename'
   );
   const appliedSet = new Set(applied.map(r => r.filename));
+  // Databases migrated by db_v2_migrate.mjs (psql) record into schema_migrations_v2;
+  // honour that ledger too, so switching tools never re-runs a migration.
+  const { rows: psqlLedger } = await client.query("SELECT to_regclass('public.schema_migrations_v2') IS NOT NULL AS present");
+  if (psqlLedger[0]?.present) {
+    const { rows } = await client.query('SELECT name FROM schema_migrations_v2');
+    for (const r of rows) appliedSet.add(r.name);
+  }
 
   // Get migration files
   const files = readdirSync(MIGRATIONS_DIR)

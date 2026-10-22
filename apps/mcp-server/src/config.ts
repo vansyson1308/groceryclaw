@@ -1,3 +1,5 @@
+import { parseTrustProxy } from './client-ip.js';
+
 export interface McpServerConfig {
   readonly host: string;
   readonly port: number;
@@ -6,7 +8,8 @@ export interface McpServerConfig {
   readonly dataBackend: 'postgres' | 'memory';
   readonly allowedOrigins: readonly string[];
   readonly allowLocalhostOrigins: boolean;
-  readonly trustProxy: boolean;
+  /** Trusted proxy hops in front of the server (0 = use the socket address). */
+  readonly trustProxy: number;
   readonly rateLimitPerMinute: number;
   readonly authFailuresPerMinute: number;
   readonly confirmTtlSeconds: number;
@@ -29,6 +32,8 @@ export interface McpServerConfig {
   /** Base64 invite pepper, shared with the gateway; enables linking a web account to a real shop. */
   readonly invitePepperB64: string;
   readonly supportEmail: string;
+  /** Local development only: allow a superuser / BYPASSRLS database user. */
+  readonly allowPrivilegedDbUser: boolean;
 }
 
 function int(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -42,11 +47,19 @@ function bool(value: string | undefined, fallback: boolean): boolean {
   return value === 'true' || value === '1';
 }
 
+/** Render-style split settings: MCP_DB_HOST/PORT/NAME/USER/PASSWORD -> a URL (user and password URL-encoded). */
+export function databaseUrlFromParts(env: Record<string, string | undefined>): string {
+  const { MCP_DB_HOST: host, MCP_DB_NAME: name, MCP_DB_USER: user, MCP_DB_PASSWORD: password } = env;
+  if (!host || !name || !user || !password) return '';
+  const port = int(env.MCP_DB_PORT, 5432, 1, 65535);
+  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(name)}`;
+}
+
 export function loadMcpServerConfig(env: Record<string, string | undefined>): McpServerConfig {
   const backend = env.MCP_DATA_BACKEND === 'memory' ? 'memory' : 'postgres';
-  const databaseUrl = env.MCP_DB_URL ?? env.DB_APP_URL ?? env.DATABASE_URL ?? '';
+  const databaseUrl = env.MCP_DB_URL || env.DB_APP_URL || env.DATABASE_URL || databaseUrlFromParts(env);
   if (backend === 'postgres' && !databaseUrl) {
-    throw new Error('MCP_DB_URL (or DB_APP_URL / DATABASE_URL) is required when MCP_DATA_BACKEND=postgres');
+    throw new Error('MCP_DB_URL (or DB_APP_URL / DATABASE_URL, or MCP_DB_HOST + MCP_DB_NAME + MCP_DB_USER + MCP_DB_PASSWORD) is required when MCP_DATA_BACKEND=postgres');
   }
   const production = env.NODE_ENV === 'production';
   const publicBaseUrl = (env.PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
@@ -75,7 +88,7 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     dataBackend: backend,
     allowedOrigins: (env.MCP_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     allowLocalhostOrigins: bool(env.MCP_ALLOW_LOCALHOST_ORIGINS, !production),
-    trustProxy: bool(env.MCP_TRUST_PROXY, false),
+    trustProxy: parseTrustProxy(env.MCP_TRUST_PROXY),
     rateLimitPerMinute: int(env.MCP_RATE_LIMIT_PER_MINUTE, 120, 1, 100_000),
     authFailuresPerMinute: int(env.MCP_AUTH_FAILURES_PER_MINUTE, 20, 1, 10_000),
     confirmTtlSeconds: int(env.MCP_CONFIRM_TTL_SECONDS, 300, 10, 3600),
@@ -94,6 +107,7 @@ export function loadMcpServerConfig(env: Record<string, string | undefined>): Mc
     oauthLoginPerMinute: int(env.OAUTH_LOGIN_PER_MINUTE, 20, 1, 1000),
     oauthDcrIdleDays: 30,
     invitePepperB64: env.INVITE_PEPPER_B64 ?? '',
-    supportEmail: env.SUPPORT_EMAIL ?? ''
+    supportEmail: env.SUPPORT_EMAIL ?? '',
+    allowPrivilegedDbUser: bool(env.MCP_ALLOW_PRIVILEGED_DB_USER, false)
   };
 }
