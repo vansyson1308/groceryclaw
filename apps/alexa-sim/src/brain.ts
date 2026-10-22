@@ -214,7 +214,9 @@ function planVietnamese(t: string): { name: string; input: Record<string, unknow
 export function planToolCalls(text: string): { name: string; input: Record<string, unknown> }[] {
   const t = text.toLowerCase().trim();
   if (!t) return [];
-  if (isAffirmative(t) && t.split(/\s+/).length <= 6) return [{ name: 'confirm_reorder', input: { confirmation_token: 'held-by-host' } }];
+  // "Reorder cola and just confirm it" is a new request, not a yes to the pending draft.
+  const namesReorder = /\b(re-?order|restock|buy)\s+\S/.test(t) || /(?:^|\s)(đặt|nhập)\s+(thêm\s+)?\S/u.test(t);
+  if (!namesReorder && isAffirmative(t) && t.split(/\s+/).length <= 6) return [{ name: 'confirm_reorder', input: { confirmation_token: 'held-by-host' } }];
   const memory = planMemoryCall(text);
   if (memory) return [memory];
   if (isVietnamese(t)) return planVietnamese(t);
@@ -236,7 +238,7 @@ function planEnglishOne(t: string): { name: string; input: Record<string, unknow
     return { name: 'get_invoice_status', input: supplier ? { supplier } : {} };
   }
   if (/\b(what should i (re)?order|suggest|need to reorder)\b/.test(t)) return { name: 'suggest_reorder', input: {} };
-  const reorder = /\b(?:re-?order|order|restock|buy)\s+(.+?)[?.!]*$/.exec(t);
+  const reorder = /\b(?:re-?order|order|restock|buy)\s+(.+?)[?.!]*$/.exec(t.replace(/,?\s+and\s+(?:just\s+|please\s+)?(?:confirm|place|send)\b.*$/, ''));
   if (reorder?.[1]) {
     const items = reorder[1].split(/\s*(?:,|\band\b|&)\s*/).map(cleanProduct).filter((p) => p.length >= 2).map((product) => ({ product }));
     return { name: 'create_reorder_draft', input: items.length > 0 ? { items } : {} };
