@@ -1,5 +1,35 @@
 # ShopVoice — STATUS (agent memory across sessions)
 
+## Final sprint, started 2026-10-22 22:05 ICT
+
+Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits by Oct 24 00:00 ICT. All times below are ICT.
+
+**Recon (22:05–22:20).** `main` = `59f3063` (PR #28 merged). Branch `claude/funny-davinci-1ifr4x`.
+- Clean `npm ci`, then build, typecheck, lint, format:check and sql:guard all pass.
+- `npm test` with no DB (`REDIS_URL` unset): 245/245, plus 26 pass and 36 skipped in the DB/integration glob.
+- `npm test` with Postgres 16 (`DATABASE_URL` set): 245/245, plus 57 pass and 5 skipped (Redis- or compose-gated). 0 failures.
+- `scripts/demo/e2e_voice_flow.mjs`: 5/5 PASS (memory backend, rules brain).
+- No `ANTHROPIC_API_KEY` in this environment (B8 still open). No `kiro/hosted-demo` branch on origin (B9 open). Network: api.anthropic.com and *.onrender.com are reachable.
+- I have no Render credentials, so the owner clicks the Blueprint deploy. I verify against the public URL afterwards.
+- Owner asks sent 22:15 (key, Render Blueprint, Kiro tasks 4–5). Go/no-go for Kiro: Oct 23 10:00.
+
+### Sprint checklist
+- [x] Recon + owner asks (cut-off Oct 23 01:00)
+- [~] P0-A hosting: Kiro tasks 1, 2, 3, 6 by the agent; `render.yaml`; evidence against the URL (cut-off 09:00)
+  - [x] Task 1 read-only tokens (migration 019), task 2 `db_prepare` + privileged-user guard, task 3 reseed, task 6 `render.yaml` + proxy hops + `DEPLOY_RENDER.md` (commits `87838cd`, `bb04353`, task-6 commit)
+  - [x] Rehearsal on a fresh `postgres:16-bookworm` container with the Render env layout: `db_prepare` twice (19 migrations, then 0), reseed, MCP as `shopvoice_app`, simulator over `SIM_MCP_HOSTPORT`; `hosted_smoke.mjs` 8/8 (`evidence/hosted-smoke-render-rehearsal-local.md`)
+  - [x] Tests: 255/255 unit; with Postgres the DB glob is 63 pass, 5 skipped
+  - Note: `docker build` cannot finish `npm ci` inside this sandbox (npm "Exit handler never called", a sandbox network limit); Render builds it remotely
+  - [ ] Owner applies the Blueprint; agent runs `hosted_smoke.mjs --label deployed`, Inspector and latency against the URL
+  - Judge token (read-only, public by design): `sv_judge_b5f6XLYRSjtDLL7_OST7cqq9QLYVGuLH`
+- [ ] Kiro go/no-go (10:00)
+- [ ] P0-B real Claude evals ≥25 (11:00)
+- [ ] P1 differentiators (17:00)
+- [ ] P0-C docs + video (21:00)
+- [ ] P0-D FINAL_QC + hand-off (23:00)
+
+---
+
 Last updated: 2026-10-09 (no-AWS pass, M0 done). `main` = `0fb3af4` (PR #27 merged). Working branch: `claude/hackathon-pivot-no-aws-956m3k`. Baseline: `a9f3cdb`, tag `pre-hackathon-baseline`. Plan: `docs/hackathon/SPEC_NO_AWS.md`. Evidence index: `docs/hackathon/EVIDENCE.md`.
 
 ## No-AWS pass (started 2026-10-09)
