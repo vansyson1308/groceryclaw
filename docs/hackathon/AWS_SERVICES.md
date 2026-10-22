@@ -1,33 +1,35 @@
-# ShopVoice: AWS services used
+# ShopVoice: AWS services, honestly
 
-Every AWS service the project uses, what it does, and where it is used in code. This file also feeds the Devpost AWS Builder fields.
+Updated 2026-10-22. **No AWS service runs in the live demo.** The owner's AWS account was locked in October and the appeal failed; Amazon then stopped issuing credit codes (BLOCKERS B7). We did not open a second account.
 
-| Service | What for | Where in the code |
+The live path is:
+
+> voice → simulator (Claude via the Anthropic API) → MCP Streamable HTTP → ShopVoice MCP server → Postgres with RLS, all on Render
+
+## AWS Builder mini challenge: Kiro Crew
+
+The rules say "Kiro Crew qualifies on its own as a development tool used during the hackathon — a submission does not need to also call a runtime AWS service".
+
+| Tool | What for | Evidence |
 |---|---|---|
-| **Amazon Bedrock** (Converse API with tool use, model `us.amazon.nova-2-lite-v1:0` by default, via the `BEDROCK_MODEL_ID` env var) | The agent brain of the voice simulator. It receives the MCP server's tool list as Bedrock `toolSpec`s, decides which ShopVoice tools to call, and turns tool results into a short spoken reply. | `apps/alexa-sim/src/brain.ts` (`BedrockBrain`, `ConverseCommand`), loop in `apps/alexa-sim/src/agent.ts` |
-| **Amazon Nova 2 Lite** (on Bedrock, US cross-region inference profile) | The default model: fast and cheap, with tool use. | `apps/alexa-sim/src/server.ts` (`loadSimConfig`), `infra/aws/bin/shopvoice.ts` |
-| **Amazon Polly** (neural TTS, voice `Joanna` by default) | Speaks every assistant reply in the simulator. Also voices the demo-video narration. | `apps/alexa-sim/src/speech.ts` (`PollySpeech`), `demo/video/narrate.mjs` |
-| **Amazon EC2** (t3.small, Amazon Linux 2023, IMDSv2, encrypted gp3 EBS) | Hosts Postgres 16, the MCP server and the simulator with docker compose. RDS was ruled out because the repo's RLS bootstrap needs a true superuser; see DECISIONS.md D13. | `infra/aws/lib/shopvoice-stack.ts`, `infra/aws/lib/user-data.ts`, `infra/aws/compose.aws.yml` |
-| **Amazon CloudFront** (two distributions, HTTPS only) | Public HTTPS endpoints for the MCP server (`/mcp`, Streamable HTTP) and the simulator. A custom cache policy forwards `Authorization` and `Mcp-Session-Id` with nothing cached. A secret `X-Origin-Verify` origin header stops anyone reaching the instance around CloudFront. | `infra/aws/lib/shopvoice-stack.ts`; header check in `apps/mcp-server/src/http.ts` (`originVerified`) and `apps/alexa-sim/src/server.ts` |
-| **AWS Systems Manager Parameter Store** (SecureString) | Stores the MCP bearer token, simulator access code, Postgres password and origin-verify secret. The instance reads them at boot; nothing secret is in git. | `scripts/aws/deploy.sh` (`ensure_param`), `infra/aws/lib/user-data.ts` |
-| **AWS Systems Manager Session Manager** | Shell access to the instance without SSH or open port 22. | `infra/aws/lib/shopvoice-stack.ts` (`AmazonSSMManagedInstanceCore`) |
-| **AWS IAM** | Least-privilege instance role: read `/shopvoice/<stage>/*` parameters, `bedrock:InvokeModel` on Nova models and profiles only, `polly:SynthesizeSpeech`, and write to its own log group. No static AWS keys on the host. | `infra/aws/lib/shopvoice-stack.ts` |
-| **Amazon CloudWatch Logs** | Container logs from all services through the docker `awslogs` driver (JSON logs, tokens redacted), kept for two weeks. | `infra/aws/compose.aws.yml`, `infra/aws/lib/shopvoice-stack.ts` |
-| **Amazon VPC** | A single public subnet with no NAT gateway, to keep cost down. The security group only opens ports 8090 and 8091, and both are gated by the origin header. | `infra/aws/lib/shopvoice-stack.ts` |
-| **AWS CloudFormation / AWS CDK v2** (`aws-cdk-lib` 2.270.0, TypeScript) | Infrastructure as code. `scripts/aws/deploy.sh` and `teardown.sh` are the one-command deploy and destroy. | `infra/aws/`, `scripts/aws/` |
-| **Amazon Transcribe** | Not used in the MVP. Speech input uses the browser Web Speech API (`apps/alexa-sim/static/app.js`); Transcribe streaming is listed as a stretch item. | none |
-| **Alexa+ (MCP integration)** | The target client. ShopVoice is a standard MCP server (Streamable HTTP, protocol 2025-11-25), so Alexa+ can connect to it directly given developer Preview access. The simulator stands in for Alexa+ otherwise. | `apps/mcp-server/` |
+| **Kiro Crew** (spec-driven development, Windows, free tier) | The `.kiro/` steering files and the `hosted-demo` spec (requirements, design and tasks, in EARS). The owner ran tasks 4 (simulator `/healthz` covering the MCP server) and 5 (the judges' "Try these 5 phrases" panel) in Kiro Crew. | `.kiro/steering/*`, `.kiro/specs/hosted-demo/*`, commits with the trailer `Built-with: Kiro` on `kiro/hosted-demo`, `docs/hackathon/KIRO_RUNBOOK.md` |
 
-## Cost estimate (us-east-1, on-demand, at the time of writing)
+> **Status:** filled in after the Oct 23 10:00 go/no-go. If there is no Kiro PR by then, this section is removed and the AWS Builder mini challenge is **not** claimed.
 
-| Item | Approx. monthly |
-|---|---|
-| EC2 t3.small (24x7) | ~$15 |
-| EBS gp3 30 GB | ~$2.40 |
-| CloudFront (demo traffic) | < $1 |
-| Bedrock Nova 2 Lite (demo usage) | < $2 |
-| Polly neural (demo usage, first-year free tier) | < $2 |
-| SSM Parameter Store standard, CloudWatch Logs | < $1 |
-| **Total** | **roughly $20/month**, well inside the $150 credits. Run `scripts/aws/teardown.sh` after judging. |
+## Implemented, not deployed: AWS account unavailable
 
-These are estimates, not measured bills; check Cost Explorer after deploying.
+This code is in the repo and has unit tests against fakes. It has **never run against a live AWS account**, so it is not part of the demo, and nothing in the submission claims it ran.
+
+| Service | What the code does | Where |
+|---|---|---|
+| Amazon Bedrock (Converse with tool use, Amazon Nova 2 Lite by default) | An alternative simulator brain (`SIM_BRAIN=bedrock`) | `apps/alexa-sim/src/brain.ts` (`BedrockBrain`) |
+| Amazon Polly (neural TTS) | Alternative speech output (`SIM_TTS=polly`) | `apps/alexa-sim/src/speech.ts` (`PollySpeech`) |
+| Amazon EC2, Amazon CloudFront, AWS Systems Manager Parameter Store, AWS IAM, Amazon CloudWatch Logs, AWS CDK | A one-host deploy: compose on EC2 behind two CloudFront distributions with an origin-verify header | `infra/aws/`, `scripts/aws/`; `cdk synth` output in `evidence/cdk-synth-summary.md` |
+
+## What replaced each AWS piece
+
+| Planned (AWS) | Live now | Why |
+|---|---|---|
+| Bedrock agent brain | Claude Sonnet 5.5 via the Anthropic API, with the offline rules brain as a per-turn fallback | Account locked |
+| Polly voices | Browser speech synthesis in the simulator; Piper (offline, public-domain/CC0 voices) for the video | Account locked |
+| EC2 + CloudFront | Render Blueprint: two web services, a private Postgres 16 service and a cron job, about $22/month | Account locked; Render needs no credits |

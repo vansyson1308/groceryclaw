@@ -20,11 +20,13 @@ Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits b
   - [x] Rehearsal on a fresh `postgres:16-bookworm` container with the Render env layout: `db_prepare` twice (19 migrations, then 0), reseed, MCP as `shopvoice_app`, simulator over `SIM_MCP_HOSTPORT`; `hosted_smoke.mjs` 8/8 (`evidence/hosted-smoke-render-rehearsal-local.md`)
   - [x] Tests: 255/255 unit; with Postgres the DB glob is 63 pass, 5 skipped
   - Note: `docker build` cannot finish `npm ci` inside this sandbox (npm "Exit handler never called", a sandbox network limit); Render builds it remotely
+  - [x] PR #29 merged into `main` (`62082c9`, 22:40 ICT) with v2-ci green (the E2E gate's first run hit a runner port collision on 55432 before any test ran; one re-run passed)
   - [ ] Owner applies the Blueprint; agent runs `hosted_smoke.mjs --label deployed`, Inspector and latency against the URL
-  - Judge token (read-only, public by design): `sv_judge_b5f6XLYRSjtDLL7_OST7cqq9QLYVGuLH`
+  - Judge token (read-only, public by design): `shopvoice-public-judge-token-read-only-2026`
 - [ ] Kiro go/no-go (10:00)
 - [ ] P0-B real Claude evals ≥25 (11:00)
-- [ ] P1 differentiators (17:00)
+- [~] P1 differentiators (17:00): morning plan, shop memory (migration 020), Vietnamese yes/no merged in #29; per-browser voice profile wiring waits for the Kiro files (D31); MCP Apps UI not started
+- [~] P0-C docs: AWS_SERVICES, DEVPOST_SUBMISSION (PENDING markers), FRICTION F13–F16, BUILT_DURING in PR #30
 - [ ] P0-C docs + video (21:00)
 - [ ] P0-D FINAL_QC + hand-off (23:00)
 

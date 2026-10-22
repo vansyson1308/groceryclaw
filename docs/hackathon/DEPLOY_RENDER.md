@@ -28,7 +28,7 @@ flowchart LR
    ```
 
    Keep it private: it can create and confirm drafts in the demo shop.
-2. **Judge token.** Use the read-only value published in the README (`sv_judge_…`). It is public on purpose: it can only read the demo shop. The server refuses `create_reorder_draft` and `confirm_reorder` for it with `403 insufficient_scope`. Pasting it in step 5 is what registers it as read-only.
+2. **Judge token.** Use the read-only value published in the README (`shopvoice-public-judge-token-read-only-2026`). It is public on purpose: it can only read the demo shop. The server refuses `create_reorder_draft` and `confirm_reorder` for it with `403 insufficient_scope`. Pasting it in step 5 is what registers it as read-only.
 3. Render dashboard → **New → Blueprint** → connect GitHub → pick `vansyson1308/groceryclaw`, branch `main`. Render reads `render.yaml`.
 4. Blueprint name: `shopvoice`. Region: Singapore (closest to Vietnam; all four services must share it).
 5. Paste the values Render asks for (`sync: false`):
