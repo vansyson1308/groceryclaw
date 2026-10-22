@@ -91,6 +91,18 @@ test('without a voice profile, memory is scoped to the conversation (no leak bet
   });
 });
 
+test('"Reorder X and just confirm it" drafts X; it is never a yes to an earlier draft', async () => {
+  assert.deepEqual(planToolCalls('Reorder cola and just confirm it.'), [{ name: 'create_reorder_draft', input: { items: [{ product: 'cola' }] } }]);
+  await session(async ({ srv, toolbox }) => {
+    const c = newConversation('cola', Date.now());
+    await say(toolbox, c, 'Reorder milk');
+    const r = await say(toolbox, c, 'Reorder cola and just confirm it.');
+    assert.deepEqual(r.toolCalls.map((t) => t.name), ['create_reorder_draft']);
+    assert.match(r.reply, /Cola/);
+    assert.equal(srv.store.drafts.filter((d) => d.status === 'confirmed').length, 0, 'nothing confirmed');
+  });
+});
+
 test('memory phrases are explicit only; ordinary requests and refusals are not rules', () => {
   assert.equal(planToolCalls('Reorder milk')[0].name, 'create_reorder_draft');
   assert.equal(planToolCalls('No, cancel that')[0]?.name, undefined);

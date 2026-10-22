@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Assembles demo/video/shopvoice_demo.mp4 (1920x1080, H.264 + AAC, no music):
-// title card -> live simulator recording -> architecture -> MCP Inspector ->
-// safety card -> end card, with narration + owner/assistant voices mixed at
-// their timeline offsets and English subtitles (.srt) burned in.
+// hook card (N1) -> before/after card (N2) -> live simulator recording (N3 +
+// turns) -> architecture + MCP Inspector (N4) -> impact card (N5) -> end card
+// end card, with narration + owner/assistant voices mixed at their timeline
+// offsets and English subtitles (.srt) burned in. Vietnamese lines get an
+// English translation (narration.json turns[].en, demo/video/translations.json).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +13,7 @@ import { durationSec } from './lib/tts.mjs';
 const OUT = 'demo/video/out';
 const FINAL = 'demo/video/shopvoice_demo.mp4';
 const SRT = 'demo/video/shopvoice_demo.srt';
-const MAX_SECONDS = 179;
+const MAX_SECONDS = 170; // brief: at most 2:50
 mkdirSync(join(OUT, 'seg'), { recursive: true });
 
 const narr = JSON.parse(readFileSync('demo/video/narration/durations.json', 'utf8')).durations;
@@ -43,10 +45,15 @@ function addNarration(id, offset) {
   speech.push({ role: 'narrator', file: narr[id].file, start: cursor + offset, seconds: narr[id].seconds, text: narr[id].text });
 }
 
-const titleSec = narr.N1.seconds + 1.6;
+const titleSec = narr.N1.seconds + 1.2;
 addNarration('N1', 0.6);
 segs.push(still('demo/video/cards/title.png', titleSec, '1-title'));
 cursor += titleSec;
+
+const beforeSec = narr.N2.seconds + 1.0;
+addNarration('N2', 0.4);
+segs.push(still('demo/video/cards/beforeafter.png', beforeSec, '1b-before-after'));
+cursor += beforeSec;
 
 const simOut = join(OUT, 'seg', '2-sim.mp4');
 // Playwright's webm timestamps do not run at wall-clock speed (measured: 80.8 s of
@@ -69,26 +76,20 @@ for (const e of timeline.events) speech.push({ ...e, start: cursor + e.start + s
 segs.push({ out: simOut, seconds: simSec });
 cursor += simSec;
 
-const archSec = narr.N3.seconds + 1.2;
-addNarration('N3', 0.4);
-segs.push(still('docs/hackathon/architecture.png', archSec, '3-architecture'));
-cursor += archSec;
-
-const inspSec = narr.N4.seconds + 1.2;
+// N4 covers the architecture diagram, then the Inspector against the live server.
+const techSec = narr.N4.seconds + 1.0;
 addNarration('N4', 0.4);
-segs.push(still(inspectorA, inspSec * 0.45, '4a-inspector'));
-segs.push(still(inspectorB, inspSec * 0.55, '4b-inspector'));
-cursor += inspSec;
+segs.push(still('docs/hackathon/architecture.png', techSec * 0.5, '3-architecture'));
+segs.push(still(inspectorA, techSec * 0.25, '4a-inspector'));
+segs.push(still(inspectorB, techSec * 0.25, '4b-inspector'));
+cursor += techSec;
 
-const safetySec = narr.N5.seconds + 1.2;
+// N5 (impact, open source, call to try it) runs over the impact card, then the end card.
+const closeSec = narr.N5.seconds + 2.2;
 addNarration('N5', 0.4);
-segs.push(still('demo/video/cards/safety.png', safetySec, '5-safety'));
-cursor += safetySec;
-
-const endSec = narr.N6.seconds + 2.5;
-addNarration('N6', 0.4);
-segs.push(still('demo/video/cards/end.png', endSec, '6-end'));
-cursor += endSec;
+segs.push(still('demo/video/cards/impact.png', closeSec * 0.55, '5-impact'));
+segs.push(still('demo/video/cards/end.png', closeSec * 0.45, '6-end'));
+cursor += closeSec;
 
 if (cursor > MAX_SECONDS) throw new Error(`video would be ${cursor.toFixed(1)}s (> ${MAX_SECONDS}s); shorten narration or turns`);
 
@@ -120,6 +121,16 @@ function chunks(text, seconds) {
   return Array.from({ length: n }, (_, i) => ({ text: words.slice(i * per, (i + 1) * per).join(' '), start: (seconds * i) / n, end: (seconds * (i + 1)) / n }));
 }
 const label = { owner: 'Owner: ', assistant: 'Assistant: ', narrator: '' };
+// English for Vietnamese lines: the owner's from narration.json, the assistant's from translations.json.
+const translations = existsSync('demo/video/translations.json') ? JSON.parse(readFileSync('demo/video/translations.json', 'utf8')) : {};
+for (const s of speech) {
+  if (s.role === 'owner' && s.en) s.text = `${s.text} (English: ${s.en})`;
+  if (s.role === 'assistant' && s.lang === 'vi') {
+    const en = translations[s.text];
+    if (!en) throw new Error(`no English translation in demo/video/translations.json for: ${s.text}`);
+    s.text = `${s.text} (English: ${en})`;
+  }
+}
 let idx = 0;
 const srt = speech
   .slice()

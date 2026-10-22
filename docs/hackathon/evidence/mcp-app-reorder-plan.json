@@ -1,0 +1,13 @@
+{
+  "ranAt": "2026-10-22T16:00:21.771Z",
+  "mcpUrl": "http://127.0.0.1:18191/mcp",
+  "passed": true,
+  "steps": [
+    "tools/list → ui://shopvoice/reorder-plan",
+    "suggest_reorder → I'd reorder four items, about $395: Fresh Milk 1L and Chicken Eggs 10-pack from Green Valley Dairy & Eggs; Cola 330ml Can from Sunrise Beverages; and 1 more. Shall I draft the orders?",
+    "rendered 3 supplier sections",
+    "view → tools/call create_reorder_draft",
+    "view → tools/call confirm_reorder",
+    "status: Done. Your order to Green Valley Dairy & Eggs is confirmed: 2 items, about $210."
+  ]
+}

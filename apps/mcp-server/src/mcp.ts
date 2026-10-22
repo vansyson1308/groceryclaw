@@ -4,6 +4,7 @@ import type { ShopStore } from './store.js';
 import { ShopDataError } from './store.js';
 import { ALL_TOOLS } from './tools.js';
 import { MEMORY_TOOLS } from './memory-tools.js';
+import { MCP_APP_MIME_TYPE, REORDER_PLAN_HTML, REORDER_PLAN_URI } from './ui-reorder-plan.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
 import { countWords, fitSpeech, MAX_SPOKEN_WORDS } from './speech.js';
 import { toMarkdown } from './markdown.js';
@@ -97,6 +98,16 @@ export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
     }]
   }));
 
+  // MCP Apps view for suggest_reorder (hosts without MCP Apps simply never read it).
+  server.registerResource('reorder-plan-view', REORDER_PLAN_URI, {
+    title: 'Reorder plan (interactive)',
+    description: 'MCP Apps view for suggest_reorder: the plan by supplier with editable quantities and per-supplier draft and confirm buttons.',
+    mimeType: MCP_APP_MIME_TYPE,
+    _meta: { ui: { prefersBorder: true } }
+  }, async (uri) => ({
+    contents: [{ uri: uri.href, mimeType: MCP_APP_MIME_TYPE, text: REORDER_PLAN_HTML, _meta: { ui: { prefersBorder: true } } }]
+  }));
+
   server.registerResource('shop-profile', 'shop://profile', {
     title: 'Shop profile',
     description: 'Shop name, display currency, timezone and locale for the connected shop.',
@@ -127,7 +138,8 @@ function registerTool(server: McpServer, tool: ToolDefinition<z.ZodRawShape, z.Z
     description: tool.description,
     inputSchema: tool.input,
     outputSchema: tool.output,
-    annotations: { title: tool.title, ...tool.annotations }
+    annotations: { title: tool.title, ...tool.annotations },
+    ...(tool.meta ? { _meta: tool.meta } : {})
   }, async (rawArgs: Record<string, unknown>) => {
     const started = performance.now();
     const args = rawArgs as z.infer<z.ZodObject<z.ZodRawShape>>;

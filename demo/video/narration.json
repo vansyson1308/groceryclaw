@@ -24,21 +24,45 @@
         "lengthScale": 0.85
       },
       "espeak": "mb-us1"
+    },
+    "vietnamese": {
+      "lang": "vi",
+      "polly": "Joanna",
+      "piper": {
+        "model": "vi_VN-vais1000-medium",
+        "lengthScale": 0.95
+      },
+      "espeak": "vi"
     }
   },
   "lines": {
-    "N1": "Picture a corner grocery. Two hundred products, a line of customers, and the owner's hands are always full. Reorders get scribbled on paper, often too late. ShopVoice lets them run the whole shop just by talking.",
-    "N2": "Here's the owner, talking to the shop through an MCP server that Alexa+ can call.",
-    "N3": "Under the hood, ShopVoice is a standard MCP server over streamable HTTP. Alexa+, or our own simulator, calls nine voice-first tools. The simulator's agent runs on Amazon Bedrock with Polly speech, plus an offline fallback, which is what you just saw. Every answer comes from the shop's own Postgres data, locked down with row-level security, and one AWS CDK stack ships it all to the cloud.",
-    "N4": "The official MCP Inspector connects, agrees on the latest protocol, and every tool returns two things: a short answer to speak, and schema-checked data for the screen.",
-    "N5": "And money never moves by accident. Every reorder takes two steps, with a five-minute token that the language model never even sees. Each shop's data is walled off from every other shop, and every call is audited. For millions of small shops, that means less time counting stock, and more time with customers.",
-    "N6": "ShopVoice. Open source, MIT licensed, and built during Build, Ship, Shape."
+    "N1": "A corner shop in Saigon. Two hundred products, a queue at the counter, and the owner's hands are never free. Reorders happen from memory, and often too late.",
+    "N2": "Before the hackathon, our project only synced supplier invoices. Now ShopVoice watches the shop: a morning briefing, a reorder plan that remembers the owner's rules, and nothing bought without a spoken yes.",
+    "N3": "A simulated Alexa+ experience, live on our hosted demo. The MCP calls appear on the right.",
+    "N4": "Under the hood: a standard MCP server over streamable HTTP, twelve voice-first tools on Postgres with row-level security, hosted on Render. Claude plans the calls, and the host keeps every confirmation token. The official MCP Inspector connects with a public, read-only judge token.",
+    "N5": "Vietnam has over a million corner shops. ShopVoice gives each one an agent that keeps watch, and our open-source kiotviet-mcp lets any KiotViet shop plug in. ShopVoice is open source, built during Build, Ship, Shape. Try it: the link is below."
   },
   "turns": [
-    "What's running low?",
-    "How were sales today compared to last Friday?",
-    "Reorder milk and eggs.",
-    "Yes, confirm.",
-    "Did the Sunrise Beverages invoice arrive?"
-  ]
+    {
+      "text": "Always order eggs from Dawn Bakery and Farm."
+    },
+    {
+      "text": "Good morning, how's the shop?"
+    },
+    {
+      "text": "Yes."
+    },
+    {
+      "text": "Yes, confirm."
+    },
+    {
+      "text": "Reorder cola and just confirm it."
+    },
+    {
+      "text": "Mặt hàng nào sắp hết?",
+      "lang": "vi",
+      "en": "Which items are running low?"
+    }
+  ],
+  "subtitles": {}
 }

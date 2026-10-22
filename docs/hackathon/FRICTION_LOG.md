@@ -108,3 +108,36 @@ For each friction: task, steps, expected vs actual, severity (low/med/high), wor
   - A steadier noise setting (`noise_w` 0.4) and best-of-3 takes.
   - A Whisper listening-QA loop that re-takes failing lines.
 - **Suggestion:** TTS engines could accept a per-request lexicon or SSML `<say-as>` (as Polly does) so product names are handled at the source.
+
+## F13. GitGuardian flags percent-encoding tests as leaked passwords, twice
+- **Task:** test that `MCP_DB_PASSWORD` with reserved characters is URL-encoded into the connection string (`tests/v2/mcp-http.test.mjs`).
+- **Steps:** an obviously fake value (`p@ss/w:rd`) and the expected `postgresql://shop%20app:p%40ss…@shopvoice-db:5432/shopvoice`. After the "Generic Password" finding, the test was rewritten to compare `url.password` with a literal encoded string.
+- **Expected:** a fake credential inside a test file, for a host that does not exist, is not reported as a leak.
+- **Actual:** the first version failed as "Generic Password", the second as "Username Password". The check scans every commit in the PR, so fixing the file was not enough: the history of the agent's own feature branch had to be rewritten twice (never `main`).
+- **Severity:** medium (two CI rounds at 23:00, the night before the deadline).
+- **Workaround:** build the fake value at runtime (`['x','@','/',':','y'].join('')`) and compare against `encodeURIComponent(...)` instead of a literal.
+- **Suggestion:** lower confidence for `tests/` paths and for hosts that do not resolve; document an inline `ggignore`-style marker in the PR comment itself.
+
+## F14. Render managed Postgres has no superuser, so an RLS bootstrap role cannot be created
+- **Task:** host Postgres for an RLS-isolated multi-tenant app whose migration 004 runs `ALTER ROLE … BYPASSRLS` for a SECURITY DEFINER owner.
+- **Expected:** a managed database where the migration role can grant `BYPASSRLS` to a NOLOGIN owner role.
+- **Actual:** managed Render Postgres (like RDS) grants no superuser, so the migration cannot run there.
+- **Severity:** medium (it decides the topology).
+- **Workaround:** run `postgres:16-bookworm` as a Render **private service** with a 1 GB disk; a pre-deploy step migrates as the superuser and creates a `NOSUPERUSER NOBYPASSRLS` runtime role; the MCP server refuses to start as anything more privileged.
+- **Suggestion:** a documented "elevated migration role" option (BYPASSRLS grant for NOLOGIN roles only) would let RLS apps use managed Postgres.
+
+## F15. Sonnet 5.5: replayed thinking blocks break when a voice host trims history
+- **Task:** keep a voice conversation short (trim old turns) while using Claude Sonnet 5.5 with adaptive thinking and tool use.
+- **Expected:** trimming old turns is safe, as it was on earlier models.
+- **Actual:** a thinking block is only valid in the exact prefix that produced it; accounts created after 2026-08-31 get a 400 when a replayed block's prefix changed. Thinking cannot be disabled on Sonnet 5.5 (`{type: "disabled"}` is a 400).
+- **Severity:** medium (it only appears after several turns, so a short manual test passes).
+- **Workaround:** keep thinking blocks only inside a turn's tool loop and strip them when the turn ends (`stripThinking`, D28).
+- **Suggestion:** an SDK helper (or a documented `drop_block` default) for "append-only inside a turn, trimmed between turns" voice and chat hosts.
+
+## F16. MCP has no standard way to say which person is speaking
+- **Task:** keep shop memory per speaker ("always order eggs from Dawn Bakery") when one MCP connection serves several people, as a household Alexa+ device or a public demo does.
+- **Expected:** a convention for the client to pass the end user's identity per request, as Alexa+ voice profiles know who is speaking.
+- **Actual:** nothing in the 2025-11-25 spec covers a per-call end-user identity below the connection's OAuth principal.
+- **Severity:** low to medium (multi-user voice clients will all reinvent this).
+- **Workaround:** an optional `voice_profile` tool argument that the host fills in and strips from the schema it shows the model, so the model can never choose or spoof it.
+- **Suggestion:** a documented `_meta` key (for example `io.modelcontextprotocol/end-user`) for host-asserted speaker identity.

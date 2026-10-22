@@ -1,28 +1,23 @@
 flowchart LR
-  owner(["Shop owner<br/>(hands full, voice)"])
-  alexa["Alexa+<br/>(MCP integration, Preview)"]
-  subgraph sim["apps/alexa-sim — voice simulator"]
-    ui["Push-to-talk UI<br/>Web Speech API"]
-    agent["Agent loop<br/>host holds reorder tokens"]
+  owner(["Shop owner<br/>hands full · English or Vietnamese"])
+  judge(["Judge · MCP Inspector<br/>public read-only token"])
+  subgraph render["Render (live)"]
+    subgraph sim["simulator"]
+      ui["shopvoice: simulated Alexa+<br/>push-to-talk page<br/>Web Speech API · tool-call panel"]
+      host["Agent host<br/>holds confirmation tokens<br/>fills in the speaker's voice profile"]
+    end
+    mcp["shopvoice-mcp · MCP 2025-11-25<br/>Streamable HTTP /mcp<br/>12 voice-first tools · prompt · resource<br/>bearer scopes: read / read+write"]
+    db[("shopvoice-db · Postgres 16 + RLS<br/>stock · sales · drafts · shop memory · audit")]
+    cron["nightly reseed<br/>00:05 Vietnam time"]
   end
-  bedrock["Amazon Bedrock<br/>Nova 2 Lite · Converse tool use"]
-  polly["Amazon Polly<br/>neural voice"]
-  cf["Amazon CloudFront<br/>HTTPS + X-Origin-Verify"]
-  subgraph ec2["Amazon EC2 · docker compose"]
-    mcp["apps/mcp-server<br/>MCP 2025-11-25 · Streamable HTTP<br/>9 voice-first tools · prompt · resource"]
-    pg[("PostgreSQL 16 + RLS<br/>stock · sales · reorder drafts<br/>voice_audit_log")]
-  end
-  ssm["SSM Parameter Store<br/>tokens & secrets"]
-  kv["KiotViet POS API<br/>(kiotviet-mcp OSS)"]
-
-  owner -- speaks --> alexa
-  owner -- speaks --> ui
-  ui --> agent
-  agent -- tools as toolSpecs --> bedrock
-  agent -- reply text --> polly
-  alexa -- "MCP over HTTPS · Bearer per tenant" --> cf
-  agent -- "MCP client" --> mcp
-  cf --> mcp
-  mcp -- "runTenantScopedTransaction" --> pg
-  ssm -. boot .-> ec2
-  mcp -. "stretch / OSS" .-> kv
+  claude["Claude Sonnet 5.5<br/>Anthropic API<br/>rules brain as in-turn fallback"]
+  alexa["Alexa+ or any MCP client<br/>(same interface)"]
+  oss["kiotviet-mcp (MIT)<br/>KiotViet POS"]
+  owner -- speaks --> ui --> host
+  host -- "plans tool calls" --> claude
+  host -- "MCP client · private network" --> mcp
+  judge -- "HTTPS · tools/list · tools/call" --> mcp
+  alexa -. "HTTPS" .-> mcp
+  mcp -- "RLS runtime role<br/>NOSUPERUSER NOBYPASSRLS" --> db
+  cron --> db
+  mcp -. "same tools, open source" .-> oss

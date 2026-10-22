@@ -20,11 +20,17 @@ Deadline: Devpost closes Oct 23 12:00 PT = **Oct 24 02:00 ICT**. Owner submits b
   - [x] Rehearsal on a fresh `postgres:16-bookworm` container with the Render env layout: `db_prepare` twice (19 migrations, then 0), reseed, MCP as `shopvoice_app`, simulator over `SIM_MCP_HOSTPORT`; `hosted_smoke.mjs` 8/8 (`evidence/hosted-smoke-render-rehearsal-local.md`)
   - [x] Tests: 255/255 unit; with Postgres the DB glob is 63 pass, 5 skipped
   - Note: `docker build` cannot finish `npm ci` inside this sandbox (npm "Exit handler never called", a sandbox network limit); Render builds it remotely
+  - [x] PR #29 merged into `main` (`62082c9`, 22:40 ICT) with v2-ci green (the E2E gate's first run hit a runner port collision on 55432 before any test ran; one re-run passed)
   - [ ] Owner applies the Blueprint; agent runs `hosted_smoke.mjs --label deployed`, Inspector and latency against the URL
-  - Judge token (read-only, public by design): `sv_judge_b5f6XLYRSjtDLL7_OST7cqq9QLYVGuLH`
+  - Judge token (read-only, public by design): `shopvoice-public-judge-token-read-only-2026`
 - [ ] Kiro go/no-go (10:00)
 - [ ] P0-B real Claude evals ≥25 (11:00)
-- [ ] P1 differentiators (17:00)
+- [~] P1 differentiators (17:00): morning plan, shop memory (migration 020), Vietnamese yes/no merged in #29; per-browser voice profile wiring waits for the Kiro files (D31); MCP Apps UI not started
+- [x] P1 #3 MCP Apps: `ui://shopvoice/reorder-plan` on `suggest_reorder`, checked in a sandboxed-iframe host (`evidence/mcp-app-reorder-plan.png`) — PR #30
+- [~] P0-C docs: README 60 s + before/after, DEVPOST (PENDING markers), NOP_BAI, AWS_SERVICES, EVIDENCE, FRICTION F13–F16, honest architecture diagram — PR #30
+- [~] M5 video: v2 pipeline (storyboard per brief, hosted recording via VIDEO_SIM_URL, Vietnamese turn with EN subtitles, thumbnail); local rehearsal 155.6 s; final render waits for the hosted URL
+- [~] M6: `scripts/demo/final_qc.mjs` ready; fails only on PENDING markers and hosted evidence
+- Resume note (23:05): waiting for the owner's Render deploy (two URLs). Then: hosted_smoke, inspector --label deployed, evals_claude --sim-url, record video on the URL, fill PENDING, final_qc. Piper voices are in /tmp/piper-voices (re-download per VIDEO_RUNBOOK if the container is new).
 - [ ] P0-C docs + video (21:00)
 - [ ] P0-D FINAL_QC + hand-off (23:00)
 

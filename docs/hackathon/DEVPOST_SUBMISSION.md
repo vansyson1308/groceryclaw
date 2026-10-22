@@ -1,233 +1,281 @@
-# Devpost submission: ShopVoice
+# Devpost submission: ShopVoice (paste-ready)
 
-Everything below is ready to paste into the Devpost form. Items marked **[OWNER]** need a value only the owner has, such as a video URL or deployed URL.
+Every section below maps to one Devpost form field (SPEC.md §0). Values marked **⟪PENDING …⟫** are filled from evidence files before hand-off; `FINAL_QC.md` fails while any remain.
 
-> **Honesty note for the owner:** as of 2026-09-26 the Bedrock and Polly code paths have not run with real AWS credentials (BLOCKERS.md B2). The demo, tests and video use the offline rules brain, and the video voices are Piper offline neural voices with public-domain or CC0 training data. Everything that could be proven without AWS is listed in `docs/hackathon/EVIDENCE.md`. After running `scripts/aws/deploy.sh` and `scripts/aws/smoke.sh`, update the sentences marked ⚠️ and the "Try it out" links, and optionally re-render the video with `VIDEO_TTS=polly SIM_BRAIN=bedrock`.
+**Honesty rule for this text:** every number comes from a file in `docs/hackathon/evidence/`. Nothing AWS ran: the AWS code is labelled "implemented, not deployed: AWS account unavailable".
 
 ---
 
 ## Project name
 ShopVoice
 
-## Tagline (short description)
-Run a small grocery shop by voice: an Alexa+ MCP server that answers "what's running low?", compares today's sales, and places two-step, voice-confirmed reorders.
+## Tagline
+A voice agent that watches a corner shop for its owner: a morning briefing, a reorder plan that remembers their habits, and nothing bought without a spoken "yes". Underneath is a standard MCP server that any assistant can use.
 
 ## Track and mini challenges
-- **Track:** Alexa+
-- **Mini challenges:** AWS Builder, Open Source
+- **Track:** Alexa+ (simulated Alexa+ experience plus a self-hosted MCP server, spec 2025-11-25, Streamable HTTP)
+- **Mini challenges:** Open Source. AWS Builder **⟪PENDING Kiro go/no-go: keep only if the Kiro PR merged⟫**
 
 ## Links
-- **Repository:** https://github.com/vansyson1308/groceryclaw (MIT license at the root). ShopVoice lives in `apps/mcp-server`, `apps/alexa-sim`, `infra/aws` and `oss/kiotviet-mcp`, and the README section "ShopVoice (Alexa+ MCP)" points to the MCP entry point and client config.
-- **Demo video:** [OWNER] YouTube URL (public, English; length is in `demo/video/out/report.json`)
-- **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md (CI runs, Inspector screenshots, e2e on Postgres with RLS and audit, CDK synth summary, latency)
-- **Try it out:** https://github.com/vansyson1308/groceryclaw#shopvoice-alexa-mcp (runs locally in about 1 minute, no accounts needed; see the testing instructions). A hosted simulator URL can be added here after `scripts/aws/deploy.sh` (BLOCKERS B2).
+- **Try it (no account):** ⟪PENDING live simulator URL⟫. It is labelled on the page as a simulated Alexa+ experience.
+- **MCP endpoint:** ⟪PENDING live MCP URL⟫/mcp, with the read-only judge token `shopvoice-public-judge-token-read-only-2026` (see Testing instructions).
+- **Repository:** https://github.com/vansyson1308/groceryclaw (MIT). Start with the README section "ShopVoice in 60 seconds".
+- **Demo video:** ⟪PENDING YouTube URL⟫
+- **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md
 - **Open-source package:** https://github.com/vansyson1308/kiotviet-mcp
-- **Claude connector + plugin (same MCP server):**
-  - Docs: `https://<deployed host>/docs`. ⚠️ Fill this in after `scripts/aws/deploy.sh`; the privacy, terms and support pages sit next to it.
-  - Plugin: https://github.com/vansyson1308/shopvoice-plugin. ⚠️ It is published after deploy (docs/directory/BLOCKERS.md DB3).
-  - Evidence: https://github.com/vansyson1308/groceryclaw/tree/main/docs/directory. Local OAuth runs against Postgres: `evidence/oauth-smoke-local-postgres.json`, 31/31 checks covering all 9 tools; and `evidence/inspector-oauth-local-*`, the MCP Inspector OAuth flow. Also `PLUGIN_EVAL.md`.
 
 ---
 
-## About the project (description)
+## About the project
 
 ### Inspiration
-Vietnam has well over a million small "tạp hóa" grocery and convenience shops. The owner is usually the cashier, stock clerk and buyer at once, standing behind a counter with both hands busy. They know roughly what's low, but reorders happen on paper, from memory, often too late. GroceryClaw already automated their *supplier invoices* (photo, XML or Excel → KiotViet POS). ShopVoice gives them what they actually ask for all day: **answers by voice, and orders they never have to type.**
+Vietnam has more than a million family-run "tạp hóa" corner shops. The owner is cashier, stock clerk and buyer at once, usually with both hands busy behind the counter. They know roughly what is running low, but reorders happen from memory, on paper, often too late, and they always forget the one rule they care about ("eggs come from the farm supplier, not the dairy").
+
+Before the hackathon, our project GroceryClaw automated one painful thing for them: turning supplier invoices (photo, XML, Excel) into the KiotViet point-of-sale system. During the hackathon we gave them what they actually ask for all day: **a shop they can run by voice, with an agent that watches it for them.**
 
 ### What it does
-The owner just talks:
-- *"What's running low?"* → "Four items are running low: White Sandwich Bread, under a day left; Fresh Milk 1L, under a day left; Chicken Eggs 10-pack, under a day left; and 1 more. Want a reorder draft?"
-- *"How were sales today compared to last Friday?"* → "So far today: $304 from 482 items. That's 68% of last Friday's full day, $448."
-- *"Reorder milk and eggs."* → "Draft ready: 120 cartons of Fresh Milk 1L and 90 trays of Chicken Eggs 10-pack from Green Valley Dairy & Eggs, about $210. Say 'confirm' within 5 minutes to place it."
-- *"Yes, confirm."* → "Done. Your order to Green Valley Dairy & Eggs is confirmed: 2 items, about $210."
-- *"Did the Sunrise Beverages invoice arrive?"* → "Yes. The Sunrise Beverages invoice SRB-10442 arrived today, $93. It's matched to your products but not synced to KiotViet yet."
+The owner talks, the agent acts:
+- **Morning check.** *"Good morning, how's the shop?"* The agent chains three steps in one answer: yesterday's sales against the same weekday, what is running low, and a reorder plan grouped by supplier with the total. Then it asks: *"Draft Dawn Bakery & Farm first?"*
+- **Supplier by supplier.** Each *"yes"* drafts one supplier's order; a second *"yes, confirm"* places it, and the agent offers the next supplier from the plan.
+- **Shop memory across days.** *"Always order eggs from Dawn Bakery & Farm."* The agent repeats the rule back and applies it from then on, saying so: *"As you asked: eggs from Dawn Bakery & Farm."*
+  - It learns only from explicit statements. *"What do you remember?"* lists the rules, and *"Forget that"* deletes one.
+  - Supported rules: preferred supplier, an order cap ("never more than 40 eggs"), items to skip, and the usual order day (mentioned in the morning briefing).
+- **Everyday questions:**
+  - *"How were sales today compared to last Friday?"*
+  - *"Did the Sunrise Beverages invoice arrive?"*
+  - *"How many eggs do we have?"* For an ambiguous product it asks "which one?" instead of guessing.
+- **Vietnamese.** *"Mặt hàng nào sắp hết?"* gets a Vietnamese answer from the same tools with the same safety rules. *"Có, xác nhận"* confirms; *"Đơn này bao nhiêu tiền?"* is a question, so it never confirms.
+- **Safety.** Nothing is ever ordered without an explicit spoken yes to a draft the owner has already heard. The model never sees the confirmation token.
+- **MCP Apps view.** In hosts that render MCP Apps, `suggest_reorder` comes with an interactive plan (`ui://shopvoice/reorder-plan`): one table per supplier with editable quantities, and "Draft" then "Confirm" buttons. Hosts without MCP Apps keep the spoken answer, which is complete on its own. We checked the view in a sandboxed-iframe host harness (`evidence/mcp-app-reorder-plan.png`); the voice simulator does not render it.
 
-"Milk" matches four products, but only one is running low, so the reorder picks that one. For a plain stock question, ShopVoice asks "which one?" instead of guessing.
-
-### How it works
-- **ShopVoice is a standard MCP server.** It uses Streamable HTTP and negotiates protocol **2025-11-25**, verified with the official MCP Inspector. That means Alexa+ can use it like any other MCP integration.
-- **It exposes nine tools:**
-  - reads: `get_low_stock`, `get_stock_level`, `get_sales_summary`, `get_top_movers`, `get_invoice_status`, `suggest_reorder`, `get_daily_briefing`;
-  - two-step write: `create_reorder_draft` then `confirm_reorder`;
-  - plus a `morning_briefing` prompt and a `shop://profile` resource.
-- **Every tool honours a voice-first contract:**
-  - `content[0].text` is one or two sentences, 35 words at most, with rounded numbers and units, and never more than 3 list items;
-  - `structuredContent` matches the declared `outputSchema`, so screens can show the details;
-  - tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) tell the assistant which calls are safe.
-- **Data:** Postgres 16 with row-level security, one tenant per shop. Each call runs in `runTenantScopedTransaction` and is written to `voice_audit_log`. Reorder suggestions use cover target = (supplier lead time + 7 days) × the 14-day average, minus on hand, rounded up to the pack size.
-- **Voice simulator:** a push-to-talk web app for people without Alexa+ Preview access. A Bedrock Converse tool-use agent (Amazon Nova 2 Lite) acts as the MCP client, and Amazon Polly speaks the replies. A side panel shows every MCP call with its arguments and latency, and a confirmation card shows each reorder draft.
+### Before → after
+| | Before the hackathon (tag `pre-hackathon-baseline`, Mar 31) | After (Oct 23) |
+|---|---|---|
+| What the owner does | Sends invoice photos to a chat bot; GroceryClaw syncs them into KiotViet | Runs the shop by voice: morning briefing, reorder plan, memory of their rules, two-step orders |
+| Interface | Telegram/Zalo chat, one message at a time | A simulated Alexa+ voice experience; any MCP assistant |
+| Data | Invoices and product mapping | + stock levels, daily sales, suppliers, drafts, audit log, shop memory (migrations 017–020, all RLS) |
+| Integration surface | None for assistants | A standard MCP server (12 tools, a prompt, a resource), plus the MIT `kiotviet-mcp` package |
+| Hosting | Self-hosted compose / Kubernetes manifests | A public demo on Render with a read-only judge token |
 
 ### How we built it
-- **Stack:** TypeScript on Node 22, raw `node:http` (no web framework), `@modelcontextprotocol/sdk` 1.30.1, zod 4.
-- **Data:** a new migration (017) and a deterministic demo seed ("Corner Mart Demo": 60 products, 5 suppliers, 90 days of sales with a weekend spike).
-- **Clients:** the AWS SDK v3 for Bedrock Converse and Polly, and Playwright for the video pipeline.
-- **Infrastructure:** AWS CDK for EC2, CloudFront, SSM Parameter Store, IAM and CloudWatch Logs.
-- **Tests:** `node:test` throughout. They cover protocol negotiation, auth, Origin checks, rate limits, the tool contracts, the 35-word rule, RLS isolation, confirmation-token expiry, simulator safety and the end-to-end voice flow.
-
-### Safety by design
-- **Two-step writes.** The draft token expires after 5 minutes and is stored only as a SHA-256 hash. Confirming twice is a no-op.
-- **The LLM never sees the token.** The simulator host holds it and injects it into `confirm_reorder` only when the owner's current words are an explicit yes. A model that tries to confirm early is blocked by the host (there's a test for this).
-- **Tenant isolation.**
-  - Bearer tokens are hashed and resolved by a SECURITY DEFINER function.
-  - MCP sessions are bound to their tenant.
-  - Forced RLS covers every new table.
-  - Another tenant's token gets "session not found".
-- **Transport hardening.**
-  - Origin allow-list against DNS rebinding.
-  - Per-tenant and per-IP rate limits.
-  - A secret CloudFront origin header, so the host can't be reached around HTTPS.
-  - Errors are spoken as short, friendly sentences, never stack traces.
+- **MCP server** (`apps/mcp-server`):
+  - TypeScript on Node 22 with raw `node:http` and the official `@modelcontextprotocol/sdk`.
+  - Streamable HTTP; negotiates protocol **2025-11-25**.
+  - Tools:
+    - reads: `get_low_stock`, `get_stock_level`, `get_sales_summary`, `get_top_movers`, `get_invoice_status`, `suggest_reorder`, `get_daily_briefing`, `list_shop_rules`;
+    - writes: `create_reorder_draft` → `confirm_reorder` (5-minute hashed token), `remember_shop_rule`, `forget_shop_rule`.
+  - Also a `morning_briefing` prompt and a `shop://profile` resource.
+  - Every tool returns one or two spoken sentences (35 words at most) plus `structuredContent` matching its declared `outputSchema`, with read-only, destructive and idempotent annotations.
+- **Data:**
+  - Postgres 16 with row-level security, one tenant per shop. Every call runs in a tenant-scoped transaction and is written to an audit log.
+  - The hosted server logs in as a `NOSUPERUSER NOBYPASSRLS` role and refuses to start as anything more privileged.
+- **Simulated Alexa+ experience** (`apps/alexa-sim`):
+  - A push-to-talk web page (Web Speech API, `en-US` and `vi-VN`) whose server is a real MCP client: initialize, tools/list and tools/call over Streamable HTTP.
+  - Claude Sonnet 5.5 (Anthropic API, low effort) plans the tool calls. A deterministic rules brain takes over within the same turn if Claude errors, times out, refuses or the daily budget is spent, so judges never see an error page.
+  - A side panel shows every MCP call with its arguments and latency.
+- **Host-side safety:**
+  - The host holds the confirmation token and injects it only when the owner's own words in this turn are a yes to a draft created in an earlier turn.
+  - The host also fills in who is speaking, and the model never sees that field, so one person's rules cannot leak into another's.
+- **MCP Apps:** `suggest_reorder` declares `_meta.ui.resourceUri = ui://shopvoice/reorder-plan`. The server serves a self-contained `text/html;profile=mcp-app` view that speaks the MCP Apps postMessage JSON-RPC: `ui/initialize`, `tool-result`, `size-changed`, and proxied `tools/call`. We did not add the `ext-apps` helper package, because its current 2.x line requires the v2 SDK and this server runs SDK 1.x.
+- **Hosting:** one Render Blueprint creates:
+  - a private Postgres 16 service with a disk;
+  - the MCP web service, with a pre-deploy migration and role setup;
+  - the simulator web service on the private network;
+  - a nightly cron that re-anchors the demo shop to "today", so "last Friday" always has data during judging.
+- **Tests:** `node:test` throughout, ⟪PENDING final count⟫ tests. Covered:
+  - protocol negotiation, auth, scopes, Origin checks, rate limits;
+  - tool contracts, the 35-word rule, RLS isolation and token expiry;
+  - the host's confirmation guard in English and Vietnamese;
+  - memory scoping, the morning plan, and the deploy scripts against real Postgres.
+- **Claude evals:** 31 conversations, 53 utterances, against the hosted demo. Hard gates: no confirmation without an explicit yes, no rule saved unless the owner stated one, no number spoken that a tool did not return.
 
 ### Challenges we ran into
-- **App Runner closed to new customers (April 2026), and RDS lacks a true superuser.** The repo's RLS bootstrap role needs `BYPASSRLS`, which requires one. We deployed Postgres, the MCP server and the simulator on one EC2 host behind CloudFront instead, which costs about $20 a month.
-- **Designing answers for the ear.** Every tool builds several candidate sentences and speaks the longest one that fits 35 words. Ambiguous names like "milk" resolve by context: in a reorder, pick the one item that needs reordering; otherwise ask.
-- **Keeping the demo reproducible.** The seed is deterministic, dates are relative to an anchor, and an in-memory copy of the same shop gives identical spoken answers (a test checks this against Postgres).
-- **MCP SDK rough edges on a strict, framework-free Node stack.** Details are in the friction log.
+- **Our AWS account was locked, and the appeal failed.** Amazon then ran out of credit codes. We did not open a second account. Instead, we redesigned the live path around what we could run honestly:
+  - Claude via the Anthropic API instead of Bedrock;
+  - browser speech instead of Polly;
+  - Render instead of EC2 and CloudFront.
 
-### Accomplishments we're proud of
-- Real MCP conformance: the MCP Inspector connects, shows "MCP 2025-11-25", and renders both the spoken text and the schema-checked structured output.
-- The whole demo conversation passes as an automated test (`scripts/demo/e2e_voice_flow.mjs`: 5/5).
-- Tool latency on the seeded Postgres: **p95 12.8 ms client-side, 8 ms server-side** (160 calls, measured locally on the same host). ⚠️ Replace with the deployed number from `scripts/aws/smoke.sh`.
-- A reusable open-source package, `kiotviet-mcp`, that any KiotViet shop can run with Claude Desktop, Alexa+ or its own agent.
+  The Bedrock, Polly and CDK code stays in the repo, labelled "implemented, not deployed: AWS account unavailable".
+- **Managed Postgres has no superuser.** Our RLS bootstrap needs `BYPASSRLS` for a definer-function owner, so Postgres runs as a Render private service. A pre-deploy step creates an RLS-bound runtime role.
+- **Voice answers have to be short and true.** Every tool builds candidate sentences and speaks the most detailed one that fits 35 words. The prompt allows only numbers that came from a tool, and the evals check every spoken number.
+- **Memory in a shared demo.** One judge saying "skip milk" must not break the next judge's demo. Rules are therefore keyed by the speaker's voice profile, which the host sets and the model never sees.
+- **A "yes" in two languages.** "Có đơn nào chưa?" contains "có" (yes) but is a question. The host's confirmation guard learned Vietnamese question particles.
 
-### Impact: one MCP server, two assistants
-The same ShopVoice MCP server that Alexa+ calls by voice also works as a **Claude connector**, with no fork. During the hackathon it gained:
-- an OAuth 2.1 authorization server: CIMD and DCR clients, PKCE, rotating refresh tokens, and read-only and write scopes;
-- a free sign-up that gives every new user their own demo shop;
-- markdown answers for chat clients, next to the same structured data;
-- public docs, privacy, terms and support pages;
-- a Claude plugin with four skills (daily briefing, restock planner, sales insights, supplier invoices) and an eval suite. It scores 1.00 with the plugin and 0.29 without it.
-
-A shop owner can ask Alexa "what's running low?" at the counter, then ask Claude on their phone "compare this week with last week and draft the dairy reorder". The same shop data, the same two-step confirmation and the same row-level isolation apply to both.
-
-The connector and plugin are prepared for the Claude directory. ⚠️ Change this to "submitted to the Claude directory" only after the owner submits, and never say "listed" until the portal shows **Published**.
+### Accomplishments that we're proud of
+- An agentic workflow, not a single-turn Q&A bot: briefing → plan → draft → confirm, supplier by supplier, with memory that persists across days.
+- Real MCP conformance: the official MCP Inspector connects to the hosted server, shows protocol 2025-11-25, and runs every read tool with the public read-only token (writes are refused with `403 insufficient_scope`).
+- Hosted latency from outside: ⟪PENDING p50/p95 from hosted-smoke-deployed.md⟫.
+- Claude evals on the hosted demo: ⟪PENDING safety x/x, numbers x/x, e2e 5/5, p50/p95, cost from claude-evals-hosted.json⟫.
 
 ### What we learned
-MCP is the right seam for voice. The same server serves Alexa+, a Bedrock agent, the MCP Inspector and IDE agents without change. For voice, what the tool returns matters as much as the model: spoken text plus structured data plus annotations turned out to be the contract that keeps answers short and actions safe.
+MCP is the right seam for voice. The same server serves a voice simulator, the MCP Inspector and any assistant without change. For voice, the tool's output matters as much as the model: spoken text plus structured data plus annotations is the contract that keeps answers short and actions safe. Safety belongs in the host, not the prompt: the model can propose, but only the owner's own words can confirm.
 
 ### What's next
-- Live KiotViet inventory and invoice pull through the existing worker adapter.
-- Sending confirmed drafts to KiotViet `POST /purchaseorders`.
-- Vietnamese voice answers on Alexa+. In Claude, answers already follow the user's language and VND formatting.
-- Amazon Transcribe streaming input.
-- MCP 2026-07-28 (stateless) once the TypeScript SDK supports it.
-- MCP Apps UI in Claude: an interactive low-stock table and reorder form.
-- An Alexa+ routine for the morning briefing.
-- Moving hosting to ECS Express Mode once managed Postgres can host the RLS roles.
+- Live KiotViet inventory and sales through the existing worker adapter, and sending confirmed drafts to KiotViet `POST /purchaseorders`.
+- Rendering the MCP Apps reorder view inside the simulator too, next to the voice answer.
+- A real Alexa+ integration once partner access opens.
+- Vietnamese spoken directly by the tools (today Claude translates them).
+- Moving the hosting back to AWS when an account is available; the CDK stack is already written.
 
 ## Built with
-typescript, node.js, model-context-protocol, mcp-typescript-sdk, oauth-2.1, claude, alexa-plus, amazon-bedrock, amazon-nova, amazon-polly, aws-cdk, amazon-ec2, amazon-cloudfront, aws-systems-manager, amazon-cloudwatch, postgresql, row-level-security, zod, playwright, ffmpeg, kiotviet-api, docker
+typescript, node.js, model-context-protocol, mcp-typescript-sdk, mcp-inspector, claude, anthropic-api, web-speech-api, postgresql, row-level-security, render, zod, playwright, ffmpeg, piper, kiotviet-api, docker⟪PENDING: add kiro if the Kiro PR merged⟫
 
 ---
-
-## Pre-existing project: what was built during the window
-ShopVoice is new work on top of an existing repo (GroceryClaw's supplier-invoice pipeline, last pre-window commit `a9f3cdb` on 2026-03-31, tagged `pre-hackathon-baseline`). Everything ShopVoice-related was built during the submission window: the new MCP server, voice simulator, migration 017 and demo seed, AWS CDK stack, the `kiotviet-mcp` open-source package, tests, the video pipeline and docs.
-
-`git diff --shortstat pre-hackathon-baseline..4a62424`: **148 files changed, 15,170 insertions, 1,014 deletions**. Of these, 146 files and 13,595 insertions are outside lockfiles. Most of the deletions are stale pre-window tests and CI gates that I rewrote so the repo's CI passes again (it had been timing out on `main` since the owner's March migration from Zalo to Telegram). The repo's full CI pipeline (unit, RLS, real-DB, Redis, E2E compose, load and perf gates) is green again ([run](https://github.com/vansyson1308/groceryclaw/actions/runs/36210790866)). Full breakdown: `docs/hackathon/BUILT_DURING_HACKATHON.md`.
-
----
-
-## Product feedback (per tool / API / SDK)
-
-**MCP TypeScript SDK (`@modelcontextprotocol/sdk` 1.30.1)**
-- *Used for:* the Streamable HTTP server (`McpServer`, `StreamableHTTPServerTransport` on raw `node:http`) and the client inside the simulator and tests.
-- *Worked well:* it negotiates 2025-11-25 out of the box, `registerTool` with `outputSchema` and annotations validates structured output server-side, and `InMemoryTransport` makes unit tests easy.
-- *Needs work:*
-  - The npm package lacks the `docs/` its README links to.
-  - The built-in Origin/Host protection is deprecated in favour of "middleware", but the only middleware examples are for Express and Hono.
-  - `StreamableHTTP*Transport` is not assignable to `Transport` under `exactOptionalPropertyTypes`.
-  - v1 `sdk` and the v2 split packages are both "latest".
-- *Onboarding:* about 20 minutes to a working server; reading the negotiated version needed a trip into `dist/`.
-- *Would build again:* yes.
-
-**MCP Inspector 2.8.0**
-- *Used for:* conformance evidence (web UI screenshots and CLI JSON).
-- *Worked well:* it shows the negotiated protocol, renders structured output separately, and has a schema-portability lint.
-- *Needs work:* CLI argument parsing for stdio servers (`-e` placement, flags not forwarded), and the `--web` child process survives SIGTERM to `npx`.
-- *Would use again:* yes.
-
-**Amazon Bedrock (Converse API, tool use, Amazon Nova 2 Lite)**
-- *Used for:* the simulator's agent brain. MCP tool JSON Schemas are passed straight through as Bedrock `toolSpec.inputSchema.json`.
-- *Worked well:* the Converse tool-use message format maps one-to-one onto MCP `tools/call`, with no glue code for schemas. ⚠️ Confirm the live behaviour after deploying.
-- *Needs work:* it's easy to confuse cross-region inference profile IDs (`us.amazon.nova-2-lite-v1:0`) with base model IDs, and IAM resources must cover both the profile ARN and the foundation-model ARNs in every routed region.
-- *Would build again:* yes.
-
-**Amazon Polly (neural)**
-- *Used for:* speaking every assistant reply in the simulator, and the video narration once AWS access is available (the submitted cut uses offline Piper voices; see the honesty note).
-- *Worked well:* a simple `SynthesizeSpeech` to MP3; SSML is not needed for 35-word answers. ⚠️ Confirm the voices after deploying.
-- *Needs work:* no concerns yet.
-
-**AWS CDK v2 (2.270.0) + CloudFront + EC2 + SSM**
-- *Used for:* one-command deploy and teardown.
-- *Worked well:* `httpPutResponseHopLimit` (containers reaching IMDSv2), managed cache/origin-request policies, and environment-agnostic synth without credentials.
-- *Needs work:*
-  - `requireImdsv2` and metadata options can't be combined; the error explains it, but only at synth time.
-  - Forwarding `Authorization` through CloudFront for non-GET methods requires a cache policy with a 1-second max TTL, which is non-obvious for API-style origins.
-- *Would build again:* yes.
-
-**AWS App Runner / Amazon RDS for PostgreSQL (evaluated, not used)**
-- App Runner no longer accepts new customers (since 2026-04-30).
-- RDS can't run the repo's `ALTER ROLE ... BYPASSRLS` (no true superuser). Documented as decision D13.
-
-**Amazon Transcribe:** not used in the MVP; the Web Speech API was enough for push-to-talk. Transcribe streaming is on the roadmap.
-
-**Alexa+:** we had no Preview developer access during the build. We built against the open MCP specification, with a simulator that plays the Alexa+ role. Clear public docs on how Alexa+ discovers and authenticates remote MCP servers (OAuth requirements, allowed origins, timeouts) would help builders test against the real thing earlier.
-
-## Friction log (summary; full log in `docs/hackathon/FRICTION_LOG.md`)
-
-| # | Friction | Severity | Workaround |
-|---|---|---|---|
-| F1 | MCP SDK docs not shipped in the npm package | low | Read the `.d.ts` files |
-| F2 | Origin validation built into the SDK is deprecated, with no raw-Node example | medium | 20-line allow-list check; upstream example PR drafted |
-| F3 | No AWS credentials in the build sandbox | high | Interfaces plus offline fallbacks |
-| F4 | SDK transports not assignable to `Transport` under `exactOptionalPropertyTypes` | low | Cast, with a comment |
-| F5 / F6 | Docker Hub rate limits and blocked apt mirrors | medium | ECR Public base images; an ops image built without apt |
-| F7 | Inspector 2.x CLI argument order for stdio | low | Env switch |
-| F8 | Nullable outputs emitted as JSON Schema type arrays (portability warnings) | low | Accepted (valid JSON Schema) |
-| F9 | `node --test` runs files in parallel against one shared test DB | medium | DB test files run with `--test-concurrency=1` |
-| F10 | A listen-on-0 "free port" helper returned the same port twice on the CI runner | low | Helper skips ports it already handed out |
-| F11 | Playwright `recordVideo` webm ran 1.13x slower than wall-clock time; frames froze while the CPU was busy | medium | Rescale timestamps, pre-synthesize audio, keep-alive animation |
-| F12 | Offline TTS stumbled on brand names, acronyms and money ("Shop… Voice", "dollar two hove and ten") | medium | Voice-only text normalizer, steadier voice settings, Whisper listening QA with automatic re-takes |
-
-## Feature requests
-- **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered), usable without Preview access.
-- **Important:**
-  - MCP SDK: a framework-agnostic `validateOrigin` / host-check helper, and bearer-auth middleware for `node:http`.
-  - Bedrock: a documented pattern and sample for "MCP server as Converse tools".
-  - An option to emit `anyOf` for nullable outputs.
-- **Nice to have:**
-  - CloudFront: a managed "API passthrough" cache policy that forwards `Authorization` for all methods.
-  - Polly: a per-request speaking rate hint for "assistant" style voices.
-
----
-
-## Open Source mini challenge fields
-- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp (MIT, CI green on Node 20 and 22).
-- Optional extra contributions:
-  - https://github.com/vansyson1308/shopvoice-plugin: the MIT ShopVoice plugin for Claude, with skills, commands and evals. ⚠️ It is pushed after deploy.
-  - The drafted SDK example PR in `docs/hackathon/oss/typescript-sdk-example/`: open it and paste the PR URL.
-- **Repository URL:** https://github.com/vansyson1308/groceryclaw
-- **GitHub username:** vansyson1308
-- **Short description:** `kiotviet-mcp` is an MIT-licensed, voice-first MCP server for shops on the KiotViet POS. It reports low stock, stock levels, sales and top movers, and makes two-step purchase orders (nothing is sent to KiotViet until an explicit confirm). It runs over stdio or Streamable HTTP (MCP 2025-11-25) and works with Alexa+, Claude or any MCP client. It was extracted from ShopVoice during the hackathon.
 
 ## Testing instructions for judges
-No accounts or cloud are needed; this uses Node.js 20 or newer and the built-in demo shop.
+No account and nothing to install.
 
-1. **Run it locally (about 1 minute):**
+1. **Hosted simulator:** open ⟪PENDING live simulator URL⟫. Click the phrases in "Try these 5 phrases", or hold the mic button in Chrome. Then try:
+   - "Good morning, how's the shop?" → "Yes" → "Yes, confirm";
+   - "Always order eggs from Dawn Bakery & Farm", then "What should I reorder?";
+   - "Mặt hàng nào sắp hết?" in Vietnamese.
+
+   The right-hand panel shows every MCP call. The demo shop resets every night at 00:05 Vietnam time.
+2. **MCP Inspector against the hosted server** (read-only judge token):
+   ```bash
+   JUDGE=shopvoice-public-judge-token-read-only-2026   # public on purpose: read-only scope
+   npx @modelcontextprotocol/inspector --cli ⟪PENDING live MCP URL⟫/mcp --transport http \
+     --header "Authorization: Bearer $JUDGE" --method tools/list
+   ```
+   The judge token can call every read tool, but `create_reorder_draft` and `confirm_reorder` return `403 insufficient_scope`, so the shared demo cannot be changed through it.
+3. **Run it locally in a minute** (Node 20+):
    ```bash
    git clone https://github.com/vansyson1308/groceryclaw && cd groceryclaw
    npm ci && npm run build
    export MCP_DEMO_TOKEN=$(openssl rand -hex 24)
    MCP_DATA_BACKEND=memory node apps/mcp-server/dist/server.js &
-   SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js
+   SIM_MCP_TOKEN=$MCP_DEMO_TOKEN node apps/alexa-sim/dist/server.js   # open http://localhost:8091
    ```
-   Open http://localhost:8091, then hold the mic button (Chrome) or type: "What's running low?", "How were sales today compared to last Friday?", "Reorder milk and eggs", "Yes, confirm", "Did the Sunrise Beverages invoice arrive?". The right-hand panel shows every MCP tool call.
-2. **Check the MCP server with the official Inspector:**
-   ```bash
-   npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8090/mcp --transport http \
-     --header "Authorization: Bearer $MCP_DEMO_TOKEN" --method tools/list
-   ```
-3. **Scripted end-to-end run:** `npm run demo:e2e` sends the 5 utterances and asserts which tools were called.
-4. **Open-source package:** `git clone https://github.com/vansyson1308/kiotviet-mcp && cd kiotviet-mcp && npm ci && npm test`.
-5. **Evidence without running anything:** `docs/hackathon/EVIDENCE.md` (CI runs, Inspector screenshots, e2e on Postgres with RLS and audit, CDK synth summary).
+   Without `ANTHROPIC_API_KEY` it uses the offline rules brain; export a key to use Claude.
+4. **Scripted checks:**
+   - `node scripts/demo/hosted_smoke.mjs --sim-url … --mcp-url … --judge-token …` checks cold start, the voice flow, the protocol version, read-only enforcement and latency;
+   - `npm run demo:e2e` runs the 5-utterance flow locally.
 
+---
+
+## Product feedback (one block per tool; answers to the form's five questions)
+
+**MCP TypeScript SDK (`@modelcontextprotocol/sdk` 1.30.1)**
+- *Used for:* the Streamable HTTP server on raw `node:http` (`McpServer`, `StreamableHTTPServerTransport`) and the MCP client inside the simulator.
+- *Worked well:*
+  - It negotiates 2025-11-25 out of the box.
+  - `registerTool` takes `outputSchema` and annotations and validates structured output server-side.
+  - The client's `listTools`/`callTool` made the simulator's MCP client about 80 lines.
+- *Needs work:*
+  - The npm package lacks the `docs/` its README links to (F1).
+  - Built-in Origin/Host protection is deprecated in favour of "middleware", with examples only for Express and Hono (F2).
+  - Transports are not assignable to `Transport` under `exactOptionalPropertyTypes` (F4).
+  - There is no convention for a per-call end-user identity, so multi-speaker hosts must invent one (F16).
+- *Onboarding (zero to hello world):* about 20 minutes to a working server; reading the negotiated version needed a trip into `dist/`.
+- *Would build again:* yes. It is the reference implementation, and the strict schemas caught real bugs.
+
+**MCP Inspector (2.8.0)**
+- *Used for:* conformance evidence against the local and hosted servers (CLI JSON and web UI screenshots).
+- *Worked well:* it shows the negotiated protocol version, renders `structuredContent` separately from the text, and has a useful schema-portability lint.
+- *Needs work:*
+  - CLI argument order for stdio servers (F7).
+  - Nullable outputs trigger 19 portability warnings even when valid (F8).
+  - `--web` leaves a child process behind after SIGTERM to `npx`.
+- *Onboarding:* 5 minutes with `--cli`.
+- *Would build again:* yes. It is the fastest way to prove a server is spec-compliant.
+
+**Anthropic API / Claude Sonnet 5.5 (`@anthropic-ai/sdk` 0.131.0)**
+- *Used for:* the simulator's brain: tool planning over the MCP tool list, 35-word spoken answers, Vietnamese answers, at low effort with adaptive thinking.
+- *Worked well:*
+  - Tool use maps one-to-one onto MCP `tools/call`.
+  - Low effort keeps a voice turn quick.
+  - `stop_reason: "refusal"` and token usage make an in-turn fallback and a spend guard easy.
+  - Prompt caching on the system prompt and tools keeps cost per turn low.
+- *Needs work:*
+  - Replayed thinking blocks become invalid when a host trims history, and thinking cannot be disabled on Sonnet 5.5. A voice host must strip thinking between turns (F15); an SDK helper for "trim between turns" would help.
+  - Per-day spend caps exist only at the organization level, so the app keeps its own counter.
+- *Onboarding:* 15 minutes to the first tool call.
+- *Would build again:* yes. Its answers stayed inside the 35-word, tool-numbers-only contract (⟪PENDING eval summary⟫).
+
+**Render (Blueprints, web services, private services, cron jobs)**
+- *Used for:* the whole hosted demo from one `render.yaml`: two Docker web services, a private Postgres 16 service with a disk, and a nightly reseed cron.
+- *Worked well:*
+  - `fromService … property: hostport` wires the private network without hard-coded hosts.
+  - `generateValue` and `sync: false` keep every secret out of git.
+  - `preDeployCommand` keeps the previous deploy running if migrations fail.
+- *Needs work:*
+  - Managed Postgres has no superuser, so an RLS bootstrap role cannot be created there (F14).
+  - A service's public URL cannot be referenced from another service's env vars, so the MCP URL shown on the page is pasted once by hand.
+- *Onboarding:* about 10 minutes from "New → Blueprint" to the first green deploy.
+- *Would build again:* yes, for small always-on demos at about $22/month.
+
+**Web Speech API (Chrome)**
+- *Used for:* push-to-talk speech input and spoken output in the simulator, in `en-US` and `vi-VN`.
+- *Worked well:* zero setup, no keys, and good recognition for short commands.
+- *Needs work:* recognition is Chrome-only in practice, and voice lists load asynchronously and differ per OS, so a Vietnamese voice may be missing.
+- *Onboarding:* 10 minutes.
+- *Would build again:* yes, for demos. For production we would use a server-side speech service.
+
+**Piper (offline neural TTS)**
+- *Used for:* the demo video's narration, with public-domain or CC0 voices, so no cloud TTS account was needed.
+- *Worked well:* fast on a CPU, deterministic, and good enough voices.
+- *Needs work:* brand names, acronyms and money need a pronunciation pass (F12), and there is no SSML.
+- *Onboarding:* 20 minutes including voice download.
+- *Would build again:* yes, for video narration.
+
+**Kiro Crew** ⟪PENDING Kiro go/no-go: keep this block only if the Kiro PR merged; fill in from the owner's run and FRICTION_LOG Kiro entries⟫
+- *Used for:* spec-driven development of the hosted-demo feature: steering files, requirements in EARS, design and tasks. The owner ran tasks 4 and 5 in Kiro Crew on Windows; commits carry `Built-with: Kiro`.
+- *Worked well:* ⟪PENDING⟫
+- *Needs work:* ⟪PENDING⟫
+- *Onboarding:* ⟪PENDING⟫
+- *Would build again:* ⟪PENDING⟫
+
+**AWS services (for the AWS Builder field):** no AWS runtime service is used. Bedrock, Polly and the CDK stack are implemented, not deployed: AWS account unavailable. ⟪PENDING: if Kiro happened: "Kiro Crew was our AWS development tool (see the Kiro Crew block)"⟫
+
+---
+
+## Friction log (full entries in `docs/hackathon/FRICTION_LOG.md`)
+
+Each row: task → expected vs actual, severity, workaround, suggestion.
+
+| # | Friction | Severity | Workaround | Suggestion |
+|---|---|---|---|---|
+| F2 | Validating `Origin` on Streamable HTTP: the SDK's built-in option is deprecated and only Express/Hono middleware exists | medium | A 20-line allow-list check before `handleRequest` | Export a framework-agnostic `validateOrigin(req, allowList)` |
+| F4 | `StreamableHTTPServerTransport` is not assignable to `Transport` with `exactOptionalPropertyTypes` | low | Cast with a comment | Declare optional handlers as `T \| undefined` and type-test with that flag |
+| F11 | Playwright `recordVideo` ran 1.13x slower than wall-clock time, and frames froze during CPU spikes | medium | Rescale timestamps, pre-synthesize audio, keep-alive animation | Expose real frame timestamps and document that output is not real-time |
+| F12 | Offline TTS misread brand names, acronyms and money ("dollar two hove and ten") | medium | A voice-only text normalizer, steadier settings, Whisper QA with re-takes | A per-request lexicon or SSML `<say-as>` |
+| F13 | GitGuardian flagged fake, URL-encoded test credentials twice ("Generic Password", then "Username Password") | medium | Build the fake value at runtime and compare with `encodeURIComponent` | Lower confidence for `tests/` paths and non-resolving hosts |
+| F14 | Render managed Postgres has no superuser, so an RLS bootstrap role cannot be created | medium | Postgres as a private service plus a pre-deploy role setup | An elevated-migration option for NOLOGIN `BYPASSRLS` roles |
+| F15 | Sonnet 5.5 thinking blocks become invalid when a voice host trims history; thinking cannot be disabled | medium | Strip thinking at the end of each turn | An SDK helper for append-only-within-turn hosts |
+| F16 | MCP has no convention for which person is speaking on a shared connection | low–medium | A host-filled `voice_profile` argument hidden from the model | A documented `_meta` key for host-asserted end-user identity |
+| F9 | `node --test` runs files in parallel against one shared test DB | medium | `--test-concurrency=1` for DB files | Document per-glob concurrency |
+| F10 | A listen-on-0 free-port helper returned the same port twice on CI | low | Remember ports already handed out | Let children bind 0 and report the ports back |
+⟪PENDING: Kiro Crew friction rows from the owner's run⟫
+
+## Feature requests
+- **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered) that entrants can use without partner access. *Why:* every Alexa+ track entrant had to build their own simulator.
+- **Important:** an MCP spec convention for host-asserted end-user identity (F16). *Why:* multi-person voice devices need per-speaker memory and permissions.
+- **Important:** MCP SDK: a framework-agnostic Origin/Host check and bearer-auth middleware for `node:http`. *Why:* the spec requires Origin validation, and raw-Node servers easily miss it.
+- **Nice to have:** Render: reference another service's public URL in a Blueprint env var. *Why:* demos have to show their public MCP URL.
+
+---
+
+## Open Source mini challenge fields
+- **Contribution URL:** https://github.com/vansyson1308/kiotviet-mcp
+- **Project repository URL:** https://github.com/vansyson1308/groceryclaw
+- **GitHub username:** vansyson1308
+- **What we did:** we extracted ShopVoice's KiotViet integration into `kiotviet-mcp`, a standalone, MIT-licensed, voice-first MCP server for shops on the KiotViet point-of-sale system, which is widely used by small Vietnamese retailers. First commit 2026-09-25, inside the window; CI green on Node 20 and 22.
+- **How it works:**
+  - A typed KiotViet Public API client (OAuth client credentials, retries).
+  - Seven tools: low stock, stock level, sales summary, top movers, invoice status, reorder draft, confirm. Each returns a short spoken sentence plus structured data.
+  - Two-step purchase orders: nothing is sent to KiotViet until an explicit confirm with a hashed, short-lived token.
+  - stdio and Streamable HTTP transports, and a built-in demo shop so anyone can try it without a KiotViet account.
+- **Why it matters:** any KiotViet shop can now plug its own data into Claude Desktop, an Alexa+-style assistant or any MCP client in minutes, and voice-first output makes it usable hands-free behind a counter.
+
+---
+
+## Pre-existing project: what changed during the window
+GroceryClaw existed before the window: supplier-invoice automation into KiotViet, last pre-window commit `a9f3cdb` (2026-03-31, tag `pre-hackathon-baseline`). Everything ShopVoice-related was built during the window; see `docs/hackathon/BUILT_DURING_HACKATHON.md`:
+
+- the MCP server and the simulator;
+- migrations 017–020;
+- the morning plan, shop memory and Vietnamese support;
+- the hosted demo;
+- `kiotviet-mcp`.
+
+`git diff --shortstat pre-hackathon-baseline..main`: ⟪PENDING final numbers⟫.

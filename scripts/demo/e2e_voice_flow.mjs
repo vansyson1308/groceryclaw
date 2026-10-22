@@ -55,7 +55,7 @@ export async function startLocalStack() {
   });
   await waitFor(`http://127.0.0.1:${mcpPort}/healthz`);
   await waitFor(`http://127.0.0.1:${simPort}/readyz`);
-  return { url: `http://127.0.0.1:${simPort}`, stop: () => { sim.kill('SIGTERM'); mcp.kill('SIGTERM'); } };
+  return { url: `http://127.0.0.1:${simPort}`, mcpUrl: `http://127.0.0.1:${mcpPort}/mcp`, token, stop: () => { sim.kill('SIGTERM'); mcp.kill('SIGTERM'); } };
 }
 
 export async function runVoiceFlow(simUrl, { accessCode } = {}) {

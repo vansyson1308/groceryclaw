@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Renders demo/video/shopvoice_demo.mp4 (1080p H.264, < 3:00, no music) end to end.
 # Usage: demo/video/build.sh [--skip-record]
-# Env: VIDEO_TTS=auto|polly|piper|espeak (default auto: Polly if AWS works, else Piper offline neural
-#      voices if installed (PIPER_VOICES_DIR), else espeak-ng + MBROLA)
-#      SIM_BRAIN=rules|bedrock (default rules), DEMO_ANCHOR_DATE (default 2026-10-16),
-#      VIDEO_NARRATION_DIR=<dir with N1.mp3..N6.mp3 recorded by the owner>
+# Env: VIDEO_TTS=auto|piper|espeak|polly (default auto: Piper offline neural voices if installed
+#      (PIPER_VOICES_DIR), else espeak-ng + MBROLA; Polly is implemented, not used: AWS account unavailable)
+#      VIDEO_SIM_URL=<hosted simulator URL> records the live demo (Claude brain); unset = local stack (rules brain)
+#      DEMO_ANCHOR_DATE (local stack only, default 2026-10-16),
+#      VIDEO_NARRATION_DIR=<dir with N1.mp3..N5.mp3 recorded by the owner>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

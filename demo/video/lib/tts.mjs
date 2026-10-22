@@ -88,7 +88,8 @@ function piperTake(spoken, cfg, wav) {
  */
 export async function synthesize(text, voice, out) {
   const which = await ttsEngine();
-  const spoken = speakable(text);
+  // speakable() rewrites English numbers, money and acronyms; Vietnamese is spoken as written.
+  const spoken = voice.lang === 'vi' ? text : speakable(text);
   if (which === 'piper') {
     const cfg = typeof voice.piper === 'string' ? { model: voice.piper } : voice.piper;
     const dir = mkdtempSync(join(tmpdir(), 'tts-'));
