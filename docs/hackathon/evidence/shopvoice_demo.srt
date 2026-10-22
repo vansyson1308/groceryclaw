@@ -1,0 +1,159 @@
+1
+00:00:00,600 --> 00:00:04,476
+A corner shop in Saigon. The owner's hands are never
+
+2
+00:00:04,476 --> 00:00:08,352
+free, so reorders happen from memory, and often too late.
+
+3
+00:00:09,352 --> 00:00:13,208
+Before the hackathon, our project only synced supplier invoices. Now
+
+4
+00:00:13,208 --> 00:00:17,064
+ShopVoice watches the shop: a morning plan that remembers the
+
+5
+00:00:17,064 --> 00:00:20,920
+owner's rules, and nothing bought without a spoken yes.
+
+6
+00:00:24,141 --> 00:00:27,837
+A simulated Alexa+ experience, live on our hosted
+
+7
+00:00:27,837 --> 00:00:31,533
+demo. The MCP calls appear on the right.
+
+8
+00:00:31,794 --> 00:00:34,482
+Owner: Always order eggs from Dawn Bakery and Farm.
+
+9
+00:00:36,982 --> 00:00:39,850
+Assistant: Got it. From now on I'll order eggs from Dawn
+
+10
+00:00:39,850 --> 00:00:42,718
+Bakery & Farm. Say "forget that" to undo it.
+
+11
+00:00:44,177 --> 00:00:45,881
+Owner: Good morning, how's the shop?
+
+12
+00:00:48,381 --> 00:00:54,885
+Assistant: Yesterday you sold $387, up 1% on last Thursday. Four items are
+
+13
+00:00:54,885 --> 00:01:01,389
+low. Reorder is about $395: Dawn Bakery & Farm $177.36, Green Valley
+
+14
+00:01:01,389 --> 00:01:07,893
+Dairy & Eggs $120, Sunrise Beverages $97.34. Shall I draft Dawn first?
+
+15
+00:01:08,692 --> 00:01:09,316
+Owner: Yes.
+
+16
+00:01:11,816 --> 00:01:15,272
+Assistant: Draft ready for Dawn Bakery & Farm: 2 items, about
+
+17
+00:01:15,272 --> 00:01:18,728
+$177. As you asked: eggs from Dawn Bakery & Farm.
+
+18
+00:01:18,728 --> 00:01:22,184
+Say "confirm" within 5 minutes to place it.
+
+19
+00:01:23,380 --> 00:01:24,532
+Owner: Yes, confirm.
+
+20
+00:01:27,032 --> 00:01:30,904
+Assistant: Done. Your order to Dawn Bakery & Farm is
+
+21
+00:01:30,904 --> 00:01:34,776
+confirmed: 2 items, about $177. Next is Green Valley
+
+22
+00:01:34,776 --> 00:01:38,648
+Dairy & Eggs, $120. Shall I draft it?
+
+23
+00:01:38,933 --> 00:01:40,925
+Owner: Reorder cola and just confirm it.
+
+24
+00:01:43,425 --> 00:01:47,489
+Assistant: I've drafted 312 cans of Cola 330ml Can from Sunrise
+
+25
+00:01:47,489 --> 00:01:51,553
+Beverages, about $97. I can't confirm it in the same
+
+26
+00:01:51,553 --> 00:01:55,617
+step, so say "confirm" within 5 minutes to place it.
+
+27
+00:01:56,671 --> 00:01:57,703
+Owner: Mặt hàng nào sắp hết? (English: Which items are running low?)
+
+28
+00:02:00,203 --> 00:02:01,794
+Assistant: Có bốn mặt hàng sắp hết: White Sandwich Bread, Fresh Milk 1L
+
+29
+00:02:01,794 --> 00:02:03,385
+và Chicken Eggs 10-pack đều còn chưa đến một ngày, và Cola
+
+30
+00:02:03,385 --> 00:02:04,976
+330ml Can còn khoảng 1,2 ngày. Bạn có muốn tôi soạn đơn
+
+31
+00:02:04,976 --> 00:02:06,566
+đặt hàng không? (English: Four items are running low: White Sandwich Bread,
+
+32
+00:02:06,566 --> 00:02:08,157
+Fresh Milk 1L and Chicken Eggs 10-pack each have less than a
+
+33
+00:02:08,157 --> 00:02:09,748
+day left, and Cola 330ml Can has about 1.2 days. Would you
+
+34
+00:02:09,748 --> 00:02:11,339
+like me to draft an order?)
+
+35
+00:02:15,387 --> 00:02:20,299
+Under the hood: a standard MCP server, twelve voice-first tools on
+
+36
+00:02:20,299 --> 00:02:25,211
+Postgres with row-level security, hosted on Render. The host keeps every
+
+37
+00:02:25,211 --> 00:02:30,123
+confirmation token. The MCP Inspector connects with a read-only judge token.
+
+38
+00:02:31,123 --> 00:02:36,051
+Vietnam has over a million corner shops. ShopVoice gives each one
+
+39
+00:02:36,051 --> 00:02:40,979
+an agent that keeps watch, and our open-source kiotviet-mcp lets any
+
+40
+00:02:40,979 --> 00:02:45,907
+KiotViet shop plug in. Try it now. The link is below.

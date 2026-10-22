@@ -7,6 +7,10 @@
 //
 // With the URLs it also re-checks the hosted demo from outside: both /healthz,
 // the judge token can list tools, and is refused on a write.
+//
+// ⟪PENDING …⟫ markers fail QC. ⟪OWNER …⟫ markers are values only the owner can
+// supply (the YouTube link after upload); they are listed as owner actions and
+// must be gone from the form before submitting (NOP_BAI.md checklist).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
@@ -39,10 +43,13 @@ check('rules', 'video has English subtitles (.srt)', existsSync('demo/video/shop
 check('rules', '3:2 thumbnail exists', existsSync('demo/video/thumbnail.png'));
 
 // ---- honesty ----
-const pendingFiles = ['README.md', 'docs/hackathon/DEVPOST_SUBMISSION.md', 'docs/hackathon/AWS_SERVICES.md', 'docs/hackathon/EVIDENCE.md'];
+const pendingFiles = ['README.md', 'docs/hackathon/DEVPOST_SUBMISSION.md', 'docs/hackathon/AWS_SERVICES.md', 'docs/hackathon/EVIDENCE.md', 'docs/hackathon/NOP_BAI.md'];
+const ownerActions = [];
 for (const f of pendingFiles) {
-  const n = (read(f).match(/⟪PENDING/g) ?? []).length;
+  const text = read(f);
+  const n = (text.match(/⟪PENDING|<LIVE URL>/g) ?? []).length;
   check('honesty', `no PENDING markers in ${f}`, n === 0, n ? `${n} left` : '');
+  for (const m of text.matchAll(/⟪OWNER:? ([^⟫]*)⟫/g)) ownerActions.push(`${f}: ${m[1]}`);
 }
 const devpost = read('docs/hackathon/DEVPOST_SUBMISSION.md');
 const claimsAws = devpost.split('\n').filter((l) => /(bedrock|polly|cloudfront|ec2)/i.test(l) && !/not deployed|never ran|instead of|no aws|account (was )?locked|unavailable/i.test(l));
@@ -87,7 +94,8 @@ if (simUrl && mcpUrl) {
   check('hosted', 'judge token is refused on writes (memory included)', write.status === 403);
 }
 
-const report = { ranAt: new Date().toISOString(), passed: checks.every((c) => c.ok), checks };
+const report = { ranAt: new Date().toISOString(), passed: checks.every((c) => c.ok), checks, ownerActions };
 writeFileSync('docs/hackathon/evidence/final-qc.json', `${JSON.stringify(report, null, 2)}\n`);
-console.log(`\n${report.passed ? 'ALL PASS' : `${checks.filter((c) => !c.ok).length} FAILING`}; wrote docs/hackathon/evidence/final-qc.json`);
+for (const a of ownerActions) console.log(`OWNER [action] ${a}`);
+console.log(`\n${report.passed ? 'ALL PASS' : `${checks.filter((c) => !c.ok).length} FAILING`}${ownerActions.length ? `; ${ownerActions.length} owner actions left` : ''}; wrote docs/hackathon/evidence/final-qc.json`);
 process.exit(report.passed ? 0 : 1);

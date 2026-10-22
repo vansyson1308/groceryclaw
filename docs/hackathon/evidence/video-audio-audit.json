@@ -1,0 +1,147 @@
+[
+  {
+    "id": "N1",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.38,
+    "seconds": 7.75,
+    "heard": "A corner shop in Saigon. The owner's hands are never free, so reorders happen from memory and often too late."
+  },
+  {
+    "id": "N2",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.43,
+    "seconds": 11.57,
+    "heard": "Before the hackathon, our project only synced supplier invoices. Now ShopVoice watches the shop a morning plan that remembers the owner's rules, and nothing bought without a spoken yes."
+  },
+  {
+    "id": "N3",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.43,
+    "seconds": 7.39,
+    "heard": "A simulated Alexa Plus experience live on our hosted demo. The MCP calls appear on the right."
+  },
+  {
+    "id": "N4",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.35,
+    "seconds": 14.74,
+    "heard": "Under the hood, a standard MCP server, 12 voice-first tools on Postgres with row-level security, hosted on render. The host keeps every confirmation token. The MCP inspector connects with a read-only judge token."
+  },
+  {
+    "id": "N5",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.47,
+    "seconds": 14.78,
+    "heard": "Vietnam has over a million corner shops. ShopVoice gives each one an agent that keeps watch, and our open source KiotViet MCP lets any KiotViet shop plug in. Try it now. The link is below."
+  },
+  {
+    "id": "owner-1",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.0,
+    "seconds": 2.69,
+    "heard": "Always order eggs from Dawn Bakery & Farm."
+  },
+  {
+    "id": "assistant-2",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.32,
+    "seconds": 5.74,
+    "heard": "Got it. From now on I'll order eggs from Dawn Bakery & Farm. Say forget that to undo it."
+  },
+  {
+    "id": "owner-3",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.0,
+    "seconds": 1.7,
+    "heard": "Good morning, how's the shop?"
+  },
+  {
+    "id": "assistant-4",
+    "ok": true,
+    "wer": 0.051,
+    "excess_pauses": 0,
+    "longest_pause": 0.39,
+    "seconds": 19.51,
+    "heard": "Yesterday you sold $387 up 1% on last Thursday. Four items are low. Rewarders about $395 Dawn Bakery & Farm $177.36, Green Valley Dairy & Eggs $120 Sunrise Beverages $97.34. Shall I draft Dawn first?"
+  },
+  {
+    "id": "owner-5",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.0,
+    "seconds": 0.62,
+    "heard": "Yes."
+  },
+  {
+    "id": "assistant-6",
+    "ok": true,
+    "wer": 0.062,
+    "excess_pauses": 0,
+    "longest_pause": 0.39,
+    "seconds": 10.37,
+    "heard": "Draft ready for Dawn Bakery & Farm 2 items, about $177, as you ask to eggs from Dawn Bakery & Farm. Say confirm within 5 minutes to place it."
+  },
+  {
+    "id": "owner-7",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.0,
+    "seconds": 1.15,
+    "heard": "Yes, Confirm."
+  },
+  {
+    "id": "assistant-8",
+    "ok": true,
+    "wer": 0.061,
+    "excess_pauses": 0,
+    "longest_pause": 0.39,
+    "seconds": 11.62,
+    "heard": "Done. Your order to don bakery and farm has confirmed two items. About $177. Next is Green Valley Dairy & Eggs, $120. Shall I draft it?"
+  },
+  {
+    "id": "owner-9",
+    "ok": true,
+    "wer": 0.0,
+    "excess_pauses": 0,
+    "longest_pause": 0.0,
+    "seconds": 1.99,
+    "heard": "Reorder Cola and just confirm it."
+  },
+  {
+    "id": "assistant-10",
+    "ok": true,
+    "wer": 0.027,
+    "excess_pauses": 0,
+    "longest_pause": 0.39,
+    "seconds": 12.19,
+    "heard": "I've drafted 312 cans of Cola 330ml from Sunrise Beverages, about $97. I can't confirm it in the same step, so say confirm within 5 minutes to place it."
+  },
+  {
+    "id": "owner-11",
+    "ok": null,
+    "skipped": "Vietnamese; the English-only Whisper model cannot judge it"
+  },
+  {
+    "id": "assistant-12",
+    "ok": null,
+    "skipped": "Vietnamese; the English-only Whisper model cannot judge it"
+  }
+]

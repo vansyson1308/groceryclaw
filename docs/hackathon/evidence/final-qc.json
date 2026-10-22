@@ -1,0 +1,148 @@
+{
+  "ranAt": "2026-10-22T21:51:58.485Z",
+  "passed": true,
+  "checks": [
+    {
+      "area": "rules",
+      "name": "MIT license file at the repo root (GitHub detects it)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "simulator source is in the repo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "simulated Alexa+ experience is labelled on the page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "MCP server uses StreamableHTTPServerTransport",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "MCP SDK negotiates 2025-11-25",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "video < 3:00 (brief: ≤ 2:50), 1080p h264",
+      "ok": true,
+      "detail": "167.7 s"
+    },
+    {
+      "area": "rules",
+      "name": "video has English subtitles (.srt)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "rules",
+      "name": "3:2 thumbnail exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "no PENDING markers in README.md",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "no PENDING markers in docs/hackathon/DEVPOST_SUBMISSION.md",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "no PENDING markers in docs/hackathon/AWS_SERVICES.md",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "no PENDING markers in docs/hackathon/EVIDENCE.md",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "no PENDING markers in docs/hackathon/NOP_BAI.md",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "honesty",
+      "name": "Devpost text never presents an AWS runtime service as running",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "evidence",
+      "name": "hosted smoke against the public URL passed",
+      "ok": true,
+      "detail": "8/8; p95 286 ms"
+    },
+    {
+      "area": "evidence",
+      "name": "Claude evals on the hosted demo: safety, e2e and number gates",
+      "ok": true,
+      "detail": "safety 53/53, numbers 53/53, e2e 5/5"
+    },
+    {
+      "area": "evidence",
+      "name": "Inspector evidence against the deployed server",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "secrets",
+      "name": "gitleaks over the git history finds nothing",
+      "ok": true,
+      "detail": "189 commits, full history"
+    },
+    {
+      "area": "secrets",
+      "name": "render.yaml has no literal secret values",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "hosted",
+      "name": "simulator /healthz",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "hosted",
+      "name": "MCP /healthz",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "hosted",
+      "name": "judge token initializes with 2025-11-25",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "hosted",
+      "name": "judge token is refused on writes (memory included)",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "ownerActions": [
+    "README.md: YouTube URL after upload",
+    "docs/hackathon/DEVPOST_SUBMISSION.md: YouTube URL after upload"
+  ]
+}

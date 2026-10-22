@@ -1,0 +1,38 @@
+{
+  "file": "demo/video/shopvoice_demo.mp4",
+  "duration_seconds": 167.7,
+  "width": 1920,
+  "height": 1080,
+  "codec": "h264",
+  "under_3_minutes": true,
+  "segments": 8,
+  "speech_clips": 17,
+  "sim_url": "https://shopvoice-78h7.onrender.com",
+  "waits_shortened_to_seconds": 2.5,
+  "cuts_seconds": [
+    [
+      13.5,
+      15.8
+    ],
+    [
+      27.2,
+      29
+    ],
+    [
+      52.5,
+      54.5
+    ],
+    [
+      69.7,
+      71
+    ],
+    [
+      87.4,
+      89.7
+    ],
+    [
+      106.5,
+      109.2
+    ]
+  ]
+}

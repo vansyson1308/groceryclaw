@@ -3,7 +3,7 @@
 **Hạn chót:** Devpost đóng lúc **12:00 trưa 23/10 giờ Thái Bình Dương = 02:00 sáng 24/10 giờ Việt Nam**. Kế hoạch là anh **bấm Submit trước 00:00 ngày 24/10** để còn 2 tiếng dự phòng.
 **Trang thi:** https://amazonappdev2026.devpost.com/
 
-Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVPOST_SUBMISSION.md), viết bằng tiếng Anh. File này chỉ hướng dẫn **dán cái gì vào ô nào, theo thứ tự nào**. Trước khi nộp, `FINAL_QC.md` phải xanh: không còn dấu **⟪PENDING⟫** nào trong `DEVPOST_SUBMISSION.md`.
+Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVPOST_SUBMISSION.md), viết bằng tiếng Anh. File này chỉ hướng dẫn **dán cái gì vào ô nào, theo thứ tự nào**. Trước khi nộp, `FINAL_QC.md` phải xanh, và chỉ còn đúng một việc của anh: thay link YouTube vào chỗ đánh dấu ⟪OWNER⟫ trong `DEVPOST_SUBMISSION.md` và `README.md`.
 
 ---
 
@@ -19,18 +19,18 @@ Toàn bộ chữ để dán vào form nằm trong [`DEVPOST_SUBMISSION.md`](DEVP
    ```
    ShopVoice is a voice agent for small grocery shops. One spoken request gives the morning briefing and a reorder plan grouped by supplier; it remembers the owner's rules across days ("always order eggs from Dawn Bakery & Farm"), answers in English or Vietnamese, and never buys anything without an explicit spoken "yes".
    Shown: a simulated Alexa+ experience (our own web page acting as an MCP client) on the hosted demo, with Claude planning the tool calls. Underneath is a standard MCP server (Streamable HTTP, protocol 2025-11-25) with Postgres row-level security.
-   Try it: <LIVE URL>
+   Try it: https://shopvoice-78h7.onrender.com
    Code (MIT): https://github.com/vansyson1308/groceryclaw
    Open-source package: https://github.com/vansyson1308/kiotviet-mcp
    Built during Build, Ship, Shape: Amazon Developer Hackathon 2026. Not affiliated with Amazon.
    Voices: Piper (public domain / CC0 English voices; Vietnamese voice from the VAIS-1000 corpus, CC BY 4.0).
+   Editing note: the live segment was recorded on the hosted demo; the wait before each reply (4-5 s) is shortened to 2.5 s to fit under three minutes. Real latency is in docs/hackathon/EVIDENCE.md (H2).
    ```
-   Thay `<LIVE URL>` bằng link simulator trên Render.
 5. **Tags:** `ShopVoice, MCP, Model Context Protocol, Alexa+, voice assistant, grocery, Vietnam, Claude, open source, hackathon`
 6. **Audience:** chọn "No, it's not made for kids".
 7. **Subtitles:** mục Subtitles → **Upload file → With timing** → chọn `shopvoice_demo.srt`, ngôn ngữ English.
 8. **Visibility:** chọn **Public**. Không để Unlisted hay Private: luật thi yêu cầu Public.
-9. Mở link bằng **tab ẩn danh** để chắc chắn ai cũng xem được. Chép link dạng `https://youtu.be/...` gửi Claude để em điền vào `DEVPOST_SUBMISSION.md`, hoặc anh tự thay dấu ⟪PENDING YouTube URL⟫.
+9. Mở link bằng **tab ẩn danh** để chắc chắn ai cũng xem được. Chép link dạng `https://youtu.be/...` gửi Claude để em điền vào `DEVPOST_SUBMISSION.md`, hoặc anh tự thay chỗ đánh dấu ⟪OWNER⟫ trong `DEVPOST_SUBMISSION.md` và `README.md`.
 
 ---
 
@@ -74,7 +74,7 @@ Vào trang thi → **Enter a submission** (hoặc **Edit** bản nháp "Untitled
 - [ ] Mở **link YouTube** bằng tab ẩn danh: video chạy được, đang **Public**, dài dưới 3 phút.
 - [ ] Mở **link simulator** bằng tab ẩn danh: bấm "Good morning, how's the shop?" và thấy câu trả lời. Nếu thấy nhãn "Offline brain" thì vẫn chấp nhận được, nhưng báo Claude.
 - [ ] Mở **2 repo** bằng tab ẩn danh: cả hai đều public và có giấy phép MIT.
-- [ ] Trong form **không còn** chữ ⟪PENDING⟫ nào.
+- [ ] Trong form **không còn** dấu ngoặc ⟪ ⟫ nào.
 - [ ] Track là **Alexa+**; mini challenge tick đúng theo tin nhắn bàn giao.
 - [ ] Câu trung thực về AWS vẫn còn: *"No AWS service runs in the live demo … implemented, not deployed: AWS account unavailable"*. Không sửa thành "chạy trên AWS".
 - [ ] Bấm **Submit**. Trước hạn chót vẫn quay lại sửa được.

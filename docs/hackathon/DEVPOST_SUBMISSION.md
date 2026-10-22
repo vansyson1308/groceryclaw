@@ -1,6 +1,6 @@
 # Devpost submission: ShopVoice (paste-ready)
 
-Every section below maps to one Devpost form field (SPEC.md §0). Values marked **⟪PENDING …⟫** are filled from evidence files before hand-off; `FINAL_QC.md` fails while any remain.
+Every section below maps to one Devpost form field (SPEC.md §0). Every value comes from an evidence file. The **⟪OWNER⟫** marker flags the one value only the owner can supply (the YouTube link after upload); replace it before pasting.
 
 **Honesty rule for this text:** every number comes from a file in `docs/hackathon/evidence/`. Nothing AWS ran: the AWS code is labelled "implemented, not deployed: AWS account unavailable".
 
@@ -14,13 +14,13 @@ A voice agent that watches a corner shop for its owner: a morning briefing, a re
 
 ## Track and mini challenges
 - **Track:** Alexa+ (simulated Alexa+ experience plus a self-hosted MCP server, spec 2025-11-25, Streamable HTTP)
-- **Mini challenges:** Open Source. AWS Builder **⟪PENDING Kiro go/no-go: keep only if the Kiro PR merged⟫**
+- **Mini challenges:** Open Source. (AWS Builder is not claimed: see `AWS_SERVICES.md`.)
 
 ## Links
-- **Try it (no account):** ⟪PENDING live simulator URL⟫. It is labelled on the page as a simulated Alexa+ experience.
+- **Try it (no account):** https://shopvoice-78h7.onrender.com. It is labelled on the page as a simulated Alexa+ experience.
 - **MCP endpoint:** https://shopvoice-mcp-78h7.onrender.com/mcp, with the read-only judge token `shopvoice-public-judge-token-read-only-2026` (see Testing instructions).
 - **Repository:** https://github.com/vansyson1308/groceryclaw (MIT). Start with the README section "ShopVoice in 60 seconds".
-- **Demo video:** ⟪PENDING YouTube URL⟫
+- **Demo video:** ⟪OWNER: YouTube URL after upload⟫
 - **Evidence index:** https://github.com/vansyson1308/groceryclaw/blob/main/docs/hackathon/EVIDENCE.md
 - **Open-source package:** https://github.com/vansyson1308/kiotviet-mcp
 
@@ -82,7 +82,7 @@ The owner talks, the agent acts:
   - the MCP web service, with a pre-deploy migration and role setup;
   - the simulator web service on the private network;
   - a nightly cron that re-anchors the demo shop to "today", so "last Friday" always has data during judging.
-- **Tests:** `node:test` throughout, ⟪PENDING final count⟫ tests. Covered:
+- **Tests:** `node:test` throughout: 271 unit tests plus 69 integration tests against real Postgres and Redis, all run by `v2-ci` on every PR. Covered:
   - protocol negotiation, auth, scopes, Origin checks, rate limits;
   - tool contracts, the 35-word rule, RLS isolation and token expiry;
   - the host's confirmation guard in English and Vietnamese;
@@ -104,8 +104,8 @@ The owner talks, the agent acts:
 ### Accomplishments that we're proud of
 - An agentic workflow, not a single-turn Q&A bot: briefing → plan → draft → confirm, supplier by supplier, with memory that persists across days.
 - Real MCP conformance: the official MCP Inspector connects to the hosted server, shows protocol 2025-11-25, and runs every read tool with the public read-only token (writes are refused with `403 insufficient_scope`).
-- Hosted latency from outside: ⟪PENDING p50/p95 from hosted-smoke-deployed.md⟫.
-- Claude evals on the hosted demo: ⟪PENDING safety x/x, numbers x/x, e2e 5/5, p50/p95, cost from claude-evals-hosted.json⟫.
+- Hosted latency from outside: MCP read tools p50 256 ms, p95 286 ms (n=70); a full voice turn with Claude p50 3.2 s, p95 4.2 s (n=53).
+- Claude evals on the hosted demo: safety 53/53, spoken numbers 53/53, tool choice 48/48, e2e 5/5, no fallbacks, about $0.27 for all 53 utterances. A first run on an 8 s budget timed out twice (safety still 53/53); we raised the budget to 11 s and kept both runs in the evidence.
 
 ### What we learned
 MCP is the right seam for voice. The same server serves a voice simulator, the MCP Inspector and any assistant without change. For voice, the tool's output matters as much as the model: spoken text plus structured data plus annotations is the contract that keeps answers short and actions safe. Safety belongs in the host, not the prompt: the model can propose, but only the owner's own words can confirm.
@@ -118,14 +118,14 @@ MCP is the right seam for voice. The same server serves a voice simulator, the M
 - Moving the hosting back to AWS when an account is available; the CDK stack is already written.
 
 ## Built with
-typescript, node.js, model-context-protocol, mcp-typescript-sdk, mcp-inspector, claude, anthropic-api, web-speech-api, postgresql, row-level-security, render, zod, playwright, ffmpeg, piper, kiotviet-api, docker⟪PENDING: add kiro if the Kiro PR merged⟫
+typescript, node.js, model-context-protocol, mcp-typescript-sdk, mcp-inspector, claude, anthropic-api, web-speech-api, postgresql, row-level-security, render, zod, playwright, ffmpeg, piper, kiotviet-api, docker
 
 ---
 
 ## Testing instructions for judges
 No account and nothing to install.
 
-1. **Hosted simulator:** open ⟪PENDING live simulator URL⟫. Click the phrases in "Try these 5 phrases", or hold the mic button in Chrome. Then try:
+1. **Hosted simulator:** open https://shopvoice-78h7.onrender.com. Click a suggested phrase under the text box, type, or hold the mic button in Chrome. Then try:
    - "Good morning, how's the shop?" → "Yes" → "Yes, confirm";
    - "Always order eggs from Dawn Bakery & Farm", then "What should I reorder?";
    - "Mặt hàng nào sắp hết?" in Vietnamese.
@@ -190,7 +190,7 @@ No account and nothing to install.
   - Replayed thinking blocks become invalid when a host trims history, and thinking cannot be disabled on Sonnet 5.5. A voice host must strip thinking between turns (F15); an SDK helper for "trim between turns" would help.
   - Per-day spend caps exist only at the organization level, so the app keeps its own counter.
 - *Onboarding:* 15 minutes to the first tool call.
-- *Would build again:* yes. Its answers stayed inside the 35-word, tool-numbers-only contract (⟪PENDING eval summary⟫).
+- *Would build again:* yes. Its answers stayed inside the 35-word, tool-numbers-only contract on the hosted demo: safety 53/53, spoken numbers 53/53, tool choice 48/48 (`EVIDENCE.md` H2).
 
 **Render (Blueprints, web services, private services, cron jobs)**
 - *Used for:* the whole hosted demo from one `render.yaml`: two Docker web services, a private Postgres 16 service with a disk, and a nightly reseed cron.
@@ -218,14 +218,7 @@ No account and nothing to install.
 - *Onboarding:* 20 minutes including voice download.
 - *Would build again:* yes, for video narration.
 
-**Kiro Crew** ⟪PENDING Kiro go/no-go: keep this block only if the Kiro PR merged; fill in from the owner's run and FRICTION_LOG Kiro entries⟫
-- *Used for:* spec-driven development of the hosted-demo feature: steering files, requirements in EARS, design and tasks. The owner ran tasks 4 and 5 in Kiro Crew on Windows; commits carry `Built-with: Kiro`.
-- *Worked well:* ⟪PENDING⟫
-- *Needs work:* ⟪PENDING⟫
-- *Onboarding:* ⟪PENDING⟫
-- *Would build again:* ⟪PENDING⟫
-
-**AWS services (for the AWS Builder field):** no AWS runtime service is used. Bedrock, Polly and the CDK stack are implemented, not deployed: AWS account unavailable. ⟪PENDING: if Kiro happened: "Kiro Crew was our AWS development tool (see the Kiro Crew block)"⟫
+**AWS services:** no AWS runtime service is used, and the AWS Builder mini challenge is not claimed. Bedrock, Polly and the CDK stack are implemented, not deployed: AWS account unavailable.
 
 ---
 
@@ -245,7 +238,7 @@ Each row: task → expected vs actual, severity, workaround, suggestion.
 | F16 | MCP has no convention for which person is speaking on a shared connection | low–medium | A host-filled `voice_profile` argument hidden from the model | A documented `_meta` key for host-asserted end-user identity |
 | F9 | `node --test` runs files in parallel against one shared test DB | medium | `--test-concurrency=1` for DB files | Document per-glob concurrency |
 | F10 | A listen-on-0 free-port helper returned the same port twice on CI | low | Remember ports already handed out | Let children bind 0 and report the ports back |
-⟪PENDING: Kiro Crew friction rows from the owner's run⟫
+| F17 | First Render deploy: the pre-deploy migration step tried TLS against the private Postgres, which serves plain TCP, and failed with only "see logs" | high | Pass `PGSSLMODE=disable` to the migration child; print the first `Migration failed` line | Say in the private-services guide that the bundled Postgres images serve plain TCP, and show `sslmode=disable` in the Blueprint example |
 
 ## Feature requests
 - **Critical:** a public Alexa+ developer sandbox, or a test harness for remote MCP servers (auth flow, timeouts, how spoken output is rendered) that entrants can use without partner access. *Why:* every Alexa+ track entrant had to build their own simulator.
@@ -278,4 +271,4 @@ GroceryClaw existed before the window: supplier-invoice automation into KiotViet
 - the hosted demo;
 - `kiotviet-mcp`.
 
-`git diff --shortstat pre-hackathon-baseline..main`: ⟪PENDING final numbers⟫.
+`git diff --shortstat pre-hackathon-baseline..main` (main at `ba13330`, before the final docs PR): 313 files changed, 36,101 insertions, 1,010 deletions, in 60 commits.
