@@ -53,8 +53,8 @@ test('SDK client lists all tools with annotations and output schemas', async () 
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
-      'confirm_reorder', 'create_reorder_draft', 'get_daily_briefing', 'get_invoice_status', 'get_low_stock',
-      'get_sales_summary', 'get_stock_level', 'get_top_movers', 'suggest_reorder'
+      'confirm_reorder', 'create_reorder_draft', 'forget_shop_rule', 'get_daily_briefing', 'get_invoice_status', 'get_low_stock',
+      'get_sales_summary', 'get_stock_level', 'get_top_movers', 'list_shop_rules', 'remember_shop_rule', 'suggest_reorder'
     ]);
     for (const tool of tools) {
       assert.equal(tool.outputSchema?.type, 'object', `${tool.name} outputSchema`);

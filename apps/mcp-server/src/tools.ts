@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { ShopProfile, ShopRepository, StockRow, InvoiceRow, NewDraft, DraftLine } from './store.js';
 import {
   COVER_BUFFER_DAYS, WEEKDAYS, daysOfCover, describeDate, isLowStock, needsReorder, resolveComparison,
-  resolvePeriod, roundUpToPack, suggestedOrderQty
+  resolvePeriod, roundUpToPack, suggestedOrderQty, weekdayName
 } from './analytics.js';
 import type { CompareMode, PeriodName, Weekday } from './analytics.js';
 import {
@@ -15,6 +15,8 @@ import {
   speakList, vndToDisplay, MAX_LIST_ITEMS
 } from './speech.js';
 import type { MoneyFormat } from './speech.js';
+import { applyPreferences, asYouAsked, normalizeVoiceProfile } from './preferences.js';
+import type { AppliedRule, ReorderLine } from './preferences.js';
 
 export interface ToolContext {
   readonly repo: ShopRepository;
@@ -476,7 +478,7 @@ interface SupplierPlan {
   totalVnd: number;
 }
 
-async function planBySupplier(ctx: ToolContext, lines: { row: StockRow; qty: number }[]): Promise<SupplierPlan[]> {
+async function planBySupplier(ctx: ToolContext, lines: readonly ReorderLine[]): Promise<SupplierPlan[]> {
   const suppliers = new Map((await ctx.repo.listSuppliers()).map((s) => [s.code, s]));
   const plans = new Map<string, SupplierPlan>();
   for (const line of lines) {
@@ -490,7 +492,7 @@ async function planBySupplier(ctx: ToolContext, lines: { row: StockRow; qty: num
       lines: [],
       totalVnd: 0
     };
-    plan.lines.push(line);
+    plan.lines.push({ row: line.row, qty: line.qty });
     plan.totalVnd += line.qty * line.row.unitCostVnd;
     plans.set(code, plan);
   }
@@ -514,6 +516,21 @@ const reorderLineSchema = z.object({
   pack_size: z.number(),
   line_cost_vnd: z.number()
 });
+
+const voiceProfileArg = z.string().trim().max(64).optional().describe('Speaker profile, filled in by the voice host. Leave empty.');
+
+const appliedRulesOut = z.array(z.object({ rule_id: z.string(), kind: z.string(), rule: z.string(), skus: z.array(z.string()) }));
+
+function appliedOut(applied: readonly AppliedRule[]) {
+  return applied.map((a) => ({ rule_id: a.id, kind: a.kind, rule: a.rule, skus: a.skus }));
+}
+
+/** Loads the speaker's remembered rules and applies them (shop memory). */
+async function withShopRules(ctx: ToolContext, lines: readonly ReorderLine[], voiceProfile: string | undefined, explicitItems: boolean) {
+  const prefs = await ctx.repo.listPreferences(normalizeVoiceProfile(voiceProfile));
+  if (prefs.length === 0) return { lines: [...lines], applied: [] as AppliedRule[] };
+  return applyPreferences(lines, prefs, await ctx.repo.listSuppliers(), { explicitItems });
+}
 
 function planOut(ctx: ToolContext, plan: SupplierPlan) {
   return {
@@ -543,9 +560,10 @@ function summarizePlans(plans: SupplierPlan[]): string[] {
 export const suggestReorder = defineTool({
   name: 'suggest_reorder',
   title: 'Suggest a reorder',
-  description: `Per supplier, what to reorder now: items at/below minimum or about to run out before the next delivery. Suggested quantity = (supplier lead time + ${COVER_BUFFER_DAYS} days) x average daily sales - on hand, rounded up to the pack size. Read-only: it does not create an order.`,
+  description: `Per supplier, what to reorder now: items at/below minimum or about to run out before the next delivery. Suggested quantity = (supplier lead time + ${COVER_BUFFER_DAYS} days) x average daily sales - on hand, rounded up to the pack size. Applies the owner's remembered rules (preferred supplier, caps, skipped items) and says so. Read-only: it does not create an order.`,
   input: {
-    supplier: z.string().trim().max(80).optional().describe('Only suggest for this supplier (name or code).')
+    supplier: z.string().trim().max(80).optional().describe('Only suggest for this supplier (name or code).'),
+    voice_profile: voiceProfileArg
   },
   output: {
     item_count: z.number().int(),
@@ -559,22 +577,27 @@ export const suggestReorder = defineTool({
       lines: z.array(reorderLineSchema),
       total_vnd: z.number(),
       total: z.number()
-    }))
+    })),
+    applied_rules: appliedRulesOut
   },
   annotations: READ_ONLY,
   async run(ctx, args) {
     const stock = await ctx.repo.listStock();
-    let plans = await planBySupplier(ctx, stock.filter(needsReorder).sort(byUrgency).map((row) => ({ row, qty: suggestedOrderQty(row) })));
+    const ruled = await withShopRules(ctx, stock.filter(needsReorder).sort(byUrgency).map((row) => ({ row, qty: suggestedOrderQty(row) })), args.voice_profile, false);
+    let plans = await planBySupplier(ctx, ruled.lines);
     if (args.supplier) plans = plans.filter((p) => supplierMatches(p, args.supplier ?? ''));
     const itemCount = plans.reduce((n, p) => n + p.lines.length, 0);
     const totalVnd = plans.reduce((n, p) => n + p.totalVnd, 0);
     const total = formatMoney(totalVnd, ctx.money);
+    const asked = asYouAsked(ruled.applied);
+    const full = `I'd reorder ${countWord(itemCount)} ${itemCount === 1 ? 'item' : 'items'}, about ${total}: ${speakList(summarizePlans(plans), 2)}.`;
+    const short = `I'd reorder ${countWord(itemCount)} ${itemCount === 1 ? 'item' : 'items'} from ${countWord(plans.length)} ${plans.length === 1 ? 'supplier' : 'suppliers'}, about ${total}.`;
+    const ask = plans.length === 1 ? 'Shall I draft it?' : 'Shall I draft the orders?';
     const speech = itemCount === 0
-      ? `Nothing needs reordering${args.supplier ? ` from ${args.supplier}` : ''} right now.`
-      : fitSpeech([
-        `I'd reorder ${countWord(itemCount)} ${itemCount === 1 ? 'item' : 'items'}, about ${total}: ${speakList(summarizePlans(plans), 2)}. Shall I draft it?`,
-        `I'd reorder ${countWord(itemCount)} ${itemCount === 1 ? 'item' : 'items'} from ${countWord(plans.length)} ${plans.length === 1 ? 'supplier' : 'suppliers'}, about ${total}. Shall I draft the orders?`
-      ]);
+      ? fitSpeech([`Nothing needs reordering${args.supplier ? ` from ${args.supplier}` : ''} right now. ${asked}`.trim(), `Nothing needs reordering${args.supplier ? ` from ${args.supplier}` : ''} right now.`])
+      : fitSpeech(asked
+        ? [`${full} ${asked} ${ask}`, `${short} ${asked} ${ask}`, `${full} ${ask}`, `${short} ${ask}`]
+        : [`${full} ${ask}`, `${short} ${ask}`]);
     return {
       speech,
       data: {
@@ -582,7 +605,8 @@ export const suggestReorder = defineTool({
         currency: ctx.money.currency,
         total_vnd: totalVnd,
         total: vndToDisplay(totalVnd, ctx.money),
-        suppliers: plans.map((p) => planOut(ctx, p))
+        suppliers: plans.map((p) => planOut(ctx, p)),
+        applied_rules: appliedOut(ruled.applied)
       }
     };
   }
@@ -614,7 +638,8 @@ export const createReorderDraft = defineTool({
       product: z.string().trim().min(2).max(80),
       qty: z.number().positive().max(10000).optional().describe('Units to order; defaults to the suggested quantity.')
     })).max(20).optional(),
-    supplier: z.string().trim().max(80).optional().describe('When items is omitted, only draft suggestions for this supplier.')
+    supplier: z.string().trim().max(80).optional().describe('When items is omitted, only draft suggestions for this supplier.'),
+    voice_profile: voiceProfileArg
   },
   output: {
     status: z.enum(['draft_created', 'needs_clarification', 'nothing_to_order']),
@@ -625,13 +650,14 @@ export const createReorderDraft = defineTool({
     total_vnd: z.number(),
     total: z.number(),
     drafts: z.array(draftOutSchema),
-    clarifications: z.array(z.object({ query: z.string(), status: z.enum(['ambiguous', 'not_found']), candidates: z.array(productRef) }))
+    clarifications: z.array(z.object({ query: z.string(), status: z.enum(['ambiguous', 'not_found']), candidates: z.array(productRef) })),
+    applied_rules: appliedRulesOut
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   async run(ctx, args) {
     const stock = await ctx.repo.listStock();
-    const empty = { confirmation_token: null, expires_at: null, expires_in_seconds: 0, currency: ctx.money.currency, total_vnd: 0, total: 0, drafts: [] };
-    let lines: { row: StockRow; qty: number }[] = [];
+    const empty = { confirmation_token: null, expires_at: null, expires_in_seconds: 0, currency: ctx.money.currency, total_vnd: 0, total: 0, drafts: [], applied_rules: [] };
+    let lines: ReorderLine[] = [];
 
     if (args.items && args.items.length > 0) {
       const clarifications: { query: string; status: 'ambiguous' | 'not_found'; candidates: { sku: string; name: string }[] }[] = [];
@@ -643,7 +669,7 @@ export const createReorderDraft = defineTool({
           const qty = item.qty !== undefined
             ? roundUpToPack(item.qty, 1)
             : (suggestedOrderQty(row) || roundUpToPack(row.reorderQty || row.packSize, row.packSize));
-          lines.push({ row, qty });
+          lines.push({ row, qty, ...(item.qty !== undefined ? { explicitQty: true } : {}) });
         } else {
           if (!firstQuestion) firstQuestion = clarifyingQuestion(item.product, res);
           const candidates = (res.status === 'ambiguous' ? res.candidates : res.suggestions).map((c) => ({ sku: c.sku, name: c.name }));
@@ -657,7 +683,8 @@ export const createReorderDraft = defineTool({
       lines = stock.filter(needsReorder).sort(byUrgency).map((row) => ({ row, qty: suggestedOrderQty(row) }));
     }
 
-    let plans = await planBySupplier(ctx, lines);
+    const ruled = await withShopRules(ctx, lines, args.voice_profile, Boolean(args.items && args.items.length > 0));
+    let plans = await planBySupplier(ctx, ruled.lines);
     if (!args.items && args.supplier) plans = plans.filter((p) => supplierMatches(p, args.supplier ?? ''));
     if (plans.length === 0) {
       return { speech: 'There is nothing to reorder right now, so I did not create a draft.', data: { status: 'nothing_to_order' as const, ...empty, clarifications: [] } };
@@ -674,15 +701,18 @@ export const createReorderDraft = defineTool({
     const minutes = Math.round(ctx.confirmTtlSeconds / 60);
     const lineText = (p: SupplierPlan) => joinList(p.lines.map((l) => `${formatQty(l.qty, l.row.unit)} of ${l.row.name}`));
     const onlyPlan = plans[0];
+    const draftedLines = plans.reduce((n, p) => n + p.lines.length, 0);
+    const asked = asYouAsked(ruled.applied.filter((a) => plans.some((p) => p.lines.some((l) => a.skus.includes(l.row.sku))) || a.kind === 'skip_item'));
+    const withRules = (candidates: string[]) => (asked ? [...candidates.map((c) => c.replace(/ Say "confirm"/, ` ${asked} Say "confirm"`)), ...candidates] : candidates);
     const speech = plans.length === 1 && onlyPlan
-      ? fitSpeech([
+      ? fitSpeech(withRules([
         `Draft ready: ${lineText(onlyPlan)} from ${onlyPlan.supplierName}, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`,
         `Draft ready for ${onlyPlan.supplierName}: ${onlyPlan.lines.length} items, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place it.`
-      ])
-      : fitSpeech([
+      ]))
+      : fitSpeech(withRules([
         `Drafted ${countWord(plans.length)} orders, about ${formatMoney(totalVnd, ctx.money)}: ${speakList(summarizePlans(plans), 2)}. Say "confirm" within ${minutes} minutes to place them.`,
-        `Drafted ${countWord(plans.length)} orders for ${lines.length} items, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place them.`
-      ]);
+        `Drafted ${countWord(plans.length)} orders for ${draftedLines} items, about ${formatMoney(totalVnd, ctx.money)}. Say "confirm" within ${minutes} minutes to place them.`
+      ]));
 
     return {
       speech,
@@ -702,7 +732,8 @@ export const createReorderDraft = defineTool({
           total_vnd: p.totalVnd,
           total: vndToDisplay(p.totalVnd, ctx.money)
         })),
-        clarifications: []
+        clarifications: [],
+        applied_rules: appliedOut(ruled.applied)
       }
     };
   }
@@ -759,18 +790,19 @@ export const confirmReorder = defineTool({
 export const getDailyBriefing = defineTool({
   name: 'get_daily_briefing',
   title: 'Morning briefing',
-  description: "Three-sentence start-of-day summary: yesterday's sales vs the same weekday last week, how many products are below minimum stock, and supplier invoices not yet synced to the point-of-sale system.",
-  input: {},
+  description: "Three-sentence start-of-day summary: yesterday's sales vs the same weekday last week, how many products are below minimum stock, and supplier invoices not yet synced to the point-of-sale system. Mentions when today is the owner's usual order day. For a full morning check, follow it with suggest_reorder.",
+  input: { voice_profile: voiceProfileArg },
   output: {
     ...moneyOut,
     yesterday_revenue: z.number(),
     yesterday_change_pct: z.number().nullable(),
     low_stock_count: z.number().int(),
     most_urgent: z.string().nullable(),
-    invoices_pending_sync: z.number().int()
+    invoices_pending_sync: z.number().int(),
+    usual_order_day: z.boolean()
   },
   annotations: READ_ONLY,
-  async run(ctx) {
+  async run(ctx, args) {
     const y = resolvePeriod('yesterday', ctx.today);
     const cmp = resolveComparison(y, ctx.today, 'same_weekday_last_week');
     const [sales, prev, stock, invoices] = [
@@ -785,15 +817,19 @@ export const getDailyBriefing = defineTool({
     const s1 = `Yesterday you sold ${formatMoney(sales.revenueVnd, ctx.money)}, ${describeChange(pct)} on ${cmp?.label ?? 'last week'}.`;
     const s2 = low.length === 0 ? 'Nothing is running low.' : `${low.length === 1 ? 'One item is' : `${countWord(low.length, true)} items are`} running low, most urgently ${low[0]?.name}.`;
     const s3 = pendingSync === 0 ? 'All supplier invoices are synced.' : `${countWord(pendingSync, true)} supplier ${pendingSync === 1 ? 'invoice is' : 'invoices are'} not synced yet.`;
+    const prefs = await ctx.repo.listPreferences(normalizeVoiceProfile(args.voice_profile));
+    const orderDay = prefs.some((p) => p.kind === 'order_day' && p.weekday === weekdayName(ctx.today));
+    const s4 = orderDay ? 'Today is your usual order day.' : '';
     return {
-      speech: fitSpeech([`${s1} ${s2} ${s3}`, `${s1} ${s2}`]),
+      speech: fitSpeech(orderDay ? [`${s1} ${s2} ${s4}`, `${s1} ${s2} ${s3}`, `${s1} ${s2}`] : [`${s1} ${s2} ${s3}`, `${s1} ${s2}`]),
       data: {
         currency: ctx.money.currency,
         yesterday_revenue: vndToDisplay(sales.revenueVnd, ctx.money),
         yesterday_change_pct: pct,
         low_stock_count: low.length,
         most_urgent: low[0]?.name ?? null,
-        invoices_pending_sync: pendingSync
+        invoices_pending_sync: pendingSync,
+        usual_order_day: orderDay
       }
     };
   }
@@ -803,3 +839,4 @@ export const ALL_TOOLS = [
   getLowStock, getStockLevel, getSalesSummary, getTopMovers, getInvoiceStatus,
   suggestReorder, createReorderDraft, confirmReorder, getDailyBriefing
 ] as const;
+// Shop memory tools (remember / list / forget) live in memory-tools.ts and are registered for voice clients only.

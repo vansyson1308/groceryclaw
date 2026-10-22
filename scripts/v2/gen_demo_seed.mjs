@@ -157,7 +157,7 @@ export function renderSeedSql(catalogue = buildCatalogue()) {
   push('-- Reset demo tenant data (idempotent re-seed).');
   for (const table of [
     'sync_results', 'resolved_invoice_items', 'canonical_invoice_items', 'canonical_invoices',
-    'inbound_events', 'voice_audit_log', 'purchase_order_drafts', 'sales_daily', 'reorder_rules',
+    'inbound_events', 'voice_audit_log', 'purchase_order_drafts', 'shop_preferences', 'sales_daily', 'reorder_rules',
     'stock_levels', 'suppliers', 'product_cache', 'shop_profiles'
   ]) {
     push(`DELETE FROM ${table} WHERE tenant_id = ${t};`);

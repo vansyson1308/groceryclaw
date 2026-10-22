@@ -19,6 +19,7 @@ DELETE FROM canonical_invoices WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000
 DELETE FROM inbound_events WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
 DELETE FROM voice_audit_log WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
 DELETE FROM purchase_order_drafts WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
+DELETE FROM shop_preferences WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
 DELETE FROM sales_daily WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
 DELETE FROM reorder_rules WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';
 DELETE FROM stock_levels WHERE tenant_id = 'c0ffee00-0000-4000-8000-000000000001';

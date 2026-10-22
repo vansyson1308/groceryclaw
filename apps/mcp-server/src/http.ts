@@ -11,6 +11,7 @@ import { createShopVoiceServer } from './mcp.js';
 import type { ClientProfile } from './mcp.js';
 import type { McpServerConfig } from './config.js';
 import { ALL_TOOLS } from './tools.js';
+import { MEMORY_TOOLS } from './memory-tools.js';
 import { createOAuthServer } from './oauth/server.js';
 import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
@@ -37,7 +38,7 @@ interface Principal {
 }
 
 /** Tools that change shop data; an OAuth token needs shop.write to call them. */
-export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(ALL_TOOLS.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name));
+export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([...ALL_TOOLS, ...MEMORY_TOOLS].filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name));
 
 function callsWriteTool(body: unknown): boolean {
   const messages = Array.isArray(body) ? body : [body];
