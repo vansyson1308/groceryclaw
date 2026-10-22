@@ -1,0 +1,203 @@
+{
+  "measuredAt": "2026-10-22T21:12:48.247Z",
+  "simUrl": "https://shopvoice-78h7.onrender.com",
+  "mcpUrl": "https://shopvoice-mcp-78h7.onrender.com/mcp",
+  "label": "deployed",
+  "coldStart": {
+    "simulator": {
+      "ok": true,
+      "ms": 1154,
+      "attempts": 1,
+      "body": {
+        "status": "ok",
+        "service": "alexa-sim"
+      }
+    },
+    "mcp": {
+      "ok": true,
+      "ms": 332,
+      "attempts": 1,
+      "body": {
+        "status": "ok",
+        "service": "mcp-server"
+      }
+    }
+  },
+  "voiceFlow": {
+    "simUrl": "https://shopvoice-78h7.onrender.com",
+    "brain": "claude",
+    "model": "claude-sonnet-5-5",
+    "turns": [
+      {
+        "utterance": "What's running low?",
+        "tools": [
+          "get_low_stock"
+        ],
+        "args": [
+          {}
+        ],
+        "reply": "Four items are running low. White Sandwich Bread, Fresh Milk 1L and Chicken Eggs 10-pack each have under a day left, and Cola 330ml Can is the fourth. Want a reorder draft?",
+        "toolLatencyMs": [
+          17
+        ],
+        "turnLatencyMs": 2856,
+        "brainFallback": false,
+        "fallbackReason": null,
+        "ok": true,
+        "failures": []
+      },
+      {
+        "utterance": "How were sales today compared to last Friday?",
+        "tools": [
+          "get_sales_summary"
+        ],
+        "args": [
+          {
+            "period": "today",
+            "compare_weekday": "friday"
+          }
+        ],
+        "reply": "So far today you've made $304 from 482 items. That's 68% of last Friday's full-day total of $448, and the day isn't over yet.",
+        "toolLatencyMs": [
+          14
+        ],
+        "turnLatencyMs": 4072,
+        "brainFallback": false,
+        "fallbackReason": null,
+        "ok": true,
+        "failures": []
+      },
+      {
+        "utterance": "Reorder milk and eggs",
+        "tools": [
+          "create_reorder_draft"
+        ],
+        "args": [
+          {
+            "items": [
+              {
+                "product": "milk"
+              },
+              {
+                "product": "eggs"
+              }
+            ]
+          }
+        ],
+        "reply": "The draft from Green Valley Dairy & Eggs is 120 cartons of Fresh Milk 1L and 90 trays of Chicken Eggs 10-pack, about $210. Do you want me to confirm it?",
+        "toolLatencyMs": [
+          43
+        ],
+        "turnLatencyMs": 3982,
+        "brainFallback": false,
+        "fallbackReason": null,
+        "ok": true,
+        "failures": []
+      },
+      {
+        "utterance": "Yes, confirm",
+        "tools": [
+          "confirm_reorder"
+        ],
+        "args": [
+          {
+            "confirmation_token": "[held by host]"
+          }
+        ],
+        "reply": "Your order to Green Valley Dairy & Eggs is confirmed: 2 items, about $210. Want me to draft the bread or the cola next?",
+        "toolLatencyMs": [
+          15
+        ],
+        "turnLatencyMs": 3896,
+        "brainFallback": false,
+        "fallbackReason": null,
+        "ok": true,
+        "failures": []
+      },
+      {
+        "utterance": "Did the Sunrise Beverages invoice arrive?",
+        "tools": [
+          "get_invoice_status"
+        ],
+        "args": [
+          {
+            "supplier": "Sunrise Beverages"
+          }
+        ],
+        "reply": "Yes, the Sunrise Beverages invoice SRB-10442 arrived today, for $93. It's matched to your products but isn't synced to KiotViet yet.",
+        "toolLatencyMs": [
+          59
+        ],
+        "turnLatencyMs": 4453,
+        "brainFallback": false,
+        "fallbackReason": null,
+        "ok": true,
+        "failures": []
+      }
+    ],
+    "passed": true
+  },
+  "latency": {
+    "n": 70,
+    "p50": 256,
+    "p95": 286,
+    "max": 758
+  },
+  "toolsListed": [
+    "get_low_stock",
+    "get_stock_level",
+    "get_sales_summary",
+    "get_top_movers",
+    "get_invoice_status",
+    "suggest_reorder",
+    "create_reorder_draft",
+    "confirm_reorder",
+    "get_daily_briefing",
+    "remember_shop_rule",
+    "list_shop_rules",
+    "forget_shop_rule"
+  ],
+  "checks": [
+    {
+      "name": "simulator /healthz",
+      "ok": true,
+      "detail": "1154 ms to first 200 (1 attempt(s))"
+    },
+    {
+      "name": "MCP server /healthz",
+      "ok": true,
+      "detail": "332 ms to first 200"
+    },
+    {
+      "name": "voice flow 5/5 (brain claude, claude-sonnet-5-5)",
+      "ok": true,
+      "detail": "ok 2856 ms, ok 4072 ms, ok 3982 ms, ok 3896 ms, ok 4453 ms"
+    },
+    {
+      "name": "judge token: initialize negotiates 2025-11-25",
+      "ok": true,
+      "detail": "HTTP 200, 2025-11-25"
+    },
+    {
+      "name": "judge token is read-only: create_reorder_draft refused",
+      "ok": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "judge token is read-only: confirm_reorder refused",
+      "ok": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "judge token: tools/list",
+      "ok": true,
+      "detail": "12 tools"
+    },
+    {
+      "name": "read-tool latency p95 < 800 ms",
+      "ok": true,
+      "detail": "p50 256 ms, p95 286 ms, n=70"
+    }
+  ],
+  "passed": true
+}

@@ -35,7 +35,7 @@ The full annotated list is in `.env.example`.
 | `CLAUDE_MODEL` | `sonnet` | `sonnet` → `claude-sonnet-5-5` (low effort), `haiku` → `claude-haiku-4-5-20251001`. Opus models are refused at start-up. |
 | `CLAUDE_EFFORT` / `CLAUDE_MAX_TOKENS` | `low` / `2048` | Sonnet effort and the per-call output cap. |
 | `CLAUDE_DAILY_TURN_CAP` / `CLAUDE_DAILY_BUDGET_USD` | `400` / `1` | Per-UTC-day limits. Past either, turns use the rules brain and the UI shows an "offline brain" badge. |
-| `SIM_TURN_DEADLINE_MS` | `8000` | Claude's share of one turn. After it, the rules brain answers. |
+| `SIM_TURN_DEADLINE_MS` | `11000` | Claude's share of one turn. After it, the rules brain answers. |
 | `SIM_MCP_URL` or `SIM_MCP_HOSTPORT` | `http://127.0.0.1:8090/mcp` | MCP endpoint the simulator calls; `SIM_MCP_HOSTPORT` is for Render's private network. |
 | `SIM_PUBLIC_MCP_URL` | `SIM_MCP_URL` | MCP URL shown on the page. |
 | `SIM_MCP_TOKEN` | `MCP_DEMO_TOKEN` | **Secret.** The simulator's bearer token for the demo tenant. |
