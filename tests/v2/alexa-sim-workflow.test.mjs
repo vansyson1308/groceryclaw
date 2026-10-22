@@ -81,6 +81,16 @@ test('shop memory through the simulator: said back, applied with "as you asked",
   });
 });
 
+test('without a voice profile, memory is scoped to the conversation (no leak between visitors)', async () => {
+  await session(async ({ toolbox }) => {
+    const a = newConversation('visitor-a', Date.now());
+    await say(toolbox, a, 'Always order eggs from Dawn Bakery & Farm');
+    assert.match((await say(toolbox, a, 'What do you remember?')).reply, /I remember one rule/);
+    const b = newConversation('visitor-b', Date.now());
+    assert.match((await say(toolbox, b, 'What do you remember?')).reply, /don't remember any rules/);
+  });
+});
+
 test('memory phrases are explicit only; ordinary requests and refusals are not rules', () => {
   assert.equal(planToolCalls('Reorder milk')[0].name, 'create_reorder_draft');
   assert.equal(planToolCalls('No, cancel that')[0]?.name, undefined);

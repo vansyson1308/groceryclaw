@@ -156,6 +156,11 @@ export async function runTurn(opts: {
   // Only a draft the owner already heard can be confirmed; a draft created in
   // this turn waits for the next one ("reorder milk and confirm" is not a yes).
   const pendingAtStart = conversation.pending;
+  // Without a speaker profile from the client, memory is scoped to this conversation, so one
+  // visitor's rules never reach another visitor sharing the demo shop.
+  const voiceProfile = opts.voiceProfile && /^[A-Za-z0-9_-]{1,64}$/.test(opts.voiceProfile)
+    ? opts.voiceProfile
+    : `conv-${conversation.id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 59) || 'anon'}`;
   let confirmedThisTurn = false;
   const tools: ToolSpec[] = await toolbox.listTools();
   const traces: ToolTrace[] = [];
@@ -239,7 +244,7 @@ export async function runTurn(opts: {
       const shownArgs: Record<string, unknown> = name === 'confirm_reorder' ? { confirmation_token: '[held by host]' } : { ...args };
       delete args[HOST_VOICE_PROFILE_ARG];
       delete shownArgs[HOST_VOICE_PROFILE_ARG];
-      if (opts.voiceProfile && toolbox.voiceProfileTools?.().has(name)) args[HOST_VOICE_PROFILE_ARG] = opts.voiceProfile;
+      if (toolbox.voiceProfileTools?.().has(name)) args[HOST_VOICE_PROFILE_ARG] = voiceProfile;
       const result = await toolbox.callTool(name, args);
       const structured = result.structured;
       traces.push({ name, args: shownArgs, latencyMs: Math.round(result.latencyMs), isError: result.isError, spoken: result.spoken, structured: redactStructured(structured) });
