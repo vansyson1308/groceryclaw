@@ -10,6 +10,7 @@ import { buildDemoDataset, DEMO_TENANT_ID } from '../../scripts/v2/gen_demo_seed
 export const ANCHOR = '2026-09-25'; // a Friday
 export const TOKEN_A = 'sv_test_demo_tenant_token_aaaaaaaaaaaaaaaaaaaaaaaa';
 export const TOKEN_B = 'sv_test_other_tenant_token_bbbbbbbbbbbbbbbbbbbbbbb';
+export const TOKEN_RO = 'sv_test_demo_read_only_judge_token_ccccccccccccccc';
 export const TENANT_B = 'b0b0b0b0-0000-4000-8000-000000000002';
 export { DEMO_TENANT_ID };
 
@@ -17,7 +18,11 @@ export const silentLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /** Demo dataset plus a second tenant ("Other Shop") that shares no data with the demo tenant. */
 export function twoTenantDataset() {
-  const base = buildDemoDataset({ anchorDate: ANCHOR, tokens: { [TOKEN_A]: DEMO_TENANT_ID, [TOKEN_B]: TENANT_B } });
+  const base = buildDemoDataset({
+    anchorDate: ANCHOR,
+    tokens: { [TOKEN_A]: DEMO_TENANT_ID, [TOKEN_B]: TENANT_B, [TOKEN_RO]: DEMO_TENANT_ID },
+    readOnlyTokens: [TOKEN_RO]
+  });
   base.tenants[TENANT_B] = {
     profile: { shopName: 'Other Shop', displayCurrency: 'VND', vndPerDisplayUnit: 1, timezone: 'Asia/Ho_Chi_Minh', locale: 'vi-VN' },
     today: ANCHOR,

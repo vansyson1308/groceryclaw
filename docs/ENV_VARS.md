@@ -65,3 +65,16 @@ LOG_LEVEL=info
 - Keep `.env` out of git.
 - Store production secrets in deployment secret manager.
 - For Zalo token lifecycle, prefer DB token store (`zalo_token_store`) as source of truth after initial bootstrap.
+
+## ShopVoice MCP server and hosted demo (`apps/mcp-server`, `scripts/deploy`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_DB_URL` | `DB_APP_URL`, `DATABASE_URL` | Runtime DB URL (RLS-bound role). |
+| `MCP_DB_HOST` / `MCP_DB_PORT` / `MCP_DB_NAME` / `MCP_DB_USER` / `MCP_DB_PASSWORD` | none / `5432` | Split DB settings (Render), used only when no URL is set. `MCP_DB_PASSWORD` is a **secret**. `db_prepare` creates `MCP_DB_USER` as `NOSUPERUSER NOBYPASSRLS`. |
+| `MCP_ALLOW_PRIVILEGED_DB_USER` | `false` | Local development only. Otherwise the server refuses to start as a superuser or `BYPASSRLS` role. |
+| `MCP_TRUST_PROXY` | `false` | Trusted proxy hops for per-IP limits: `false`/`0`, `true`/`1`, or N. Render needs `2`. |
+| `MCP_JUDGE_TOKEN` | none | **Secret.** Read-only (`shop.read`) demo token for judges using MCP Inspector. |
+| `SIM_MCP_TOKEN` | none | **Secret.** Read-write demo token the simulator uses. `db_prepare` and the reseed register it. |
+| `PGHOST` / `PGPORT` / `POSTGRES_USER` / `POSTGRES_DB` / `POSTGRES_PASSWORD` | none / `5432` / `postgres` / `shopvoice` / none | Superuser connection for `scripts/deploy/db_prepare.mjs` and `reseed_demo.mjs` only. `POSTGRES_PASSWORD` is a **secret**. `DEPLOY_ADMIN_DATABASE_URL` overrides all of them. |
+| `DEMO_SHOP_TIMEZONE` | `Asia/Ho_Chi_Minh` | Time zone for the demo shop's "today" in the reseed. |

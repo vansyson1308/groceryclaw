@@ -3,6 +3,7 @@ import type { Logger } from '../../../packages/common/dist/index.js';
 import type { ShopStore } from './store.js';
 import { ShopDataError } from './store.js';
 import { ALL_TOOLS } from './tools.js';
+import { MEMORY_TOOLS } from './memory-tools.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
 import { countWords, fitSpeech, MAX_SPOKEN_WORDS } from './speech.js';
 import { toMarkdown } from './markdown.js';
@@ -57,7 +58,7 @@ function defaultRedact(args: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes.';
+const VOICE_INSTRUCTIONS = 'ShopVoice answers a grocery shop owner by voice. Tool results include content[0].text: a short sentence meant to be spoken as-is. Reorders are two-step: create_reorder_draft, read the summary aloud, and call confirm_reorder only after the owner explicitly says yes. ShopVoice remembers standing rules the owner states explicitly (remember_shop_rule) and applies them to reorders; never save a rule the owner did not state.';
 
 export const CHAT_INSTRUCTIONS = 'ShopVoice exposes one small grocery or convenience shop: stock levels, daily sales, supplier invoices and purchase-order drafts. Amounts are in the shop\'s display currency (the currency field; *_vnd fields hold exact Vietnamese dong) and quantities are in each product\'s own unit. Reorders take two calls: create_reorder_draft records a draft and returns a confirmation_token valid for 5 minutes, and confirm_reorder marks the draft as a confirmed purchase order; no payment is ever made.';
 
@@ -74,6 +75,13 @@ export function createShopVoiceServer(opts: McpFactoryOptions): McpServer {
 
   for (const tool of ALL_TOOLS) {
     registerTool(server, tool as unknown as ToolDefinition<z.ZodRawShape, z.ZodRawShape>, opts);
+  }
+  // Shop memory: voice clients only. Chat (OAuth) accounts have no remembered rules,
+  // so account deletion and sandbox refresh never leave an owner's words behind.
+  if (profile === 'voice') {
+    for (const tool of MEMORY_TOOLS) {
+      registerTool(server, tool as unknown as ToolDefinition<z.ZodRawShape, z.ZodRawShape>, opts);
+    }
   }
 
   server.registerPrompt('morning_briefing', {

@@ -2,6 +2,12 @@
 // ShopStore.withTenant(), which the Postgres implementation maps onto
 // runTenantScopedTransaction so RLS scopes all reads and writes.
 
+export interface ResolvedToken {
+  readonly tenantId: string;
+  readonly tokenId: string;
+  readonly scopes: readonly string[];
+}
+
 export interface ShopProfile {
   readonly tenantId: string;
   readonly shopName: string;
@@ -101,6 +107,25 @@ export interface AuditEntry {
   readonly latencyMs: number;
 }
 
+export type PreferenceKind = 'preferred_supplier' | 'max_order_qty' | 'skip_item' | 'order_day';
+
+/** A rule the owner stated explicitly (shop memory, migration 020). */
+export interface ShopPreference {
+  readonly id: string;
+  readonly voiceProfile: string;
+  readonly kind: PreferenceKind;
+  /** Product words the rule applies to ("milk"); '' for order_day. */
+  readonly subject: string;
+  readonly supplierCode: string | null;
+  readonly maxQty: number | null;
+  readonly weekday: string | null;
+  /** The owner's own words. Data, never instructions. */
+  readonly statement: string;
+  readonly createdAt: string;
+}
+
+export type NewPreference = Omit<ShopPreference, 'id' | 'createdAt'>;
+
 export interface ShopRepository {
   getProfile(): Promise<ShopProfile>;
   /** Today's date (YYYY-MM-DD) in the shop's timezone. */
@@ -115,12 +140,17 @@ export interface ShopRepository {
   findDraftsByTokenHash(tokenHash: string): Promise<DraftRow[]>;
   confirmDrafts(ids: readonly string[]): Promise<number>;
   audit(entry: AuditEntry): Promise<void>;
+  /** Oldest first. */
+  listPreferences(voiceProfile: string): Promise<ShopPreference[]>;
+  /** Insert, or replace the rule with the same (voice profile, kind, subject). */
+  upsertPreference(pref: NewPreference): Promise<ShopPreference>;
+  deletePreferences(voiceProfile: string, ids: readonly string[]): Promise<number>;
 }
 
 export interface ShopStore {
   withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T>;
-  /** Resolves a bearer token's SHA-256 hash to a tenant, outside tenant context. */
-  resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null>;
+  /** Resolves a bearer token's SHA-256 hash to a tenant and its scopes (['shop.read'] = read-only), outside tenant context. */
+  resolveTokenHash(tokenHash: string): Promise<ResolvedToken | null>;
   ping(): Promise<boolean>;
   close(): Promise<void>;
 }

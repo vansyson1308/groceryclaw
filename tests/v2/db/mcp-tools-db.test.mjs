@@ -190,3 +190,20 @@ test('revoked tokens stop working after the token cache TTL', { skip }, async ()
     await query(admin, 'DELETE FROM mcp_access_tokens WHERE token_hash = $1', [sha(token)]);
   }
 });
+
+test('shop memory on Postgres: remember, apply, restate, forget, under RLS', { skip }, async () => {
+  const callTool = (name, args = {}) => client.callTool({ name, arguments: args });
+  await callTool('forget_shop_rule', { all: true });
+  const saved = await callTool('remember_shop_rule', { kind: 'preferred_supplier', product: 'eggs', supplier: 'Dawn Bakery', owner_words: 'Always order eggs from Dawn Bakery & Farm' });
+  assert.equal(saved.structuredContent.status, 'remembered');
+  await callTool('remember_shop_rule', { kind: 'preferred_supplier', product: 'Eggs', supplier: 'Dawn Bakery & Farm', owner_words: 'Eggs from Dawn Bakery & Farm, always' });
+  const list = await callTool('list_shop_rules');
+  assert.equal(list.structuredContent.count, 1, 'restating replaces (unique per profile, kind, subject)');
+  const s = await callTool('suggest_reorder');
+  assert.match(spoken(s), /As you asked: eggs from Dawn Bakery & Farm/);
+  const { rows } = await query(admin, 'SELECT count(*)::int AS n FROM shop_preferences WHERE tenant_id = $1', [OTHER_TENANT]);
+  assert.equal(rows[0].n, 0, 'nothing written to another tenant');
+  const forgot = await callTool('forget_shop_rule');
+  assert.equal(forgot.structuredContent.forgotten, 1);
+  assert.equal((await callTool('list_shop_rules')).structuredContent.count, 0);
+});

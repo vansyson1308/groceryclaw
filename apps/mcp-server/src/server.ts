@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createLogger, createPgPool } from '../../../packages/common/dist/index.js';
-import type { LogLevel } from '../../../packages/common/dist/index.js';
+import type { LogLevel, PgPoolLike } from '../../../packages/common/dist/index.js';
 import { loadMcpServerConfig } from './config.js';
 import { createMcpHttpHandler } from './http.js';
 import type { McpHttpDeps } from './http.js';
@@ -15,7 +15,7 @@ import { PgOAuthStore } from './oauth/pg-store.js';
 const logger = createLogger({ service: 'mcp-server', level: (process.env.LOG_LEVEL ?? 'info') as LogLevel });
 
 interface DemoSeedModule {
-  buildDemoDataset(opts: { anchorDate?: string; tokens: Record<string, string> }): MemoryDataset;
+  buildDemoDataset(opts: { anchorDate?: string; tokens: Record<string, string>; readOnlyTokens?: string[] }): MemoryDataset;
   buildSandboxCatalogue(): unknown;
   buildSandboxTenantData(locale: Locale, anchorDate?: string): MemoryTenantData;
   SANDBOX_PROFILES: Record<Locale, { shop_name: string }>;
@@ -27,6 +27,19 @@ async function loadSeed(): Promise<DemoSeedModule> {
   return (await import(seedUrl.href)) as DemoSeedModule;
 }
 
+/** RLS only protects tenants when the runtime role cannot bypass it. */
+export async function assertUnprivilegedDbUser(pool: PgPoolLike, allowPrivileged: boolean): Promise<void> {
+  if (allowPrivileged) {
+    logger.warn('mcp_privileged_db_user_allowed', { message: 'MCP_ALLOW_PRIVILEGED_DB_USER=true: local development only' });
+    return;
+  }
+  const { rows } = await pool.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user');
+  const row = rows[0] as { rolsuper?: boolean; rolbypassrls?: boolean } | undefined;
+  if (!row || row.rolsuper === true || row.rolbypassrls === true) {
+    throw new Error('Refusing to start: the MCP database user must not be a superuser or have BYPASSRLS (set MCP_ALLOW_PRIVILEGED_DB_USER=true only for local development)');
+  }
+}
+
 async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStore | null }> {
   const config = loadMcpServerConfig(process.env);
   const oauthEnabled = !!config.publicBaseUrl;
@@ -35,9 +48,14 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
     if (token.length < 32) throw new Error('MCP_DEMO_TOKEN (>= 32 chars) is required when MCP_DATA_BACKEND=memory');
     const seed = await loadSeed();
     logger.warn('mcp_memory_backend', { message: 'Serving the in-memory demo dataset (no Postgres). OAuth accounts vanish on restart.' });
+    const judgeToken = process.env.MCP_JUDGE_TOKEN ?? '';
+    if (judgeToken && (judgeToken.length < 32 || judgeToken === token)) {
+      throw new Error('MCP_JUDGE_TOKEN must be >= 32 chars and differ from MCP_DEMO_TOKEN');
+    }
     const store = new MemoryShopStore(seed.buildDemoDataset({
       ...(process.env.DEMO_ANCHOR_DATE ? { anchorDate: process.env.DEMO_ANCHOR_DATE } : {}),
-      tokens: { [token]: seed.DEMO_TENANT_ID }
+      tokens: { [token]: seed.DEMO_TENANT_ID, ...(judgeToken ? { [judgeToken]: seed.DEMO_TENANT_ID } : {}) },
+      readOnlyTokens: judgeToken ? [judgeToken] : []
     }));
     const oauthStore = oauthEnabled
       ? new MemoryOAuthStore({
@@ -55,6 +73,7 @@ async function createStores(): Promise<{ store: ShopStore; oauthStore: OAuthStor
     applicationName: 'mcp-server',
     statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? '5000')
   });
+  await assertUnprivilegedDbUser(pool, config.allowPrivilegedDbUser);
   const oauthStore = oauthEnabled
     ? new PgOAuthStore(pool, { catalogue: (await loadSeed()).buildSandboxCatalogue(), invitePepperB64: config.invitePepperB64 })
     : null;

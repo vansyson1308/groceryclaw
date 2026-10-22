@@ -157,7 +157,7 @@ export function renderSeedSql(catalogue = buildCatalogue()) {
   push('-- Reset demo tenant data (idempotent re-seed).');
   for (const table of [
     'sync_results', 'resolved_invoice_items', 'canonical_invoice_items', 'canonical_invoices',
-    'inbound_events', 'voice_audit_log', 'purchase_order_drafts', 'sales_daily', 'reorder_rules',
+    'inbound_events', 'voice_audit_log', 'purchase_order_drafts', 'shop_preferences', 'sales_daily', 'reorder_rules',
     'stock_levels', 'suppliers', 'product_cache', 'shop_profiles'
   ]) {
     push(`DELETE FROM ${table} WHERE tenant_id = ${t};`);
@@ -263,7 +263,7 @@ function isoDow(date) {
  * in-memory store (tests, CI without Postgres, offline demos). Quantities use
  * integer arithmetic so they match Postgres numeric rounding exactly.
  */
-export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
+export function buildDemoDataset({ anchorDate, tokens = {}, readOnlyTokens = [] } = {}) {
   const today = anchorDate || todayInTimezone();
   const catalogue = buildCatalogue();
   const multipliers = WEEKDAY_MULTIPLIERS.map((m) => Math.round(m * 100));
@@ -310,7 +310,8 @@ export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
         invoices
       }
     },
-    tokens
+    tokens,
+    readOnlyTokens
   };
 }
 

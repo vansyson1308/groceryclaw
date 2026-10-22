@@ -4,7 +4,7 @@
 // sees its own dataset entry, mirroring RLS.
 import { createHash, randomUUID } from 'node:crypto';
 import type {
-  AuditEntry, DraftRow, InvoiceRow, NewDraft, ProductMatch, SalesTotals, ShopProfile, ShopRepository,
+  AuditEntry, DraftRow, InvoiceRow, NewDraft, NewPreference, ProductMatch, ResolvedToken, ShopPreference, SalesTotals, ShopProfile, ShopRepository,
   ShopStore, SkuSales, StockRow, Supplier
 } from './store.js';
 import { ShopDataError } from './store.js';
@@ -44,6 +44,8 @@ export interface MemoryDataset {
   readonly tenants: Record<string, MemoryTenantData>;
   /** token (plaintext) -> tenant id; hashed on load. */
   readonly tokens: Record<string, string>;
+  /** Plaintext tokens (also listed in `tokens`) that get only the shop.read scope. */
+  readonly readOnlyTokens?: readonly string[];
 }
 
 interface MutableDraft {
@@ -117,8 +119,36 @@ class MemoryRepository implements ShopRepository {
     private readonly data: MemoryTenantData,
     private readonly drafts: MutableDraft[],
     private readonly auditLog: (AuditEntry & { tenantId: string })[],
-    private readonly now: () => number
+    private readonly now: () => number,
+    private readonly preferences: (ShopPreference & { tenantId: string })[] = []
   ) {}
+
+  async listPreferences(voiceProfile: string): Promise<ShopPreference[]> {
+    return this.preferences
+      .filter((p) => p.tenantId === this.tenantId && p.voiceProfile === voiceProfile)
+      .map(({ tenantId: _t, ...p }) => p);
+  }
+
+  async upsertPreference(pref: NewPreference): Promise<ShopPreference> {
+    const i = this.preferences.findIndex((p) => p.tenantId === this.tenantId && p.voiceProfile === pref.voiceProfile && p.kind === pref.kind && p.subject === pref.subject);
+    if (i >= 0) this.preferences.splice(i, 1);
+    const row = { ...pref, id: randomUUID(), createdAt: new Date(this.now()).toISOString(), tenantId: this.tenantId };
+    this.preferences.push(row);
+    const { tenantId: _t, ...out } = row;
+    return out;
+  }
+
+  async deletePreferences(voiceProfile: string, ids: readonly string[]): Promise<number> {
+    let n = 0;
+    for (let i = this.preferences.length - 1; i >= 0; i -= 1) {
+      const p = this.preferences[i];
+      if (p && p.tenantId === this.tenantId && p.voiceProfile === voiceProfile && ids.includes(p.id)) {
+        this.preferences.splice(i, 1);
+        n += 1;
+      }
+    }
+    return n;
+  }
 
   async getProfile(): Promise<ShopProfile> {
     return { tenantId: this.tenantId, ...this.data.profile };
@@ -236,12 +266,14 @@ class MemoryRepository implements ShopRepository {
 export class MemoryShopStore implements ShopStore {
   readonly drafts: MutableDraft[] = [];
   readonly auditLog: (AuditEntry & { tenantId: string })[] = [];
+  readonly preferences: (ShopPreference & { tenantId: string })[] = [];
   private readonly tokenHashes = new Map<string, string>();
+  private readonly readOnlyHashes = new Set<string>();
 
   constructor(private readonly dataset: MemoryDataset, private readonly now: () => number = Date.now) {
-    for (const [token, tenantId] of Object.entries(dataset.tokens)) {
-      this.tokenHashes.set(createHash('sha256').update(token, 'utf8').digest('hex'), tenantId);
-    }
+    const sha = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');
+    for (const [token, tenantId] of Object.entries(dataset.tokens)) this.tokenHashes.set(sha(token), tenantId);
+    for (const token of dataset.readOnlyTokens ?? []) this.readOnlyHashes.add(sha(token));
   }
 
   /** Adds a tenant's dataset (sandbox shops created by OAuth sign-ups). */
@@ -256,12 +288,14 @@ export class MemoryShopStore implements ShopStore {
   async withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T> {
     const data = this.dataset.tenants[tenantId];
     if (!data) throw new ShopDataError('profile_missing');
-    return work(new MemoryRepository(tenantId, data, this.drafts, this.auditLog, this.now));
+    return work(new MemoryRepository(tenantId, data, this.drafts, this.auditLog, this.now, this.preferences));
   }
 
-  async resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null> {
+  async resolveTokenHash(tokenHash: string): Promise<ResolvedToken | null> {
     const tenantId = this.tokenHashes.get(tokenHash);
-    return tenantId ? { tenantId, tokenId: tokenHash.slice(0, 12) } : null;
+    if (!tenantId) return null;
+    const scopes = this.readOnlyHashes.has(tokenHash) ? ['shop.read'] : ['shop.read', 'shop.write'];
+    return { tenantId, tokenId: tokenHash.slice(0, 12), scopes };
   }
 
   async ping(): Promise<boolean> {

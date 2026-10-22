@@ -11,6 +11,7 @@ import { createShopVoiceServer } from './mcp.js';
 import type { ClientProfile } from './mcp.js';
 import type { McpServerConfig } from './config.js';
 import { ALL_TOOLS } from './tools.js';
+import { MEMORY_TOOLS } from './memory-tools.js';
 import { createOAuthServer } from './oauth/server.js';
 import type { OAuthServer } from './oauth/server.js';
 import type { OAuthStore } from './oauth/store.js';
@@ -37,8 +38,7 @@ interface Principal {
 }
 
 /** Tools that change shop data; an OAuth token needs shop.write to call them. */
-export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(ALL_TOOLS.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name));
-const STATIC_SCOPES: ReadonlySet<string> = new Set(['shop.read', 'shop.write']);
+export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([...ALL_TOOLS, ...MEMORY_TOOLS].filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name));
 
 function callsWriteTool(body: unknown): boolean {
   const messages = Array.isArray(body) ? body : [body];
@@ -51,6 +51,7 @@ function callsWriteTool(body: unknown): boolean {
 
 interface CachedToken {
   readonly tenantId: string | null;
+  readonly scopes: ReadonlySet<string>;
   readonly expiresMs: number;
 }
 
@@ -181,8 +182,11 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
       const p = await oauth.resolveAccessToken(token);
       return p ? { kind: 'oauth', tenantId: p.tenantId, key: `oauth:${p.tenantId}:${p.accountId}`, scopes: p.scopes, isSandbox: p.isSandbox } : null;
     }
-    const tenantId = await resolveTenant(token);
-    return tenantId ? { kind: 'static', tenantId, key: `static:${tenantId}`, scopes: STATIC_SCOPES, isSandbox: false } : null;
+    const resolved = await resolveStaticToken(token);
+    if (!resolved.tenantId) return null;
+    // Read-only tokens get their own session key, so they never share a read-write token's session.
+    const key = resolved.scopes.has(WRITE_SCOPE) ? `static:${resolved.tenantId}` : `static:${resolved.tenantId}:ro`;
+    return { kind: 'static', tenantId: resolved.tenantId, key, scopes: resolved.scopes, isSandbox: false };
   }
 
   function unauthorized(res: ServerResponse, tokenPresented: boolean): void {
@@ -202,15 +206,19 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     jsonRpcError(res, 403, -32003, 'Forbidden: this connection is read-only. Reconnect ShopVoice and allow "create and confirm purchase-order drafts" (scope shop.write).', { 'www-authenticate': challenge });
   }
 
-  async function resolveTenant(token: string): Promise<string | null> {
+  async function resolveStaticToken(token: string): Promise<CachedToken> {
     const hash = hashBearerToken(token);
     const cached = tokenCache.get(hash);
-    if (cached && cached.expiresMs > now()) return cached.tenantId;
+    if (cached && cached.expiresMs > now()) return cached;
     const resolved = await store.resolveTokenHash(hash);
-    const tenantId = resolved?.tenantId ?? null;
-    tokenCache.set(hash, { tenantId, expiresMs: now() + config.tokenCacheSeconds * 1000 });
+    const entry: CachedToken = {
+      tenantId: resolved?.tenantId ?? null,
+      scopes: new Set(resolved?.scopes ?? []),
+      expiresMs: now() + config.tokenCacheSeconds * 1000
+    };
+    tokenCache.set(hash, entry);
     if (tokenCache.size > 10_000) tokenCache.clear();
-    return tenantId;
+    return entry;
   }
 
   function corsHeaders(origin: string | undefined): Record<string, string> {
@@ -261,7 +269,8 @@ export function createMcpHttpHandler(deps: McpHttpDeps): McpHttpHandler {
     const tenantId = principal.tenantId;
     if (principal.isSandbox && oauth) await oauth.ensureSandboxFresh(tenantId);
 
-    if (!tenantLimiter.consume(tenantId).allowed) {
+    // Keyed per principal, so judges hammering the read-only token cannot throttle the simulator.
+    if (!tenantLimiter.consume(principal.key).allowed) {
       logger.warn('mcp_rate_limited', { tenant_id: tenantId });
       jsonRpcError(res, 429, -32000, `Rate limit reached for this shop (${config.rateLimitPerMinute} requests per minute); retry after 10 seconds.`, { 'retry-after': '10' });
       return;

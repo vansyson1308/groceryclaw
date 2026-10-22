@@ -1,0 +1,146 @@
+# ShopVoice hosted demo on Render (Blueprint). See docs/hackathon/DEPLOY_RENDER.md.
+#
+#   judge's browser --HTTPS--> shopvoice (simulator, MCP client, Claude brain)
+#                                 | private network, Streamable HTTP /mcp, read-write token
+#   MCP Inspector --HTTPS + read-only token--> shopvoice-mcp (/mcp, /healthz, /readyz)
+#                                                 | RLS runtime role (NOSUPERUSER NOBYPASSRLS)
+#                                              shopvoice-db (private Postgres 16, 1 GB disk)
+#   shopvoice-reseed (cron, 00:05 Asia/Ho_Chi_Minh) re-anchors the demo shop to today.
+#
+# Secrets are never literal here: generateValue (Render creates them) or sync: false
+# (the owner pastes them once in the dashboard). Estimated cost: about $22/month.
+
+envVarGroups:
+  # Superuser: only the database, the pre-deploy step and the reseed cron use it.
+  - name: shopvoice-db-admin
+    envVars:
+      - key: POSTGRES_USER
+        value: postgres
+      - key: POSTGRES_DB
+        value: shopvoice
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+  # Demo bearer tokens, pasted once (format: sv_ + 43 base64url chars; see DEPLOY_RENDER.md).
+  - name: shopvoice-tokens
+    envVars:
+      - key: SIM_MCP_TOKEN
+        sync: false
+      - key: MCP_JUDGE_TOKEN
+        sync: false
+
+services:
+  - type: pserv
+    name: shopvoice-db
+    runtime: image
+    image:
+      url: docker.io/library/postgres:16-bookworm
+    plan: starter
+    region: singapore
+    disk:
+      name: pgdata
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+    envVars:
+      - key: PGDATA
+        value: /var/lib/postgresql/data/pgdata
+      - fromGroup: shopvoice-db-admin
+
+  - type: web
+    name: shopvoice-mcp
+    runtime: docker
+    dockerfilePath: ./apps/mcp-server/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    preDeployCommand: node scripts/deploy/db_prepare.mjs
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MCP_PORT
+        value: "10000"
+      - key: MCP_DATA_BACKEND
+        value: postgres
+      - key: MCP_DB_HOST
+        fromService:
+          type: pserv
+          name: shopvoice-db
+          property: host
+      - key: MCP_DB_NAME
+        value: shopvoice
+      - key: MCP_DB_USER
+        value: shopvoice_app
+      - key: MCP_DB_PASSWORD
+        generateValue: true
+      # Pre-deploy (db_prepare) connects as the superuser through the same host.
+      - key: PGHOST
+        fromService:
+          type: pserv
+          name: shopvoice-db
+          property: host
+      # Render's proxy appends the viewer's address, then its own.
+      - key: MCP_TRUST_PROXY
+        value: "2"
+      - key: DEMO_SHOP_TIMEZONE
+        value: Asia/Ho_Chi_Minh
+      - fromGroup: shopvoice-db-admin
+      - fromGroup: shopvoice-tokens
+
+  - type: web
+    name: shopvoice
+    runtime: docker
+    dockerfilePath: ./apps/alexa-sim/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SIM_PORT
+        value: "10000"
+      - key: SIM_MCP_HOSTPORT
+        fromService:
+          type: web
+          name: shopvoice-mcp
+          property: hostport
+      # Shown on the page and in /api/config so judges can point MCP Inspector at it.
+      - key: SIM_PUBLIC_MCP_URL
+        sync: false
+      - key: SIM_TRUST_PROXY
+        value: "2"
+      - key: SIM_SHOP_TIMEZONE
+        value: Asia/Ho_Chi_Minh
+      - key: SIM_BRAIN
+        value: claude
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_DAILY_TURN_CAP
+        value: "400"
+      # Evals (~$1) and judges share the day; the Anthropic Console spend limit is the hard total cap.
+      - key: CLAUDE_DAILY_BUDGET_USD
+        value: "2"
+      - fromGroup: shopvoice-tokens
+
+  - type: cron
+    name: shopvoice-reseed
+    runtime: docker
+    dockerfilePath: ./apps/mcp-server/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    # 00:05 in Asia/Ho_Chi_Minh (UTC+7, no DST).
+    schedule: "5 17 * * *"
+    dockerCommand: node scripts/deploy/reseed_demo.mjs
+    envVars:
+      - key: PGHOST
+        fromService:
+          type: pserv
+          name: shopvoice-db
+          property: host
+      - key: DEMO_SHOP_TIMEZONE
+        value: Asia/Ho_Chi_Minh
+      - fromGroup: shopvoice-db-admin
+      - fromGroup: shopvoice-tokens

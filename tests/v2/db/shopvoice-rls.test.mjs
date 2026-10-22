@@ -1,4 +1,4 @@
-// RLS isolation tests for migration 017 (ShopVoice inventory/sales/voice tables).
+// RLS isolation tests for migrations 017 and 020 (ShopVoice inventory/sales/voice tables, shop memory).
 // Requires DATABASE_URL pointing at a migrated database with a superuser role;
 // each check runs as groceryclaw_app_runtime via SET LOCAL ROLE so RLS applies.
 import test from 'node:test';
@@ -17,7 +17,7 @@ const sha = (v) => createHash('sha256').update(v).digest('hex');
 
 const TABLES = [
   'shop_profiles', 'suppliers', 'stock_levels', 'reorder_rules',
-  'sales_daily', 'purchase_order_drafts', 'voice_audit_log', 'mcp_access_tokens'
+  'sales_daily', 'purchase_order_drafts', 'voice_audit_log', 'mcp_access_tokens', 'shop_preferences'
 ];
 
 let pool;
@@ -46,6 +46,7 @@ async function seedTenant(id, name) {
   await query(pool, 'INSERT INTO sales_daily (tenant_id, sale_date, sku, qty_sold, revenue_vnd) VALUES ($1, CURRENT_DATE, $2, $3, $4)', [id, 'SKU-1', 3, 30000]);
   await query(pool, "INSERT INTO purchase_order_drafts (tenant_id, supplier_code, expires_at) VALUES ($1, $2, now() + interval '5 minutes')", [id, 'SUP-1']);
   await query(pool, 'INSERT INTO voice_audit_log (tenant_id, tool_name) VALUES ($1, $2)', [id, 'get_low_stock']);
+  await query(pool, "INSERT INTO shop_preferences (tenant_id, kind, subject, statement) VALUES ($1, 'skip_item', 'cola', 'skip cola')", [id]);
 }
 
 async function cleanup() {
