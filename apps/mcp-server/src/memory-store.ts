@@ -4,7 +4,7 @@
 // sees its own dataset entry, mirroring RLS.
 import { createHash, randomUUID } from 'node:crypto';
 import type {
-  AuditEntry, DraftRow, InvoiceRow, NewDraft, ProductMatch, SalesTotals, ShopProfile, ShopRepository,
+  AuditEntry, DraftRow, InvoiceRow, NewDraft, ProductMatch, ResolvedToken, SalesTotals, ShopProfile, ShopRepository,
   ShopStore, SkuSales, StockRow, Supplier
 } from './store.js';
 import { ShopDataError } from './store.js';
@@ -44,6 +44,8 @@ export interface MemoryDataset {
   readonly tenants: Record<string, MemoryTenantData>;
   /** token (plaintext) -> tenant id; hashed on load. */
   readonly tokens: Record<string, string>;
+  /** Plaintext tokens (also listed in `tokens`) that get only the shop.read scope. */
+  readonly readOnlyTokens?: readonly string[];
 }
 
 interface MutableDraft {
@@ -237,11 +239,12 @@ export class MemoryShopStore implements ShopStore {
   readonly drafts: MutableDraft[] = [];
   readonly auditLog: (AuditEntry & { tenantId: string })[] = [];
   private readonly tokenHashes = new Map<string, string>();
+  private readonly readOnlyHashes = new Set<string>();
 
   constructor(private readonly dataset: MemoryDataset, private readonly now: () => number = Date.now) {
-    for (const [token, tenantId] of Object.entries(dataset.tokens)) {
-      this.tokenHashes.set(createHash('sha256').update(token, 'utf8').digest('hex'), tenantId);
-    }
+    const sha = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');
+    for (const [token, tenantId] of Object.entries(dataset.tokens)) this.tokenHashes.set(sha(token), tenantId);
+    for (const token of dataset.readOnlyTokens ?? []) this.readOnlyHashes.add(sha(token));
   }
 
   /** Adds a tenant's dataset (sandbox shops created by OAuth sign-ups). */
@@ -259,9 +262,11 @@ export class MemoryShopStore implements ShopStore {
     return work(new MemoryRepository(tenantId, data, this.drafts, this.auditLog, this.now));
   }
 
-  async resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null> {
+  async resolveTokenHash(tokenHash: string): Promise<ResolvedToken | null> {
     const tenantId = this.tokenHashes.get(tokenHash);
-    return tenantId ? { tenantId, tokenId: tokenHash.slice(0, 12) } : null;
+    if (!tenantId) return null;
+    const scopes = this.readOnlyHashes.has(tokenHash) ? ['shop.read'] : ['shop.read', 'shop.write'];
+    return { tenantId, tokenId: tokenHash.slice(0, 12), scopes };
   }
 
   async ping(): Promise<boolean> {

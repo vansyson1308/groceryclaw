@@ -263,7 +263,7 @@ function isoDow(date) {
  * in-memory store (tests, CI without Postgres, offline demos). Quantities use
  * integer arithmetic so they match Postgres numeric rounding exactly.
  */
-export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
+export function buildDemoDataset({ anchorDate, tokens = {}, readOnlyTokens = [] } = {}) {
   const today = anchorDate || todayInTimezone();
   const catalogue = buildCatalogue();
   const multipliers = WEEKDAY_MULTIPLIERS.map((m) => Math.round(m * 100));
@@ -310,7 +310,8 @@ export function buildDemoDataset({ anchorDate, tokens = {} } = {}) {
         invoices
       }
     },
-    tokens
+    tokens,
+    readOnlyTokens
   };
 }
 

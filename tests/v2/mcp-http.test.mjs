@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startMcpServer, connectClient, TOKEN_A, TOKEN_B } from './mcp-harness.mjs';
+import { startMcpServer, connectClient, TOKEN_A, TOKEN_B, TOKEN_RO } from './mcp-harness.mjs';
+import { clientIpFrom, parseTrustProxy } from '../../apps/mcp-server/dist/client-ip.js';
+import { loadMcpServerConfig, databaseUrlFromParts } from '../../apps/mcp-server/dist/config.js';
 import { isOriginAllowed } from '../../apps/mcp-server/dist/http.js';
 
 const INIT = (protocolVersion) => ({
@@ -209,4 +211,99 @@ test('X-Origin-Verify gate: only requests carrying the CloudFront secret get thr
   } finally {
     await srv.close();
   }
+});
+
+// ---- Hosted demo: read-only judge token, proxy hops, split DB settings ----
+
+test('a read-only token can call read tools, resources and prompts', async () => {
+  const srv = await startMcpServer();
+  const { client } = await connectClient(srv.url, TOKEN_RO);
+  const full = await connectClient(srv.url, TOKEN_A);
+  try {
+    const ro = await client.callTool({ name: 'get_low_stock', arguments: {} });
+    const rw = await full.client.callTool({ name: 'get_low_stock', arguments: {} });
+    assert.equal(ro.isError, undefined);
+    assert.deepEqual(ro.content, rw.content, 'same answer as a read-write token');
+    const resource = await client.readResource({ uri: 'shop://profile' });
+    assert.ok(resource.contents.length > 0);
+    const prompt = await client.getPrompt({ name: 'morning_briefing', arguments: {} });
+    assert.ok(prompt.messages.length > 0);
+  } finally {
+    await client.close();
+    await full.client.close();
+    await srv.close();
+  }
+});
+
+test('a read-only token gets insufficient_scope on create_reorder_draft and confirm_reorder, and no draft is written', async () => {
+  const srv = await startMcpServer();
+  try {
+    const init = await rawInit(srv.url, { token: TOKEN_RO });
+    const sessionId = init.headers.get('mcp-session-id');
+    const call = (name, args, token = TOKEN_RO) => fetch(`${srv.url}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json', accept: 'application/json, text/event-stream',
+        authorization: `Bearer ${token}`, 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } })
+    });
+    for (const [name, args] of [['create_reorder_draft', { items: [{ product: 'milk' }] }], ['confirm_reorder', { draft_id: 'x', confirmation_token: 'y' }]]) {
+      const res = await call(name, args);
+      assert.equal(res.status, 403, name);
+      assert.match(res.headers.get('www-authenticate') ?? '', /insufficient_scope/);
+    }
+    assert.equal(srv.store.drafts.length, 0, 'no draft written');
+    // The read-only session is not shared with the read-write token.
+    assert.equal((await call('get_low_stock', {}, TOKEN_A)).status, 404);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('a read-write token can still create a draft (unchanged)', async () => {
+  const srv = await startMcpServer();
+  const { client } = await connectClient(srv.url, TOKEN_A);
+  try {
+    const res = await client.callTool({ name: 'create_reorder_draft', arguments: { items: [{ product: 'milk' }] } });
+    assert.notEqual(res.isError, true);
+    assert.equal(srv.store.drafts.length, 1);
+  } finally {
+    await client.close();
+    await srv.close();
+  }
+});
+
+test('MCP_TRUST_PROXY hop count: 0, 1, 2 and short headers', () => {
+  const req = (xff, remote = '10.0.0.9') => ({ headers: xff === undefined ? {} : { 'x-forwarded-for': xff }, socket: { remoteAddress: remote } });
+  assert.equal(parseTrustProxy(undefined), 0);
+  assert.equal(parseTrustProxy('false'), 0);
+  assert.equal(parseTrustProxy('true'), 1);
+  assert.equal(parseTrustProxy('2'), 2);
+  assert.equal(parseTrustProxy('junk'), 0);
+  assert.equal(loadMcpServerConfig({ MCP_DATA_BACKEND: 'memory', MCP_TRUST_PROXY: '2' }).trustProxy, 2);
+  assert.equal(clientIpFrom(req('203.0.113.7'), 0), '10.0.0.9', 'no trusted proxy: socket address');
+  assert.equal(clientIpFrom(req('spoofed, 203.0.113.7'), 1), '203.0.113.7');
+  assert.equal(clientIpFrom(req('spoofed, 203.0.113.7, 10.1.1.1'), 2), '203.0.113.7', 'Render: viewer is 2nd from the right');
+  assert.equal(clientIpFrom(req('203.0.113.7'), 2), '203.0.113.7', 'short header: leftmost entry present');
+  assert.equal(clientIpFrom(req(undefined), 2), '10.0.0.9');
+});
+
+test('MCP_DB_HOST/PORT/NAME/USER/PASSWORD build the database URL, URL-encoded', () => {
+  // Reserved URL characters in the user and the (fake) secret must be percent-encoded.
+  const parts = { MCP_DB_HOST: 'shopvoice-db', MCP_DB_NAME: 'shopvoice', MCP_DB_USER: 'shop app', MCP_DB_PASSWORD: ['x', '@', '/', ':', 'y'].join('') };
+  const url = new URL(databaseUrlFromParts(parts));
+  assert.equal(url.protocol, 'postgresql:');
+  assert.equal(url.username, encodeURIComponent(parts.MCP_DB_USER));
+  const secretPart = url.password;
+  assert.ok(!/[@/:]/.test(secretPart), 'reserved characters are encoded');
+  assert.equal(decodeURIComponent(secretPart), parts.MCP_DB_PASSWORD);
+  assert.equal(url.host, 'shopvoice-db:5432');
+  assert.equal(url.pathname, '/shopvoice');
+  assert.equal(new URL(databaseUrlFromParts({ ...parts, MCP_DB_PORT: '6543' })).port, '6543');
+  assert.equal(databaseUrlFromParts({ ...parts, MCP_DB_PASSWORD: '' }), '');
+  assert.equal(loadMcpServerConfig(parts).databaseUrl, databaseUrlFromParts(parts));
+  assert.equal(loadMcpServerConfig({ ...parts, MCP_DB_URL: 'postgresql://x@y/z' }).databaseUrl, 'postgresql://x@y/z', 'an explicit URL wins');
+  assert.throws(() => loadMcpServerConfig({}), /MCP_DB_HOST/);
+  assert.equal(loadMcpServerConfig(parts).allowPrivilegedDbUser, false);
 });

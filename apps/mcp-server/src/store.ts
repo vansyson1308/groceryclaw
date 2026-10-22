@@ -2,6 +2,12 @@
 // ShopStore.withTenant(), which the Postgres implementation maps onto
 // runTenantScopedTransaction so RLS scopes all reads and writes.
 
+export interface ResolvedToken {
+  readonly tenantId: string;
+  readonly tokenId: string;
+  readonly scopes: readonly string[];
+}
+
 export interface ShopProfile {
   readonly tenantId: string;
   readonly shopName: string;
@@ -120,7 +126,8 @@ export interface ShopRepository {
 export interface ShopStore {
   withTenant<T>(tenantId: string, work: (repo: ShopRepository) => Promise<T>): Promise<T>;
   /** Resolves a bearer token's SHA-256 hash to a tenant, outside tenant context. */
-  resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null>;
+  /** Static bearer token lookup; `scopes` is ['shop.read'] for read-only tokens. */
+  resolveTokenHash(tokenHash: string): Promise<ResolvedToken | null>;
   ping(): Promise<boolean>;
   close(): Promise<void>;
 }

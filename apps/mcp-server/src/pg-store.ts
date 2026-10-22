@@ -2,7 +2,7 @@ import type { PgClientLike, PgPoolLike } from '../../../packages/common/dist/ind
 import { dbPing, runTenantScopedTransaction, searchProductsForVoice } from '../../../packages/common/dist/index.js';
 import type {
   AuditEntry, DraftLine, DraftRow, InvoiceRow, NewDraft, ProductMatch, SalesTotals, ShopProfile,
-  ShopRepository, ShopStore, SkuSales, StockRow, Supplier
+  ResolvedToken, ShopRepository, ShopStore, SkuSales, StockRow, Supplier
 } from './store.js';
 import { ShopDataError } from './store.js';
 
@@ -230,11 +230,11 @@ export class PgShopStore implements ShopStore {
     });
   }
 
-  async resolveTokenHash(tokenHash: string): Promise<{ tenantId: string; tokenId: string } | null> {
-    const { rows } = await this.pool.query('SELECT tenant_id, token_id FROM resolve_mcp_access_token($1)', [tokenHash]);
+  async resolveTokenHash(tokenHash: string): Promise<ResolvedToken | null> {
+    const { rows } = await this.pool.query('SELECT tenant_id, token_id, scopes FROM resolve_mcp_access_token($1)', [tokenHash]);
     const row = rows[0];
     if (!row) return null;
-    return { tenantId: str(row.tenant_id), tokenId: str(row.token_id) };
+    return { tenantId: str(row.tenant_id), tokenId: str(row.token_id), scopes: str(row.scopes).split(' ').filter(Boolean) };
   }
 
   ping(): Promise<boolean> {
