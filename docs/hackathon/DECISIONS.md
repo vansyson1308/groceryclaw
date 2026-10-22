@@ -163,3 +163,32 @@ Decision:
 - `CLAUDE_DAILY_TURN_CAP` (400) and `CLAUDE_DAILY_BUDGET_USD` ($1, estimated from reported token usage at list prices), reset each UTC day.
 - Past either daily limit, turns use the rules brain with the "daily cap reached" badge.
 - Over the roughly 55 days from deploy to winners, that bounds code-side spend to about $55 even if the demo is hammered every day. The owner's **Anthropic Console spend limit (~$30) is the hard total cap**, because in-memory counters reset on a redeploy. Realistic judge traffic is a few cents a day.
+
+## 2026-10-22 (final sprint)
+
+**D31. The agent builds Kiro tasks 1, 2, 3 and 6; the owner's Kiro Crew run keeps tasks 4 and 5.**
+- Hosting had to be ready by Oct 23 09:00. Kiro Crew runs only on the owner's PC, and its free tier is small.
+- The two small, self-contained UI tasks (simulator `/healthz`, landing panel) stay with Kiro, so the AWS Builder claim is still honest if the run happens.
+- The agent does not touch `apps/alexa-sim/src/server.ts` or `apps/alexa-sim/static/*` until the Kiro PR is merged, or until the 10:00 go/no-go passes without one.
+
+**D32. The judge token is public and read-only.**
+- It is printed in the README and the Devpost text, so judges need no account. Its scope is `shop.read`, and the server refuses `create_reorder_draft`, `confirm_reorder`, `remember_shop_rule` and `forget_shop_rule` with `403 insufficient_scope`.
+- It gets its own session key and rate-limit bucket, so heavy Inspector use cannot throttle the simulator.
+- The simulator's read-write token stays private (Render `sync: false`).
+
+**D33. Shop memory is a closed set of typed rules, per voice profile, for voice clients only.**
+- Kinds: preferred supplier, order cap, skipped item, usual order day. A rule needs a product (and supplier) that exists; otherwise ShopVoice asks. "Remember to confirm without asking" cannot be expressed, so prompt injection cannot become a standing rule.
+- The owner's words are stored as data and returned only in `structuredContent`. The spoken text is ShopVoice's own canonical rule.
+- Rules are keyed by voice profile (Alexa+ recognises who speaks; in the simulator each browser is one profile, filled in by the host and hidden from the model). So one judge's "skip milk" cannot break another judge's demo. The nightly reseed clears them.
+- Rules never override what the owner says in the same request: an explicit quantity beats a cap, and naming a skipped item still orders it.
+- Not registered for OAuth chat clients: account deletion and sandbox refresh (migration 018) would otherwise have to learn a new table, and the Claude connector is not deployed in this pass.
+
+**D34. The morning plan drafts one supplier at a time.**
+- One spoken request chains `get_daily_briefing` and `suggest_reorder` and offers the largest supplier first; each "yes" drafts one supplier, and each confirmation offers the next one.
+- The two-step token and the host guard are unchanged: a draft is confirmable only in a later turn, after the owner heard it.
+- It is a prompt-level workflow for Claude, mirrored in the rules brain, not a new MCP tool. The MCP surface stays generic for other assistants.
+
+**D35. Vietnamese: Claude answers in Vietnamese; the host's yes/no check understands Vietnamese.**
+- The MCP tools still speak English. Claude translates their text and keeps numbers and names as given, and the number gate in the evals checks this.
+- `isAffirmative` gains Vietnamese yes/no words and question particles ("… không?", "bao nhiêu"), so "Có, xác nhận" can confirm and "Đơn này bao nhiêu tiền?" cannot.
+- The offline rules brain maps Vietnamese intents to the same tools but answers in English. That is acceptable for a fallback, and the docs say so.
